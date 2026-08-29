@@ -133,6 +133,13 @@ export type HarnessJsonlEntry =
 			data: WorkflowRun;
 	  };
 
+export interface RuntimeJournalRecord {
+	version: typeof HARNESS_CONTRACT_VERSION;
+	sequence: number;
+	idempotencyKey: string;
+	entry: HarnessJsonlEntry;
+}
+
 export const SESSION_BINDING_SCHEMA = {
 	$id: "pi-learning-harness/session-binding/v1",
 	type: "object",
@@ -201,4 +208,11 @@ export const VALIDATOR_RESULT_SCHEMA = {
 	type: "object",
 	additionalProperties: false,
 	required: ["version", "validatorId", "status", "subject", "checkedAt", "issues"],
+} as const;
+
+export const RUNTIME_JOURNAL_RECORD_SCHEMA = {
+	$id: "pi-learning-harness/runtime-journal-record/v1",
+	type: "object",
+	additionalProperties: false,
+	required: ["version", "sequence", "idempotencyKey", "entry"],
 } as const;
