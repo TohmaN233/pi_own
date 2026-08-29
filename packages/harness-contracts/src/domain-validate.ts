@@ -7,6 +7,8 @@ import {
 	SNAPSHOT_SWITCH_KINDS,
 	THINKING_LEVELS,
 	VISUALIZATION_KINDS,
+	type AnswerClaim,
+	type AnswerDraft,
 	type CourseMaterialInput,
 	type ProfileDefinition,
 	type ResourceDescriptor,
@@ -38,8 +40,17 @@ function stringValue(value: unknown, path: string): string {
 	return value;
 }
 
+function textValue(value: unknown, path: string): string {
+	if (typeof value !== "string") fail(path, "expected string");
+	return value;
+}
+
 function nullableString(value: unknown, path: string): string | null {
 	return value === null ? null : stringValue(value, path);
+}
+
+function nullableText(value: unknown, path: string): string | null {
+	return value === null ? null : textValue(value, path);
 }
 
 function positive(value: unknown, path: string): number {
@@ -209,6 +220,37 @@ export function parseCourseMaterialInput(value: unknown): CourseMaterialInput {
 		mediaType: stringValue(item.mediaType, `${path}.mediaType`),
 		content: item.content,
 		metadata,
+	};
+}
+
+export function parseAnswerClaim(value: unknown, path = "answerClaim"): AnswerClaim {
+	const item = record(value, path);
+	exact(item, ["claimId", "text", "scope", "citationSpanIds", "reason"], path);
+	return {
+		claimId: stringValue(item.claimId, `${path}.claimId`),
+		text: stringValue(item.text, `${path}.text`),
+		scope: enumValue(item.scope, SCOPE_LABELS, `${path}.scope`),
+		citationSpanIds: strings(item.citationSpanIds, `${path}.citationSpanIds`),
+		reason: nullableText(item.reason, `${path}.reason`),
+	};
+}
+
+export function parseAnswerDraft(value: unknown): AnswerDraft {
+	const path = "answerDraft";
+	const item = record(value, path);
+	exact(item, ["version", "draftId", "packetId", "courseVersionId", "claims", "createdAt", "revision"], path);
+	if (item.version !== HARNESS_CONTRACT_VERSION) fail(`${path}.version`, "unsupported contract version");
+	if (!Array.isArray(item.claims)) fail(`${path}.claims`, "expected array");
+	const createdAt = stringValue(item.createdAt, `${path}.createdAt`);
+	if (!Number.isFinite(Date.parse(createdAt))) fail(`${path}.createdAt`, "expected ISO timestamp");
+	return {
+		version: HARNESS_CONTRACT_VERSION,
+		draftId: stringValue(item.draftId, `${path}.draftId`),
+		packetId: stringValue(item.packetId, `${path}.packetId`),
+		courseVersionId: stringValue(item.courseVersionId, `${path}.courseVersionId`),
+		claims: item.claims.map((claim, index) => parseAnswerClaim(claim, `${path}.claims[${index}]`)),
+		createdAt,
+		revision: positive(item.revision, `${path}.revision`),
 	};
 }
 
