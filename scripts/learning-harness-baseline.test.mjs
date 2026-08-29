@@ -10,10 +10,13 @@ function git(...args) {
 	return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
-test("learning harness baseline is rooted in the frozen Pi commit", () => {
+test("learning harness baseline matches frozen Pi source fingerprints", () => {
 	assert.equal(identity.version, 1);
 	assert.equal(identity.pi.upstream, "earendil-works/pi");
-	assert.doesNotThrow(() => git("merge-base", "--is-ancestor", identity.pi.baselineCommit, "HEAD"));
+	assert.match(identity.pi.baselineCommit, /^[0-9a-f]{40}$/);
+	for (const [path, expectedSha] of Object.entries(identity.pi.baselineFingerprints)) {
+		assert.equal(git("hash-object", "--", path), expectedSha, `baseline drift: ${path}`);
+	}
 });
 
 test("learning harness baseline records the current Pi coding-agent version", () => {
