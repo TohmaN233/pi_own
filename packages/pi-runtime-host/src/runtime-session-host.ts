@@ -118,6 +118,9 @@ export class RuntimeSessionHost {
 
 			if (record.entry.type === "learning-harness:resource-snapshot") {
 				const snapshot = record.entry.data;
+				if (binding && snapshot.courseVersionId !== binding.courseVersionId) {
+					journalCorruption(nativeEntryId, "resource snapshot targets another course after the session was bound");
+				}
 				const previous = snapshots.get(snapshot.resourceSnapshotId);
 				if (previous && !sameJson(previous, snapshot)) {
 					journalCorruption(nativeEntryId, `resource snapshot ${snapshot.resourceSnapshotId} was redefined`);
@@ -177,6 +180,9 @@ export class RuntimeSessionHost {
 			data: snapshot,
 		};
 		return this.appendOnce(entry, idempotencyKey, (state) => {
+			if (state.binding && snapshot.courseVersionId !== state.binding.courseVersionId) {
+				throw new RuntimeSessionHostError("Bound Pi session cannot record a resource snapshot for another course version");
+			}
 			const existing = state.snapshots.find((item) => item.resourceSnapshotId === snapshot.resourceSnapshotId);
 			if (existing && !sameJson(existing, snapshot)) {
 				throw new RuntimeSessionHostError(`Resource snapshot ${snapshot.resourceSnapshotId} already exists with different data`);
