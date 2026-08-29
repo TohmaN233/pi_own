@@ -1,5 +1,6 @@
 import {
 	HARNESS_CONTRACT_VERSION,
+	parseAnswerDraft,
 	type AnswerDraft,
 	type GroundingPacket,
 	type GroundingSpan,
@@ -102,6 +103,17 @@ function issue(code: string, message: string, path: string | null = null): Valid
 	return { code, severity: "error", message, path };
 }
 
+function invalidDraftResult(error: unknown, checkedAt: string): ValidatorResult {
+	return {
+		version: HARNESS_CONTRACT_VERSION,
+		validatorId: "grounded-publication-v1",
+		status: "fail",
+		subject: { kind: "answer-draft", id: "invalid-answer-draft", revision: 1 },
+		checkedAt,
+		issues: [issue("INVALID_DRAFT", error instanceof Error ? error.message : String(error))],
+	};
+}
+
 export interface KnowledgeHostState {
 	version: 1;
 	packets: GroundingPacket[];
@@ -184,7 +196,10 @@ export class KnowledgeHost {
 			contentHash: contentHash(identity),
 		});
 		const existing = this.packets.get(packet.packetId);
-		if (existing && existing.contentHash !== packet.contentHash) throw new KnowledgeHostError("PACKET_COLLISION", "Grounding packet identity collision");
+		if (existing) {
+			if (existing.contentHash !== packet.contentHash) throw new KnowledgeHostError("PACKET_COLLISION", "Grounding packet identity collision");
+			return existing;
+		}
 		this.packets.set(packet.packetId, packet);
 		return packet;
 	}
@@ -196,9 +211,16 @@ export class KnowledgeHost {
 		return this.courseHost.readSpan(courseVersionId, spanId);
 	}
 
-	validateDraft(draft: AnswerDraft, context: DraftValidationContext, checkedAt = new Date().toISOString()): ValidatorResult {
+	validateDraft(draftValue: unknown, context: DraftValidationContext, checkedAt = new Date().toISOString()): ValidatorResult {
 		assertTimestamp(checkedAt);
+		let draft: AnswerDraft;
+		try {
+			draft = parseAnswerDraft(draftValue);
+		} catch (error) {
+			return invalidDraftResult(error, checkedAt);
+		}
 		const issues: ValidatorIssue[] = [];
+		if (draft.claims.length === 0) issues.push(issue("CLAIMS_REQUIRED", "Answer draft must contain at least one claim", "claims"));
 		const packet = this.packets.get(draft.packetId);
 		if (!packet) issues.push(issue("UNKNOWN_PACKET", "Draft references a packet that was not issued by Knowledge Host", "packetId"));
 		const courseVersionId = context.binding.courseVersionId;
@@ -218,9 +240,8 @@ export class KnowledgeHost {
 		const claimIds = new Set<string>();
 		for (const [index, claim] of draft.claims.entries()) {
 			const path = `claims[${index}]`;
-			if (!claim.claimId || claimIds.has(claim.claimId)) issues.push(issue("DUPLICATE_CLAIM_ID", "Claim IDs must be non-empty and unique", `${path}.claimId`));
+			if (claimIds.has(claim.claimId)) issues.push(issue("DUPLICATE_CLAIM_ID", "Claim IDs must be unique", `${path}.claimId`));
 			claimIds.add(claim.claimId);
-			if (!claim.text.trim()) issues.push(issue("EMPTY_CLAIM", "Claim text cannot be empty", `${path}.text`));
 			if (claim.scope === "direct" && claim.citationSpanIds.length < 1) issues.push(issue("CITATION_REQUIRED", "Direct claims need a course citation", path));
 			if (claim.scope === "synthesis" && claim.citationSpanIds.length < 2) issues.push(issue("MULTI_CITATION_REQUIRED", "Synthesis claims need at least two course citations", path));
 			if (claim.scope === "derived" && (claim.citationSpanIds.length < 1 || !claim.reason?.trim())) {
@@ -257,7 +278,13 @@ export class KnowledgeHost {
 		};
 	}
 
-	publishDraft(draft: AnswerDraft, context: DraftValidationContext, publishedAt = new Date().toISOString()): PublicationReceipt {
+	publishDraft(draftValue: unknown, context: DraftValidationContext, publishedAt = new Date().toISOString()): PublicationReceipt {
+		let draft: AnswerDraft;
+		try {
+			draft = parseAnswerDraft(draftValue);
+		} catch (error) {
+			throw new KnowledgeHostError("PUBLICATION_REJECTED", error instanceof Error ? error.message : String(error));
+		}
 		const validation = this.validateDraft(draft, context, publishedAt);
 		if (validation.status !== "pass") {
 			throw new KnowledgeHostError("PUBLICATION_REJECTED", validation.issues.map((item) => item.message).join("; "));
@@ -329,7 +356,9 @@ export class KnowledgeHost {
 			this.packets.set(packet.packetId, Object.freeze({ ...packet, spans: packet.spans.map((span) => ({ ...span, matchedTerms: [...span.matchedTerms] })) }));
 		}
 		for (const publication of state.publications) {
-			const { draft, receipt } = publication;
+			const draft = parseAnswerDraft(publication.draft);
+			const receipt = publication.receipt;
+			assertTimestamp(receipt.publishedAt);
 			const packet = this.packets.get(draft.packetId);
 			if (!packet || receipt.packetId !== packet.packetId || receipt.draftId !== draft.draftId || receipt.draftRevision !== draft.revision || receipt.courseVersionId !== draft.courseVersionId) {
 				throw new KnowledgeHostError("PUBLICATION_INTEGRITY_FAILURE", `Publication ${receipt.receiptId} has inconsistent references`);
