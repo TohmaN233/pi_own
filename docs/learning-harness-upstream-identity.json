@@ -5,7 +5,13 @@
 	"pi": {
 		"upstream": "earendil-works/pi",
 		"baselineCommit": "853a80d26c90a14c1886f0ebb8ffaae133ca2185",
-		"codingAgentVersion": "0.84.4"
+		"codingAgentVersion": "0.84.4",
+		"baselineFingerprints": {
+			"README.md": "e68f9385df7e2bf7e8f1e8bca1257a20260b0281",
+			"package.json": "e981d3ab5acbd0d682a84d10197ad73f0a85361b",
+			"tsconfig.base.json": "57e97d6e361d1473ceecc4ce65ea1a7ccb6d94bf",
+			"packages/coding-agent/package.json": "8aa47351db845e14d68615a4250705faaf7bdcfb"
+		}
 	},
 	"piWeb": {
 		"upstream": "agegr/pi-web",
