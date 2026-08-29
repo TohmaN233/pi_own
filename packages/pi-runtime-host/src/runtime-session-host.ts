@@ -13,32 +13,7 @@ import {
 	type WorkflowStatus,
 } from "../../harness-contracts/src/index.ts";
 
-export const RUNTIME_JOURNAL_CUSTOM_TYPE = "learning-harness:runtime-journal/v1" as const;
-
-export interface RuntimeBranchEntry {
-	type: string;
-	id: string;
-	customType?: string;
-	data?: unknown;
-}
-
-export interface RuntimeSessionStore {
-	getSessionId(): string;
-	getBranch(): RuntimeBranchEntry[];
-	appendCustomEntry(customType: string, data?: unknown): string;
-}
-
-export interface RuntimeSessionState {
-	journalSequence: number;
-	binding: SessionBinding | null;
-	snapshots: ReadonlyMap<string, ResourceSnapshotRef>;
-	workflows: ReadonlyMap<string, WorkflowRun>;
-}
-
-interface ParsedJournalRecord {
-	nativeEntryId: string;
-	record: RuntimeJournalRecord;
-}
+export const RUNTIME_JOURNAL_CUSTOM_TYPE = "learning-harness:runtime-journal/v1";
 
 export class RuntimeSessionHostError extends Error {
 	constructor(message: string) {
@@ -47,82 +22,97 @@ export class RuntimeSessionHostError extends Error {
 	}
 }
 
-const WORKFLOW_TRANSITIONS: Readonly<Record<WorkflowStatus, readonly WorkflowStatus[]>> = {
-	pending: ["running", "blocked", "failed", "cancelled"],
-	running: ["blocked", "succeeded", "failed", "cancelled"],
-	blocked: ["running", "failed", "cancelled"],
-	succeeded: [],
-	failed: [],
-	cancelled: [],
+export interface RuntimeSessionState {
+	journalSequence: number;
+	binding: SessionBinding | null;
+	snapshots: ResourceSnapshotRef[];
+	workflows: WorkflowRun[];
+}
+
+interface ParsedJournalRecord {
+	nativeEntryId: string;
+	record: RuntimeJournalRecord;
+}
+
+const TERMINAL_WORKFLOW_STATUSES = new Set<WorkflowStatus>(["succeeded", "failed", "cancelled"]);
+
+const ALLOWED_WORKFLOW_TRANSITIONS: Readonly<Record<WorkflowStatus, ReadonlySet<WorkflowStatus>>> = {
+	pending: new Set(["running", "blocked", "failed", "cancelled"]),
+	running: new Set(["blocked", "succeeded", "failed", "cancelled"]),
+	blocked: new Set(["running", "failed", "cancelled"]),
+	succeeded: new Set(),
+	failed: new Set(),
+	cancelled: new Set(),
 };
 
 function sameJson(left: unknown, right: unknown): boolean {
 	return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function assertInitialWorkflow(run: WorkflowRun): void {
-	if (run.revision !== 1 || run.sequence !== 0 || run.status !== "pending") {
-		throw new RuntimeSessionHostError("initial workflow must be pending at revision 1 and sequence 0");
+function journalCorruption(nativeEntryId: string, message: string): never {
+	throw new RuntimeSessionHostError(`Harness journal corruption at Pi entry ${nativeEntryId}: ${message}`);
+}
+
+function assertWorkflowTransition(previous: WorkflowRun | undefined, next: WorkflowRun): void {
+	if (!previous) {
+		if (next.revision !== 1 || next.sequence !== 0 || next.status !== "pending") {
+			throw new RuntimeSessionHostError("New workflow must start at revision=1, sequence=0, status=pending");
+		}
+		return;
+	}
+	if (previous.sessionBindingId !== next.sessionBindingId || previous.kind !== next.kind) {
+		throw new RuntimeSessionHostError(`Workflow identity changed for ${next.runId}`);
+	}
+	if (TERMINAL_WORKFLOW_STATUSES.has(previous.status)) {
+		throw new RuntimeSessionHostError(`Terminal workflow ${next.runId} cannot transition from ${previous.status}`);
+	}
+	if (next.revision !== previous.revision + 1 || next.sequence !== previous.sequence + 1) {
+		throw new RuntimeSessionHostError(`Workflow ${next.runId} revision/sequence must advance exactly once`);
+	}
+	if (!ALLOWED_WORKFLOW_TRANSITIONS[previous.status].has(next.status)) {
+		throw new RuntimeSessionHostError(`Invalid workflow transition ${previous.status} -> ${next.status}`);
 	}
 }
 
-function assertWorkflowTransition(previous: WorkflowRun, next: WorkflowRun): void {
-	if (previous.runId !== next.runId) throw new RuntimeSessionHostError("workflow run id cannot change");
-	if (previous.sessionBindingId !== next.sessionBindingId) {
-		throw new RuntimeSessionHostError("workflow session binding cannot change");
-	}
-	if (previous.kind !== next.kind) throw new RuntimeSessionHostError("workflow kind cannot change");
-	if (previous.startedAt !== next.startedAt) throw new RuntimeSessionHostError("workflow startedAt cannot change");
-	if (next.revision !== previous.revision + 1) throw new RuntimeSessionHostError("workflow revision must advance by one");
-	if (next.sequence !== previous.sequence + 1) throw new RuntimeSessionHostError("workflow sequence must advance by one");
-	if (Date.parse(next.updatedAt) < Date.parse(previous.updatedAt)) {
-		throw new RuntimeSessionHostError("workflow updatedAt cannot move backwards");
-	}
-	if (!WORKFLOW_TRANSITIONS[previous.status].includes(next.status)) {
-		throw new RuntimeSessionHostError(`invalid workflow transition ${previous.status} -> ${next.status}`);
-	}
+export interface PiSessionCustomEntry {
+	type: "custom";
+	id: string;
+	customType: string;
+	data?: unknown;
 }
 
-function assertBindingUpdate(previous: SessionBinding, next: SessionBinding): void {
-	if (previous.bindingId !== next.bindingId) throw new RuntimeSessionHostError("session binding id cannot change");
-	if (previous.sessionId !== next.sessionId) throw new RuntimeSessionHostError("bound Pi session cannot change");
-	if (previous.courseVersionId !== next.courseVersionId) {
-		throw new RuntimeSessionHostError("course version cannot be rebound inside an existing session");
-	}
-	if (previous.role !== next.role) throw new RuntimeSessionHostError("session role cannot change");
-	if (previous.createdAt !== next.createdAt) throw new RuntimeSessionHostError("session binding createdAt cannot change");
-	if (next.revision !== previous.revision + 1) throw new RuntimeSessionHostError("session binding revision must advance by one");
+export interface PiSessionStore {
+	getSessionId(): string;
+	getBranch(): Array<PiSessionCustomEntry | { type: string; id: string; [key: string]: unknown }>;
+	appendCustomEntry(customType: string, data?: unknown): string;
 }
 
 export class RuntimeSessionHost {
-	private readonly sessionStore: RuntimeSessionStore;
+	private readonly sessionManager: PiSessionStore;
 
-	constructor(sessionStore: RuntimeSessionStore) {
-		this.sessionStore = sessionStore;
+	constructor(sessionManager: PiSessionStore) {
+		this.sessionManager = sessionManager;
 	}
 
 	get sessionId(): string {
-		return this.sessionStore.getSessionId();
+		return this.sessionManager.getSessionId();
 	}
 
 	recover(): RuntimeSessionState {
 		const records = this.readJournal();
+		let expectedSequence = 1;
+		let binding: SessionBinding | null = null;
 		const snapshots = new Map<string, ResourceSnapshotRef>();
 		const workflows = new Map<string, WorkflowRun>();
 		const idempotencyKeys = new Set<string>();
-		let binding: SessionBinding | null = null;
-		let expectedSequence = 1;
 
-		for (const { record } of records) {
+		for (const { nativeEntryId, record } of records) {
 			if (record.sequence !== expectedSequence) {
-				throw new RuntimeSessionHostError(
-					`runtime journal sequence mismatch: expected ${expectedSequence}, got ${record.sequence}`,
-				);
+				journalCorruption(nativeEntryId, `expected journal sequence ${expectedSequence}, got ${record.sequence}`);
 			}
 			expectedSequence++;
-
 			if (idempotencyKeys.has(record.idempotencyKey)) {
-				throw new RuntimeSessionHostError(`duplicate persisted idempotency key ${record.idempotencyKey}`);
+				journalCorruption(nativeEntryId, `duplicate idempotency key ${record.idempotencyKey}`);
 			}
 			idempotencyKeys.add(record.idempotencyKey);
 
@@ -130,7 +120,7 @@ export class RuntimeSessionHost {
 				const snapshot = record.entry.data;
 				const previous = snapshots.get(snapshot.resourceSnapshotId);
 				if (previous && !sameJson(previous, snapshot)) {
-					throw new RuntimeSessionHostError(`resource snapshot ${snapshot.resourceSnapshotId} was redefined`);
+					journalCorruption(nativeEntryId, `resource snapshot ${snapshot.resourceSnapshotId} was redefined`);
 				}
 				snapshots.set(snapshot.resourceSnapshotId, snapshot);
 				continue;
@@ -138,28 +128,44 @@ export class RuntimeSessionHost {
 
 			if (record.entry.type === "learning-harness:session-binding") {
 				const next = record.entry.data;
-				this.assertBindingReferences(next, snapshots);
-				if (binding) assertBindingUpdate(binding, next);
-				else if (next.revision !== 1) throw new RuntimeSessionHostError("initial session binding revision must be 1");
+				if (next.sessionId !== this.sessionId) {
+					journalCorruption(nativeEntryId, `binding targets session ${next.sessionId}, current session is ${this.sessionId}`);
+				}
+				const snapshot = snapshots.get(next.resourceSnapshotId);
+				if (!snapshot) {
+					journalCorruption(nativeEntryId, `binding references unknown snapshot ${next.resourceSnapshotId}`);
+				}
+				if (snapshot.courseVersionId !== next.courseVersionId) {
+					journalCorruption(nativeEntryId, "binding and resource snapshot courseVersionId differ");
+				}
+				if (binding) {
+					if (binding.bindingId !== next.bindingId) journalCorruption(nativeEntryId, "bindingId changed for an existing session");
+					if (binding.courseVersionId !== next.courseVersionId) journalCorruption(nativeEntryId, "courseVersionId changed for an existing session");
+					if (binding.role !== next.role) journalCorruption(nativeEntryId, "role changed for an existing session");
+					if (binding.createdAt !== next.createdAt) journalCorruption(nativeEntryId, "createdAt changed for an existing session");
+					if (next.revision !== binding.revision + 1) journalCorruption(nativeEntryId, "binding revision must advance exactly once");
+				} else if (next.revision !== 1) {
+					journalCorruption(nativeEntryId, "initial binding revision must be 1");
+				}
 				binding = next;
 				continue;
 			}
 
 			const next = record.entry.data;
-			if (!binding || next.sessionBindingId !== binding.bindingId) {
-				throw new RuntimeSessionHostError(`workflow ${next.runId} is not owned by the active session binding`);
-			}
 			const previous = workflows.get(next.runId);
-			if (previous) assertWorkflowTransition(previous, next);
-			else assertInitialWorkflow(next);
+			try {
+				assertWorkflowTransition(previous, next);
+			} catch (error) {
+				journalCorruption(nativeEntryId, error instanceof Error ? error.message : String(error));
+			}
 			workflows.set(next.runId, next);
 		}
 
 		return {
 			journalSequence: records.length,
 			binding,
-			snapshots,
-			workflows,
+			snapshots: [...snapshots.values()],
+			workflows: [...workflows.values()],
 		};
 	}
 
@@ -171,9 +177,9 @@ export class RuntimeSessionHost {
 			data: snapshot,
 		};
 		return this.appendOnce(entry, idempotencyKey, (state) => {
-			const previous = state.snapshots.get(snapshot.resourceSnapshotId);
-			if (previous && !sameJson(previous, snapshot)) {
-				throw new RuntimeSessionHostError(`resource snapshot ${snapshot.resourceSnapshotId} already exists with other data`);
+			const existing = state.snapshots.find((item) => item.resourceSnapshotId === snapshot.resourceSnapshotId);
+			if (existing && !sameJson(existing, snapshot)) {
+				throw new RuntimeSessionHostError(`Resource snapshot ${snapshot.resourceSnapshotId} already exists with different data`);
 			}
 		});
 	}
@@ -186,9 +192,33 @@ export class RuntimeSessionHost {
 			data: binding,
 		};
 		return this.appendOnce(entry, idempotencyKey, (state) => {
-			this.assertBindingReferences(binding, state.snapshots);
-			if (state.binding) assertBindingUpdate(state.binding, binding);
-			else if (binding.revision !== 1) throw new RuntimeSessionHostError("initial session binding revision must be 1");
+			if (binding.sessionId !== this.sessionId) {
+				throw new RuntimeSessionHostError(`Binding sessionId ${binding.sessionId} does not match ${this.sessionId}`);
+			}
+			const snapshot = state.snapshots.find((item) => item.resourceSnapshotId === binding.resourceSnapshotId);
+			if (!snapshot) throw new RuntimeSessionHostError(`Unknown resource snapshot ${binding.resourceSnapshotId}`);
+			if (snapshot.courseVersionId !== binding.courseVersionId) {
+				throw new RuntimeSessionHostError("Binding and resource snapshot courseVersionId must match");
+			}
+			if (!state.binding) {
+				if (binding.revision !== 1) throw new RuntimeSessionHostError("Initial binding revision must be 1");
+				return;
+			}
+			if (state.binding.bindingId !== binding.bindingId) {
+				throw new RuntimeSessionHostError("Existing Pi session cannot replace its bindingId");
+			}
+			if (state.binding.courseVersionId !== binding.courseVersionId) {
+				throw new RuntimeSessionHostError("Existing Pi session cannot be rebound to another course version");
+			}
+			if (state.binding.role !== binding.role) {
+				throw new RuntimeSessionHostError("Existing Pi session role cannot change");
+			}
+			if (state.binding.createdAt !== binding.createdAt) {
+				throw new RuntimeSessionHostError("Existing Pi session binding createdAt cannot change");
+			}
+			if (binding.revision !== state.binding.revision + 1) {
+				throw new RuntimeSessionHostError("Binding revision must advance exactly once");
+			}
 		});
 	}
 
@@ -200,66 +230,47 @@ export class RuntimeSessionHost {
 			data: workflow,
 		};
 		return this.appendOnce(entry, idempotencyKey, (state) => {
-			if (!state.binding || workflow.sessionBindingId !== state.binding.bindingId) {
-				throw new RuntimeSessionHostError(`workflow ${workflow.runId} is not owned by the active session binding`);
+			if (!state.binding || state.binding.bindingId !== workflow.sessionBindingId) {
+				throw new RuntimeSessionHostError(`Workflow ${workflow.runId} does not target the active session binding`);
 			}
-			const previous = state.workflows.get(workflow.runId);
-			if (previous) assertWorkflowTransition(previous, workflow);
-			else assertInitialWorkflow(workflow);
+			assertWorkflowTransition(
+				state.workflows.find((item) => item.runId === workflow.runId),
+				workflow,
+			);
 		});
 	}
 
-	private assertBindingReferences(
-		binding: SessionBinding,
-		snapshots: ReadonlyMap<string, ResourceSnapshotRef>,
-	): void {
-		if (binding.sessionId !== this.sessionId) {
-			throw new RuntimeSessionHostError(
-				`session binding targets ${binding.sessionId}, but active Pi session is ${this.sessionId}`,
-			);
-		}
-		const snapshot = snapshots.get(binding.resourceSnapshotId);
-		if (!snapshot) throw new RuntimeSessionHostError(`resource snapshot ${binding.resourceSnapshotId} is not recorded`);
-		if (snapshot.courseVersionId !== binding.courseVersionId) {
-			throw new RuntimeSessionHostError("resource snapshot course does not match session binding course");
-		}
-	}
-
-	private appendOnce(
-		entry: HarnessJsonlEntry,
-		idempotencyKey: string,
-		validateNewEntry: (state: RuntimeSessionState) => void,
-	): string {
+	private appendOnce(entry: HarnessJsonlEntry, idempotencyKey: string, validateNewEntry: (state: RuntimeSessionState) => void): string {
 		const normalizedEntry = parseHarnessJsonlEntry(entry);
 		const records = this.readJournal();
-		const prior = records.find(({ record }) => record.idempotencyKey === idempotencyKey);
-		if (prior) {
-			if (!sameJson(prior.record.entry, normalizedEntry)) {
-				throw new RuntimeSessionHostError(`idempotency key ${idempotencyKey} was reused with different data`);
+		const existing = records.find((item) => item.record.idempotencyKey === idempotencyKey);
+		if (existing) {
+			if (!sameJson(existing.record.entry, normalizedEntry)) {
+				throw new RuntimeSessionHostError(`Idempotency key ${idempotencyKey} was reused with different data`);
 			}
-			return prior.nativeEntryId;
+			return existing.nativeEntryId;
 		}
 
 		const state = this.recover();
 		validateNewEntry(state);
-		const record = parseRuntimeJournalRecord({
+		const record: RuntimeJournalRecord = {
 			version: HARNESS_CONTRACT_VERSION,
 			sequence: state.journalSequence + 1,
 			idempotencyKey,
 			entry: normalizedEntry,
-		});
-		return this.sessionStore.appendCustomEntry(RUNTIME_JOURNAL_CUSTOM_TYPE, record);
+		};
+		parseRuntimeJournalRecord(record);
+		return this.sessionManager.appendCustomEntry(RUNTIME_JOURNAL_CUSTOM_TYPE, record);
 	}
 
 	private readJournal(): ParsedJournalRecord[] {
 		const records: ParsedJournalRecord[] = [];
-		for (const entry of this.sessionStore.getBranch()) {
+		for (const entry of this.sessionManager.getBranch()) {
 			if (entry.type !== "custom" || entry.customType !== RUNTIME_JOURNAL_CUSTOM_TYPE) continue;
 			try {
-				records.push({ nativeEntryId: entry.id, record: parseRuntimeJournalRecord(entry.data) });
+				records.push({ nativeEntryId: entry.id, record: parseRuntimeJournalRecord((entry as PiSessionCustomEntry).data) });
 			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				throw new RuntimeSessionHostError(`invalid runtime journal entry ${entry.id}: ${message}`);
+				journalCorruption(entry.id, error instanceof Error ? error.message : String(error));
 			}
 		}
 		return records;
