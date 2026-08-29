@@ -10,6 +10,7 @@ import {
 	type HostCommand,
 	type JsonValue,
 	type ResourceSnapshotRef,
+	type RuntimeJournalRecord,
 	type SessionBinding,
 	type ValidatorIssue,
 	type ValidatorResult,
@@ -275,4 +276,16 @@ export function parseHarnessJsonlEntry(value: unknown): HarnessJsonlEntry {
 		return { version: HARNESS_CONTRACT_VERSION, type, data: parseWorkflowRun(record.data) };
 	}
 	fail(`${path}.type`, `unsupported harness entry type ${type}`);
+}
+
+export function parseRuntimeJournalRecord(value: unknown): RuntimeJournalRecord {
+	const path = "runtimeJournalRecord";
+	const record = expectRecord(value, path);
+	expectExactKeys(record, ["version", "sequence", "idempotencyKey", "entry"], path);
+	return {
+		version: expectVersion(record.version, `${path}.version`),
+		sequence: expectPositiveInteger(record.sequence, `${path}.sequence`),
+		idempotencyKey: expectString(record.idempotencyKey, `${path}.idempotencyKey`),
+		entry: parseHarnessJsonlEntry(record.entry),
+	};
 }
