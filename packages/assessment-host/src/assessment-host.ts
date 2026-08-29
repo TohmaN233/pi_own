@@ -100,6 +100,35 @@ function meaningfulAttempt(answer: string): boolean {
 	return (normalized.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 3;
 }
 
+function capabilityIdentity(capability: Pick<SolutionCapability, "exerciseId" | "attemptId" | "courseVersionId" | "sessionBindingId" | "issuedAt" | "expiresAt">): Record<string, string> {
+	return {
+		exerciseId: capability.exerciseId,
+		attemptId: capability.attemptId,
+		courseVersionId: capability.courseVersionId,
+		sessionBindingId: capability.sessionBindingId,
+		issuedAt: capability.issuedAt,
+		expiresAt: capability.expiresAt,
+	};
+}
+
+function assertCapabilityIntegrity(capability: SolutionCapability): void {
+	const issuedAt = Date.parse(capability.issuedAt);
+	const expiresAt = Date.parse(capability.expiresAt);
+	if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) || expiresAt <= issuedAt) {
+		throw new AssessmentHostError("CAPABILITY_CORRUPT", `Capability ${capability.capabilityId} has invalid timestamps`);
+	}
+	if (capability.remainingUses !== 1) {
+		throw new AssessmentHostError("CAPABILITY_CORRUPT", `Capability ${capability.capabilityId} has an invalid declared use count`);
+	}
+	const identity = capabilityIdentity(capability);
+	if (
+		capability.contentHash !== contentHash(identity) ||
+		capability.capabilityId !== deterministicId("solution-capability", identity, 40)
+	) {
+		throw new AssessmentHostError("CAPABILITY_CORRUPT", `Capability ${capability.capabilityId} failed integrity validation`);
+	}
+}
+
 function assertPublicPrivate(publicExercise: ExercisePublic, privateExercise: ExercisePrivate): void {
 	if (!publicExercise.exerciseId || publicExercise.exerciseId !== privateExercise.exerciseId) {
 		throw new AssessmentHostError("EXERCISE_ID_MISMATCH", "Public and private exercise IDs must match");
@@ -222,6 +251,7 @@ export class AssessmentHost {
 	}
 
 	evaluateAttempt(attemptId: string, createdAt = new Date().toISOString()): AttemptEvaluation {
+		if (!Number.isFinite(Date.parse(createdAt))) throw new AssessmentHostError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
 		const attempt = this.getAttempt(attemptId);
 		const secret = this.vault.get(attempt.exerciseId);
 		if (!secret) throw new AssessmentHostError("PRIVATE_ASSET_UNAVAILABLE", "Private evaluation asset is unavailable");
@@ -265,7 +295,14 @@ export class AssessmentHost {
 			throw new AssessmentHostError("INVALID_CAPABILITY_LIFETIME", "Capability lifetime is invalid");
 		}
 		const expiresAt = new Date(Date.parse(issuedAt) + lifetimeMs).toISOString();
-		const identity = { exerciseId: exercise.exerciseId, attemptId, courseVersionId: attempt.courseVersionId, sessionBindingId: binding.bindingId, issuedAt, expiresAt };
+		const identity = capabilityIdentity({
+			exerciseId: exercise.exerciseId,
+			attemptId,
+			courseVersionId: attempt.courseVersionId,
+			sessionBindingId: binding.bindingId,
+			issuedAt,
+			expiresAt,
+		});
 		const capability: SolutionCapability = Object.freeze({
 			capabilityId: deterministicId("solution-capability", identity, 40),
 			exerciseId: exercise.exerciseId,
@@ -287,10 +324,13 @@ export class AssessmentHost {
 		const state = this.capabilities.get(capabilityId);
 		if (!state) throw new AssessmentHostError("CAPABILITY_INVALID", "Solution capability is invalid");
 		const capability = state.value;
+		assertCapabilityIntegrity(capability);
 		if (capability.sessionBindingId !== binding.bindingId || capability.courseVersionId !== binding.courseVersionId) {
 			throw new AssessmentHostError("CAPABILITY_SCOPE_MISMATCH", "Solution capability belongs to another session or course");
 		}
-		if (Date.parse(at) > Date.parse(capability.expiresAt)) throw new AssessmentHostError("CAPABILITY_EXPIRED", "Solution capability expired");
+		const readAt = Date.parse(at);
+		if (!Number.isFinite(readAt)) throw new AssessmentHostError("INVALID_TIMESTAMP", "at must be ISO-8601");
+		if (readAt >= Date.parse(capability.expiresAt)) throw new AssessmentHostError("CAPABILITY_EXPIRED", "Solution capability expired");
 		if (state.remainingUses < 1) throw new AssessmentHostError("CAPABILITY_CONSUMED", "Solution capability was already consumed");
 		const attempt = this.getAttempt(capability.attemptId);
 		if (attempt.exerciseId !== capability.exerciseId) throw new AssessmentHostError("CAPABILITY_CORRUPT", "Capability exercise identity is inconsistent");
@@ -373,21 +413,24 @@ export class AssessmentHost {
 		}
 		for (const evaluation of state.evaluations) {
 			if (!this.attempts.has(evaluation.attemptId)) throw new AssessmentHostError("CORRUPT_EVALUATION", `Invalid evaluation ${evaluation.evaluationId}`);
+			if (!Number.isFinite(Date.parse(evaluation.createdAt))) throw new AssessmentHostError("CORRUPT_EVALUATION", `Evaluation ${evaluation.evaluationId} has an invalid timestamp`);
 			this.evaluations.set(evaluation.evaluationId, Object.freeze({ ...evaluation }));
 		}
 		for (const capabilityState of state.capabilities) {
 			const capability = capabilityState.value;
+			assertCapabilityIntegrity(capability);
 			const attempt = this.attempts.get(capability.attemptId);
 			if (!attempt || attempt.exerciseId !== capability.exerciseId || attempt.courseVersionId !== capability.courseVersionId || attempt.sessionBindingId !== capability.sessionBindingId) {
 				throw new AssessmentHostError("CORRUPT_CAPABILITY", `Invalid capability ${capability.capabilityId}`);
 			}
-			if (!Number.isSafeInteger(capabilityState.remainingUses) || capabilityState.remainingUses < 0 || capabilityState.remainingUses > 1) {
+			if (this.capabilities.has(capability.capabilityId)) throw new AssessmentHostError("CORRUPT_CAPABILITY", `Duplicate capability ${capability.capabilityId}`);
+			if (!Number.isSafeInteger(capabilityState.remainingUses) || capabilityState.remainingUses < 0 || capabilityState.remainingUses > capability.remainingUses) {
 				throw new AssessmentHostError("CORRUPT_CAPABILITY", `Invalid use count for ${capability.capabilityId}`);
 			}
 			this.capabilities.set(capability.capabilityId, { value: Object.freeze({ ...capability }), remainingUses: capabilityState.remainingUses });
 		}
 		for (const item of state.idempotency) {
-			if (!item.key || this.idempotency.has(item.key)) throw new AssessmentHostError("CORRUPT_IDEMPOTENCY", "Invalid idempotency state");
+			if (!item.key || !item.fingerprint || this.idempotency.has(item.key)) throw new AssessmentHostError("CORRUPT_IDEMPOTENCY", "Invalid idempotency state");
 			this.idempotency.set(item.key, { fingerprint: item.fingerprint, value: item.value });
 		}
 	}
