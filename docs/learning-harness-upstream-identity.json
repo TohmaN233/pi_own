@@ -1,0 +1,22 @@
+{
+	"version": 1,
+	"repository": "TohmaN233/pi_own",
+	"role": "learning-harness umbrella and Pi runtime fork",
+	"pi": {
+		"upstream": "earendil-works/pi",
+		"baselineCommit": "853a80d26c90a14c1886f0ebb8ffaae133ca2185",
+		"codingAgentVersion": "0.84.4"
+	},
+	"piWeb": {
+		"upstream": "agegr/pi-web",
+		"plannedBaselineCommit": "28bab3c25f5f6770c9b0b745ebbfec1c27f7b948",
+		"plannedVersion": "0.8.11",
+		"integrated": false
+	},
+	"ynReference": {
+		"repository": "TohmaN233/YN-translation-workshop",
+		"baselineCommit": "419dc457a8a4bccd2c6ce0f0d5f29faa68668c8c",
+		"role": "architecture reference only"
+	},
+	"plan": "docs/PI_LEARNING_HARNESS_DETAILED_PLAN_V001.md"
+}
