@@ -9,9 +9,11 @@ on:
       - 'apps/pi-web/lib/mode-pack-**'
       - 'apps/pi-web/lib/grounded-answer-markdown.ts'
       - 'apps/pi-web/app/api/mode-packs/**'
+      - 'apps/pi-web/app/api/agent/**'
       - 'apps/pi-web/app/mode-packs/**'
       - 'apps/pi-web/components/mode-pack-manager.tsx'
-      - 'scripts/mode-pack-platform.test.mjs'
+      - 'apps/pi-web/components/harness/**'
+      - 'scripts/mode-pack-*.test.mjs'
       - '.github/workflows/mode-pack-checkpoint.yml'
   push:
     branches:
@@ -23,9 +25,11 @@ on:
       - 'apps/pi-web/lib/mode-pack-**'
       - 'apps/pi-web/lib/grounded-answer-markdown.ts'
       - 'apps/pi-web/app/api/mode-packs/**'
+      - 'apps/pi-web/app/api/agent/**'
       - 'apps/pi-web/app/mode-packs/**'
       - 'apps/pi-web/components/mode-pack-manager.tsx'
-      - 'scripts/mode-pack-platform.test.mjs'
+      - 'apps/pi-web/components/harness/**'
+      - 'scripts/mode-pack-*.test.mjs'
       - '.github/workflows/mode-pack-checkpoint.yml'
 
 permissions:
@@ -40,9 +44,38 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.19.0'
       - name: Run deterministic Mode Pack checks
-        run: node --experimental-strip-types --test scripts/mode-pack-platform.test.mjs
+        run: >-
+          node --experimental-strip-types --test
+          scripts/mode-pack-platform.test.mjs
+          scripts/mode-pack-session-runtime.test.mjs
+          scripts/mode-pack-workflow-runtime.test.mjs
+          scripts/mode-pack-live-wiring.test.mjs
+
+  pi-web-live-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.19.0'
+          cache: npm
+          cache-dependency-path: apps/pi-web/package-lock.json
+      - name: Install Pi Web dependencies
+        run: npm ci --ignore-scripts --prefix apps/pi-web
+      - name: Typecheck Pi Web
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+      - name: Test the live Mode Pack driver and selector
+        working-directory: apps/pi-web
+        run: >-
+          node --experimental-strip-types --test
+          lib/mode-pack-pi-runtime.test.mjs
+          components/harness/HarnessShell.test.mjs
+          lib/learning-harness-extension.test.mjs
+      - name: Build Pi Web
+        run: npm run build --prefix apps/pi-web
