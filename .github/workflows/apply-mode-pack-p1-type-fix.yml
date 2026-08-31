@@ -1,0 +1,38 @@
+name: Apply Mode Pack P1 type fix
+
+on:
+  push:
+    branches:
+      - feature/mode-pack-platform-fallback
+    paths:
+      - 'scripts/.fix-mode-pack-p1-type.mjs'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.repository == 'TohmaN233/pi_own'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.19.0'
+      - name: Apply exact source patch
+        run: node scripts/.fix-mode-pack-p1-type.mjs
+      - name: Verify syntax and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types --check apps/pi-web/lib/mode-pack-pi-runtime.ts
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/pi-web/lib/mode-pack-pi-runtime.ts
+          git add -u -- scripts/.fix-mode-pack-p1-type.mjs
+          git diff --cached --check
+          git commit -m 'fix: type visual Mode Pack tool details'
+          git push origin HEAD:feature/mode-pack-platform-fallback
