@@ -1,7 +1,7 @@
 import {
+	type ConceptMastery,
 	HARNESS_CONTRACT_VERSION,
 	LEARNING_EVENT_KINDS,
-	type ConceptMastery,
 	type LearningEvent,
 	type LearningEventKind,
 	type MasteryProjection,
@@ -39,6 +39,7 @@ const WEIGHTS: Readonly<Record<LearningEventKind, number>> = {
 	reviewed: 0.1,
 	reflection: 0.06,
 	visualized: 0.08,
+	"answer-published": 0,
 };
 
 function clamp(value: number): number {
@@ -46,13 +47,17 @@ function clamp(value: number): number {
 }
 
 function validateEvent(event: LearningEvent): void {
-	if (event.version !== HARNESS_CONTRACT_VERSION) throw new LearningHostError("UNSUPPORTED_VERSION", "Unsupported learning event version");
+	if (event.version !== HARNESS_CONTRACT_VERSION)
+		throw new LearningHostError("UNSUPPORTED_VERSION", "Unsupported learning event version");
 	if (!event.eventId || !event.timelineId || !event.courseVersionId || !event.sessionBindingId || !event.conceptId) {
 		throw new LearningHostError("INVALID_EVENT", "Learning event identity fields are required");
 	}
-	if (!LEARNING_EVENT_KINDS.includes(event.kind)) throw new LearningHostError("INVALID_EVENT", `Unknown learning event kind ${event.kind}`);
-	if (!Number.isSafeInteger(event.sequence) || event.sequence < 1) throw new LearningHostError("INVALID_EVENT", "Learning event sequence must be positive");
-	if (!Number.isFinite(Date.parse(event.createdAt))) throw new LearningHostError("INVALID_EVENT", "Learning event timestamp must be ISO-8601");
+	if (!LEARNING_EVENT_KINDS.includes(event.kind))
+		throw new LearningHostError("INVALID_EVENT", `Unknown learning event kind ${event.kind}`);
+	if (!Number.isSafeInteger(event.sequence) || event.sequence < 1)
+		throw new LearningHostError("INVALID_EVENT", "Learning event sequence must be positive");
+	if (!Number.isFinite(Date.parse(event.createdAt)))
+		throw new LearningHostError("INVALID_EVENT", "Learning event timestamp must be ISO-8601");
 	if (!event.idempotencyKey) throw new LearningHostError("INVALID_EVENT", "Learning event idempotencyKey is required");
 }
 
@@ -65,25 +70,33 @@ export class LearningHost {
 
 	record(event: LearningEvent, binding: SessionBinding): LearningEvent {
 		validateEvent(event);
-		if (binding.bindingId !== event.sessionBindingId) throw new LearningHostError("BINDING_MISMATCH", "Learning event targets another session binding");
-		if (binding.courseVersionId !== event.courseVersionId) throw new LearningHostError("COURSE_MISMATCH", "Learning event targets another course version");
+		if (binding.bindingId !== event.sessionBindingId)
+			throw new LearningHostError("BINDING_MISMATCH", "Learning event targets another session binding");
+		if (binding.courseVersionId !== event.courseVersionId)
+			throw new LearningHostError("COURSE_MISMATCH", "Learning event targets another course version");
 		let timeline = this.timelines.get(event.timelineId);
 		if (!timeline) {
 			timeline = { courseVersionId: event.courseVersionId, events: [], idempotency: new Map() };
 			this.timelines.set(event.timelineId, timeline);
 		}
-		if (timeline.courseVersionId !== event.courseVersionId) throw new LearningHostError("COURSE_REBIND_FORBIDDEN", "Timeline cannot move to another course version");
+		if (timeline.courseVersionId !== event.courseVersionId)
+			throw new LearningHostError("COURSE_REBIND_FORBIDDEN", "Timeline cannot move to another course version");
 		const fingerprint = stableStringify(event);
 		const existingFingerprint = timeline.idempotency.get(event.idempotencyKey);
 		if (existingFingerprint) {
-			if (existingFingerprint !== fingerprint) throw new LearningHostError("IDEMPOTENCY_REUSE", "Learning event idempotency key was reused");
+			if (existingFingerprint !== fingerprint)
+				throw new LearningHostError("IDEMPOTENCY_REUSE", "Learning event idempotency key was reused");
 			return timeline.events.find((item) => item.idempotencyKey === event.idempotencyKey) as LearningEvent;
 		}
 		const expectedSequence = timeline.events.length + 1;
 		if (event.sequence !== expectedSequence) {
-			throw new LearningHostError("SEQUENCE_MISMATCH", `Expected learning event sequence ${expectedSequence}, got ${event.sequence}`);
+			throw new LearningHostError(
+				"SEQUENCE_MISMATCH",
+				`Expected learning event sequence ${expectedSequence}, got ${event.sequence}`,
+			);
 		}
-		if (timeline.events.some((item) => item.eventId === event.eventId)) throw new LearningHostError("DUPLICATE_EVENT", `Duplicate learning event ID ${event.eventId}`);
+		if (timeline.events.some((item) => item.eventId === event.eventId))
+			throw new LearningHostError("DUPLICATE_EVENT", `Duplicate learning event ID ${event.eventId}`);
 		timeline.events.push(Object.freeze({ ...event }));
 		timeline.idempotency.set(event.idempotencyKey, fingerprint);
 		return event;
@@ -101,8 +114,10 @@ export class LearningHost {
 	}
 
 	restoreState(state: LearningHostState): void {
-		if (!state || state.version !== 1 || !Array.isArray(state.events)) throw new LearningHostError("INVALID_STATE", "Invalid LearningHost state");
-		if (this.timelines.size > 0) throw new LearningHostError("STATE_NOT_EMPTY", "LearningHost restore requires an empty host");
+		if (!state || state.version !== 1 || !Array.isArray(state.events))
+			throw new LearningHostError("INVALID_STATE", "Invalid LearningHost state");
+		if (this.timelines.size > 0)
+			throw new LearningHostError("STATE_NOT_EMPTY", "LearningHost restore requires an empty host");
 		for (const event of state.events) {
 			const binding = {
 				version: HARNESS_CONTRACT_VERSION,
@@ -118,11 +133,17 @@ export class LearningHost {
 		}
 	}
 
+	replaceState(state: LearningHostState): void {
+		this.timelines.clear();
+		this.restoreState(state);
+	}
+
 	rebuildProjection(timelineId: string): MasteryProjection {
 		const timeline = this.timelines.get(timelineId);
 		if (!timeline) throw new LearningHostError("UNKNOWN_TIMELINE", `Unknown timeline ${timelineId}`);
 		const concepts: Record<string, ConceptMastery> = {};
 		for (const event of timeline.events) {
+			if (event.kind === "answer-published") continue;
 			const previous = concepts[event.conceptId] ?? emptyMastery(event.conceptId, event.createdAt);
 			const next: ConceptMastery = {
 				conceptId: event.conceptId,
@@ -144,10 +165,16 @@ export class LearningHost {
 	}
 
 	suggestReviewItems(timelineId: string, limit = 5): ConceptMastery[] {
-		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new LearningHostError("INVALID_LIMIT", "limit must be 1..100");
+		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+			throw new LearningHostError("INVALID_LIMIT", "limit must be 1..100");
 		const projection = this.rebuildProjection(timelineId);
 		return Object.values(projection.concepts)
-			.sort((left, right) => left.score - right.score || left.lastEventAt.localeCompare(right.lastEventAt) || left.conceptId.localeCompare(right.conceptId))
+			.sort(
+				(left, right) =>
+					left.score - right.score ||
+					left.lastEventAt.localeCompare(right.lastEventAt) ||
+					left.conceptId.localeCompare(right.conceptId),
+			)
 			.slice(0, limit);
 	}
 }

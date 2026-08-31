@@ -47,7 +47,8 @@ export class RevisionStore<T extends RevisionedRecord> {
 
 		const current = this.records.get(next.id);
 		const actualRevision = current?.revision ?? null;
-		if (actualRevision !== expectedRevision) throw new RevisionConflictError(next.id, expectedRevision, actualRevision);
+		if (actualRevision !== expectedRevision)
+			throw new RevisionConflictError(next.id, expectedRevision, actualRevision);
 		const requiredRevision = current ? current.revision + 1 : 1;
 		if (next.revision !== requiredRevision) {
 			throw new RevisionConflictError(next.id, requiredRevision, next.revision);

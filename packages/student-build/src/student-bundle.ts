@@ -31,7 +31,8 @@ function scan(value: unknown, path: string, seen: Set<object>): void {
 		for (const [index, item] of value.entries()) scan(item, `${path}[${index}]`, seen);
 	} else {
 		for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-			if (FORBIDDEN_KEYS.has(key)) throw new StudentBundleError("PRIVATE_ASSET_LEAK", `${path}.${key} is forbidden in a student bundle`);
+			if (FORBIDDEN_KEYS.has(key))
+				throw new StudentBundleError("PRIVATE_ASSET_LEAK", `${path}.${key} is forbidden in a student bundle`);
 			scan(child, `${path}.${key}`, seen);
 		}
 	}
@@ -53,7 +54,10 @@ export function createStudentBundleManifest(
 ): StudentBundleManifest {
 	for (const exercise of publicExercises) {
 		if (exercise.courseVersionId !== courseVersion.courseVersionId) {
-			throw new StudentBundleError("COURSE_MISMATCH", `Exercise ${exercise.exerciseId} belongs to another course version`);
+			throw new StudentBundleError(
+				"COURSE_MISMATCH",
+				`Exercise ${exercise.exerciseId} belongs to another course version`,
+			);
 		}
 	}
 	const files = courseVersion.materials.map((material) => ({
@@ -74,7 +78,11 @@ export function createStudentBundleManifest(
 		bundleId: deterministicId("student-bundle", identity, 32),
 		courseVersionId: courseVersion.courseVersionId,
 		profileIds: identity.profileIds,
-		publicExercises: publicExercises.map((exercise) => ({ ...exercise, conceptIds: [...exercise.conceptIds], hints: [...exercise.hints] })),
+		publicExercises: publicExercises.map((exercise) => ({
+			...exercise,
+			conceptIds: [...exercise.conceptIds],
+			hints: [...exercise.hints],
+		})),
 		files,
 		contentHash: contentHash(identity),
 	};

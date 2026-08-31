@@ -1,0 +1,251 @@
+.frame {
+  --harness-bar-height: 44px;
+  --app-viewport-height: calc(100dvh - var(--harness-bar-height));
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.bar {
+  height: var(--harness-bar-height);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-panel) 96%, var(--accent));
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.select,
+.input,
+.button {
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.select {
+  min-width: min(280px, 32vw);
+  padding: 0 28px 0 8px;
+}
+
+.input {
+  width: 100%;
+  padding: 0 8px;
+}
+
+.button {
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.button:hover,
+.button[aria-expanded="true"] {
+  background: var(--bg-hover);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.profile {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.snapshot {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector dl {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.inspector dt {
+  color: var(--muted-foreground, #64748b);
+}
+
+.inspector dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.content {
+  height: var(--app-viewport-height);
+  min-height: 0;
+}
+
+.notice {
+  position: fixed;
+  top: calc(var(--harness-bar-height) + 8px);
+  left: 50%;
+  z-index: 420;
+  max-width: min(720px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  box-shadow: 0 8px 30px rgb(0 0 0 / 16%);
+  font: 12px/1.45 var(--font-mono);
+}
+
+.panel {
+  position: fixed;
+  top: calc(var(--harness-bar-height) + 8px);
+  right: 12px;
+  z-index: 410;
+  width: min(460px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--harness-bar-height) - 20px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 22%);
+  font: 12px/1.5 var(--font-mono);
+}
+
+.panelTitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+.form label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+}
+
+.results {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.result {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.resultMeta {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.timelineEvent {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.citation {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
+
+.sourceText {
+  margin: 12px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.practicePrompt,
+.hint,
+.practiceFeedback {
+  margin: 0;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.practiceFeedback {
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .bar {
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  .brand,
+  .profile,
+  .snapshot {
+    display: none;
+  }
+
+  .select {
+    min-width: 0;
+    flex: 1;
+  }
+}

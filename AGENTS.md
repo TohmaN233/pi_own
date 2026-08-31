@@ -1,5 +1,15 @@
 # Development Rules
 
+## Learning Harness
+
+- `apps/pi-web` vendors Pi Web v0.8.11 at commit `28bab3c25f5f6770c9b0b745ebbfec1c27f7b948`. Keep upstream changes traceable through `docs/pi-web-upstream-manifest.json` and `docs/pi-web-upstream-map.md`.
+- Pi remains the only `AgentSession` runtime and Pi JSONL remains the only conversation transcript. Harness SQLite stores deterministic product state and Pi custom entries store binding/snapshot references.
+- `packages/learning-harness` is the durable SQLite/WAL composition root. Do not create a second store or bypass Host APIs from Pi Web routes.
+- PDF course import uses `PdftotextExtractor`. Set `PI_PDFTOTEXT_PATH` when `pdftotext` is not on `PATH`.
+- Windows local launch and the first vertical-slice test path are documented in `docs/LOCAL_TESTING.zh-CN.md`; use `start-learning-harness.bat` or `start-learning-harness.ps1` from the repository root.
+- The default product database is under the Pi agent directory at `learning-harness/learning-harness.sqlite`; `PI_LEARNING_HARNESS_DIR` overrides the directory for tests and development.
+- Run `node --test scripts/learning-harness-*.test.mjs` for core checks. Run Pi Web checks from `apps/pi-web` with `npm test`, `node_modules/.bin/tsc --noEmit`, and `npm run lint`.
+
 ## Conversational Style
 
 - Keep answers short and concise

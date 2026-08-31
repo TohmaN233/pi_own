@@ -1,7 +1,7 @@
 import {
 	HARNESS_CONTRACT_VERSION,
-	parseVisualizationSpec,
 	type JsonValue,
+	parseVisualizationSpec,
 	type ValidatorIssue,
 	type ValidatorResult,
 	type VisualArtifact,
@@ -29,24 +29,29 @@ interface RenderResult {
 }
 
 function objectValue(value: unknown, path: string): ObjectValue {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new VisualHostError("INVALID_SPEC", `${path} must be an object`);
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		throw new VisualHostError("INVALID_SPEC", `${path} must be an object`);
 	return value as ObjectValue;
 }
 
 function exactKeys(value: ObjectValue, keys: readonly string[], path: string): void {
 	const allowed = new Set(keys);
-	for (const key of Object.keys(value)) if (!allowed.has(key)) throw new VisualHostError("INVALID_SPEC", `${path}.${key} is not allowed`);
+	for (const key of Object.keys(value))
+		if (!allowed.has(key)) throw new VisualHostError("INVALID_SPEC", `${path}.${key} is not allowed`);
 	for (const key of keys) if (!(key in value)) throw new VisualHostError("INVALID_SPEC", `${path}.${key} is required`);
 }
 
 function numberValue(value: unknown, path: string): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) throw new VisualHostError("INVALID_SPEC", `${path} must be finite`);
+	if (typeof value !== "number" || !Number.isFinite(value))
+		throw new VisualHostError("INVALID_SPEC", `${path} must be finite`);
 	return value;
 }
 
 function stringValue(value: unknown, path: string): string {
-	if (typeof value !== "string" || !value) throw new VisualHostError("INVALID_SPEC", `${path} must be a non-empty string`);
-	if (/https?:\/\//iu.test(value) || /<\/?script|javascript:/iu.test(value)) throw new VisualHostError("ACTIVE_CONTENT_DENIED", `${path} contains active or external content`);
+	if (typeof value !== "string" || !value)
+		throw new VisualHostError("INVALID_SPEC", `${path} must be a non-empty string`);
+	if (/https?:\/\//iu.test(value) || /<\/?script|javascript:/iu.test(value))
+		throw new VisualHostError("ACTIVE_CONTENT_DENIED", `${path} contains active or external content`);
 	return value;
 }
 
@@ -70,7 +75,12 @@ function pair(value: unknown, path: string): [number, number] {
 }
 
 function escapeHtml(value: string): string {
-	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;");
 }
 
 function jsonForHtml(value: JsonValue): string {
@@ -140,17 +150,25 @@ function renderFunctionPlot(payload: unknown): RenderResult {
 function renderMatrixTransform(payload: unknown): RenderResult {
 	const value = objectValue(payload, "payload");
 	exactKeys(value, ["matrix", "points"], "payload");
-	if (!Array.isArray(value.matrix) || value.matrix.length !== 2) throw new VisualHostError("INVALID_SPEC", "payload.matrix must be 2x2");
+	if (!Array.isArray(value.matrix) || value.matrix.length !== 2)
+		throw new VisualHostError("INVALID_SPEC", "payload.matrix must be 2x2");
 	const row0 = pair(value.matrix[0], "payload.matrix[0]");
 	const row1 = pair(value.matrix[1], "payload.matrix[1]");
-	if (!Array.isArray(value.points) || value.points.length < 1 || value.points.length > 200) throw new VisualHostError("INVALID_SPEC", "payload.points must have 1..200 points");
+	if (!Array.isArray(value.points) || value.points.length < 1 || value.points.length > 200)
+		throw new VisualHostError("INVALID_SPEC", "payload.points must have 1..200 points");
 	const points = value.points.map((item, index) => pair(item, `payload.points[${index}]`));
-	const transformed = points.map(([x, y]) => [row0[0] * x + row0[1] * y, row1[0] * x + row1[1] * y] as [number, number]);
+	const transformed = points.map(
+		([x, y]) => [row0[0] * x + row0[1] * y, row1[0] * x + row1[1] * y] as [number, number],
+	);
 	const all = [...points, ...transformed];
 	const extent = Math.max(1, ...all.flatMap(([x, y]) => [Math.abs(x), Math.abs(y)]));
-	const drawPoints = (items: [number, number][], radius: number): string => items
-		.map(([x, y]) => `<circle cx="${(500 + (x / extent) * 420).toFixed(2)}" cy="${(250 - (y / extent) * 210).toFixed(2)}" r="${radius}" fill="currentColor"/>`)
-		.join("");
+	const drawPoints = (items: [number, number][], radius: number): string =>
+		items
+			.map(
+				([x, y]) =>
+					`<circle cx="${(500 + (x / extent) * 420).toFixed(2)}" cy="${(250 - (y / extent) * 210).toFixed(2)}" r="${radius}" fill="currentColor"/>`,
+			)
+			.join("");
 	const body = `<svg viewBox="0 0 1000 500" role="img" aria-label="Matrix transformation"><line x1="50" y1="250" x2="950" y2="250" stroke="currentColor"/><line x1="500" y1="30" x2="500" y2="470" stroke="currentColor"/>${drawPoints(points, 7)}${drawPoints(transformed, 3)}</svg>`;
 	return {
 		data: { matrix: [row0, row1], source: points, transformed },
@@ -164,7 +182,8 @@ function renderAlgorithmTrace(payload: unknown): RenderResult {
 	const value = objectValue(payload, "payload");
 	exactKeys(value, ["algorithm", "values"], "payload");
 	const algorithm = stringValue(value.algorithm, "payload.algorithm");
-	if (algorithm !== "insertion-sort" && algorithm !== "bubble-sort") throw new VisualHostError("INVALID_SPEC", "Supported algorithms are insertion-sort and bubble-sort");
+	if (algorithm !== "insertion-sort" && algorithm !== "bubble-sort")
+		throw new VisualHostError("INVALID_SPEC", "Supported algorithms are insertion-sort and bubble-sort");
 	const values = numericArray(value.values, "payload.values", 1, 128);
 	const state = [...values];
 	const trace: JsonValue[] = [{ step: 0, action: "initial", values: [...state] }];
@@ -192,7 +211,13 @@ function renderAlgorithmTrace(payload: unknown): RenderResult {
 			}
 		}
 	}
-	const rows = trace.slice(0, 100).map((entry) => `<tr><td>${escapeHtml(String((entry as { step?: unknown }).step))}</td><td><code>${escapeHtml(JSON.stringify(entry))}</code></td></tr>`).join("");
+	const rows = trace
+		.slice(0, 100)
+		.map(
+			(entry) =>
+				`<tr><td>${escapeHtml(String((entry as { step?: unknown }).step))}</td><td><code>${escapeHtml(JSON.stringify(entry))}</code></td></tr>`,
+		)
+		.join("");
 	return {
 		data: { algorithm, input: values, output: state },
 		trace,
@@ -207,7 +232,8 @@ function renderGraphTrace(payload: unknown): RenderResult {
 	const start = stringValue(value.start, "payload.start");
 	const adjacencyValue = objectValue(value.adjacency, "payload.adjacency");
 	const nodes = Object.keys(adjacencyValue).sort();
-	if (nodes.length < 1 || nodes.length > 200) throw new VisualHostError("INVALID_SPEC", "Graph must have 1..200 nodes");
+	if (nodes.length < 1 || nodes.length > 200)
+		throw new VisualHostError("INVALID_SPEC", "Graph must have 1..200 nodes");
 	const adjacency: Record<string, string[]> = {};
 	let edgeCount = 0;
 	for (const node of nodes) {
@@ -220,7 +246,10 @@ function renderGraphTrace(payload: unknown): RenderResult {
 	}
 	if (!nodes.includes(start)) throw new VisualHostError("INVALID_SPEC", "Start node is not in adjacency map");
 	if (edgeCount > 1000) throw new VisualHostError("TRACE_LIMIT", "Graph has more than 1000 directed edges");
-	for (const neighbors of Object.values(adjacency)) for (const neighbor of neighbors) if (!nodes.includes(neighbor)) throw new VisualHostError("INVALID_SPEC", `Neighbor ${neighbor} is not declared`);
+	for (const neighbors of Object.values(adjacency))
+		for (const neighbor of neighbors)
+			if (!nodes.includes(neighbor))
+				throw new VisualHostError("INVALID_SPEC", `Neighbor ${neighbor} is not declared`);
 	const visited = new Set<string>([start]);
 	const queue = [start];
 	const order: string[] = [];
@@ -237,14 +266,20 @@ function renderGraphTrace(payload: unknown): RenderResult {
 		trace.push({ step: trace.length, visit: node, queue: [...queue], visited: [...visited].sort() });
 	}
 	const body = `<ol>${order.map((node) => `<li>${escapeHtml(node)}</li>`).join("")}</ol>`;
-	return { data: { start, adjacency, order }, trace, summary: `Breadth-first traversal visited ${order.length} of ${nodes.length} nodes.`, body };
+	return {
+		data: { start, adjacency, order },
+		trace,
+		summary: `Breadth-first traversal visited ${order.length} of ${nodes.length} nodes.`,
+		body,
+	};
 }
 
 function renderStateMachine(payload: unknown): RenderResult {
 	const value = objectValue(payload, "payload");
 	exactKeys(value, ["initial", "transitions", "inputs"], "payload");
 	const initial = stringValue(value.initial, "payload.initial");
-	if (!Array.isArray(value.transitions) || value.transitions.length > 500) throw new VisualHostError("INVALID_SPEC", "transitions must be an array of at most 500 entries");
+	if (!Array.isArray(value.transitions) || value.transitions.length > 500)
+		throw new VisualHostError("INVALID_SPEC", "transitions must be an array of at most 500 entries");
 	const transitions = value.transitions.map((item, index) => {
 		const transition = objectValue(item, `payload.transitions[${index}]`);
 		exactKeys(transition, ["from", "input", "to"], `payload.transitions[${index}]`);
@@ -254,7 +289,8 @@ function renderStateMachine(payload: unknown): RenderResult {
 			to: stringValue(transition.to, `payload.transitions[${index}].to`),
 		};
 	});
-	if (!Array.isArray(value.inputs) || value.inputs.length > 500) throw new VisualHostError("INVALID_SPEC", "inputs must be an array of at most 500 entries");
+	if (!Array.isArray(value.inputs) || value.inputs.length > 500)
+		throw new VisualHostError("INVALID_SPEC", "inputs must be an array of at most 500 entries");
 	const inputs = value.inputs.map((item, index) => stringValue(item, `payload.inputs[${index}]`));
 	const table = new Map(transitions.map((transition) => [`${transition.from}\0${transition.input}`, transition.to]));
 	let state = initial;
@@ -267,11 +303,17 @@ function renderStateMachine(payload: unknown): RenderResult {
 		trace.push({ step: trace.length, state, input });
 	}
 	const body = `<table><thead><tr><th>Step</th><th>Input</th><th>State</th></tr></thead><tbody>${trace.map((entry) => `<tr><td>${escapeHtml(String((entry as { step: number }).step))}</td><td>${escapeHtml(String((entry as { input: unknown }).input ?? "—"))}</td><td>${escapeHtml(String((entry as { state: string }).state))}</td></tr>`).join("")}</tbody></table>`;
-	return { data: { initial, transitions, inputs, final: state }, trace, summary: `Processed ${inputs.length} inputs and ended in state ${state}.`, body };
+	return {
+		data: { initial, transitions, inputs, final: state },
+		trace,
+		summary: `Processed ${inputs.length} inputs and ended in state ${state}.`,
+		body,
+	};
 }
 
 function render(spec: VisualizationSpec): RenderResult {
-	if (stableStringify(spec.payload).length > 200000) throw new VisualHostError("SPEC_SIZE_LIMIT", "Visualization payload exceeds 200 KB");
+	if (stableStringify(spec.payload).length > 200000)
+		throw new VisualHostError("SPEC_SIZE_LIMIT", "Visualization payload exceeds 200 KB");
 	if (spec.kind === "function-plot") return renderFunctionPlot(spec.payload);
 	if (spec.kind === "matrix-transform") return renderMatrixTransform(spec.payload);
 	if (spec.kind === "algorithm-trace") return renderAlgorithmTrace(spec.payload);
@@ -297,9 +339,13 @@ export class VisualHost {
 
 	run(value: unknown, createdAt = new Date().toISOString()): VisualArtifact {
 		const spec = parseVisualizationSpec(value);
-		if (!Number.isFinite(Date.parse(createdAt))) throw new VisualHostError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
+		if (!Number.isFinite(Date.parse(createdAt)))
+			throw new VisualHostError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
 		const existingSpec = this.specs.get(spec.specId);
-		if (existingSpec && (existingSpec.revision !== spec.revision || stableStringify(existingSpec) !== stableStringify(spec))) {
+		if (
+			existingSpec &&
+			(existingSpec.revision !== spec.revision || stableStringify(existingSpec) !== stableStringify(spec))
+		) {
 			throw new VisualHostError("SPEC_REDEFINED", `Visualization spec ${spec.specId} was redefined`);
 		}
 		const result = render(spec);
@@ -332,7 +378,8 @@ export class VisualHost {
 			revision: 1,
 		});
 		const existing = this.artifacts.get(artifact.artifactId);
-		if (existing && existing.contentHash !== artifact.contentHash) throw new VisualHostError("ARTIFACT_COLLISION", "Visual artifact identity collision");
+		if (existing && existing.contentHash !== artifact.contentHash)
+			throw new VisualHostError("ARTIFACT_COLLISION", "Visual artifact identity collision");
 		this.specs.set(spec.specId, Object.freeze(spec));
 		this.artifacts.set(artifact.artifactId, artifact);
 		return artifact;
@@ -342,12 +389,18 @@ export class VisualHost {
 		const artifact = this.getArtifact(artifactId);
 		const spec = this.specs.get(artifact.specId);
 		const issues: ValidatorIssue[] = [];
-		if (!spec || spec.revision !== artifact.specRevision) issues.push(validatorIssue("STALE_SPEC", "Artifact is not bound to the current spec revision"));
-		if (contentHash(artifact.data) !== artifact.dataHash) issues.push(validatorIssue("DATA_HASH_MISMATCH", "Artifact data hash is invalid", "data"));
-		if (contentHash(artifact.trace) !== artifact.traceHash) issues.push(validatorIssue("TRACE_HASH_MISMATCH", "Artifact trace hash is invalid", "trace"));
-		if (!artifact.html.includes("Content-Security-Policy")) issues.push(validatorIssue("CSP_REQUIRED", "Visual HTML needs a CSP"));
-		if (/<script\b|javascript:|https?:\/\//iu.test(artifact.html)) issues.push(validatorIssue("ACTIVE_CONTENT_DENIED", "Visual HTML contains script or external URL"));
-		if (!artifact.html.includes("Deterministic trace") || !artifact.html.includes("Data table")) issues.push(validatorIssue("ACCESSIBILITY_SUMMARY_REQUIRED", "Visual HTML needs trace and data summaries"));
+		if (!spec || spec.revision !== artifact.specRevision)
+			issues.push(validatorIssue("STALE_SPEC", "Artifact is not bound to the current spec revision"));
+		if (contentHash(artifact.data) !== artifact.dataHash)
+			issues.push(validatorIssue("DATA_HASH_MISMATCH", "Artifact data hash is invalid", "data"));
+		if (contentHash(artifact.trace) !== artifact.traceHash)
+			issues.push(validatorIssue("TRACE_HASH_MISMATCH", "Artifact trace hash is invalid", "trace"));
+		if (!artifact.html.includes("Content-Security-Policy"))
+			issues.push(validatorIssue("CSP_REQUIRED", "Visual HTML needs a CSP"));
+		if (/<script\b|javascript:|https?:\/\//iu.test(artifact.html))
+			issues.push(validatorIssue("ACTIVE_CONTENT_DENIED", "Visual HTML contains script or external URL"));
+		if (!artifact.html.includes("Deterministic trace") || !artifact.html.includes("Data table"))
+			issues.push(validatorIssue("ACCESSIBILITY_SUMMARY_REQUIRED", "Visual HTML needs trace and data summaries"));
 		const result: ValidatorResult = {
 			version: HARNESS_CONTRACT_VERSION,
 			validatorId: "visual-artifact-v1",
@@ -386,29 +439,45 @@ export class VisualHost {
 			version: 1,
 			specs: [...this.specs.values()].sort((left, right) => left.specId.localeCompare(right.specId)),
 			artifacts: this.listArtifacts(),
-			validators: [...this.validators.values()].sort((left, right) => left.subject.id.localeCompare(right.subject.id)),
+			validators: [...this.validators.values()].sort((left, right) =>
+				left.subject.id.localeCompare(right.subject.id),
+			),
 		};
 	}
 
 	restoreState(state: VisualHostState): void {
-		if (!state || state.version !== 1 || !Array.isArray(state.specs) || !Array.isArray(state.artifacts) || !Array.isArray(state.validators)) {
+		if (
+			!state ||
+			state.version !== 1 ||
+			!Array.isArray(state.specs) ||
+			!Array.isArray(state.artifacts) ||
+			!Array.isArray(state.validators)
+		) {
 			throw new VisualHostError("INVALID_STATE", "Invalid VisualHost state");
 		}
-		if (this.specs.size || this.artifacts.size || this.validators.size) throw new VisualHostError("STATE_NOT_EMPTY", "VisualHost restore requires an empty host");
+		if (this.specs.size || this.artifacts.size || this.validators.size)
+			throw new VisualHostError("STATE_NOT_EMPTY", "VisualHost restore requires an empty host");
 		const artifactBySpec = new Map(state.artifacts.map((artifact) => [artifact.specId, artifact]));
 		for (const spec of state.specs) {
 			const expectedArtifact = artifactBySpec.get(spec.specId);
 			if (!expectedArtifact) throw new VisualHostError("CORRUPT_STATE", `Missing artifact for spec ${spec.specId}`);
 			const restored = this.run(spec, expectedArtifact.createdAt);
 			if (stableStringify(restored) !== stableStringify(expectedArtifact)) {
-				throw new VisualHostError("ARTIFACT_INTEGRITY_FAILURE", `Artifact ${expectedArtifact.artifactId} cannot be reproduced`);
+				throw new VisualHostError(
+					"ARTIFACT_INTEGRITY_FAILURE",
+					`Artifact ${expectedArtifact.artifactId} cannot be reproduced`,
+				);
 			}
 		}
-		if (this.artifacts.size !== state.artifacts.length) throw new VisualHostError("CORRUPT_STATE", "Visual artifact set is inconsistent");
+		if (this.artifacts.size !== state.artifacts.length)
+			throw new VisualHostError("CORRUPT_STATE", "Visual artifact set is inconsistent");
 		for (const validator of state.validators) {
 			const restored = this.validate(validator.subject.id, validator.checkedAt);
 			if (stableStringify(restored) !== stableStringify(validator)) {
-				throw new VisualHostError("VALIDATOR_INTEGRITY_FAILURE", `Validator for ${validator.subject.id} cannot be reproduced`);
+				throw new VisualHostError(
+					"VALIDATOR_INTEGRITY_FAILURE",
+					`Validator for ${validator.subject.id} cannot be reproduced`,
+				);
 			}
 		}
 	}

@@ -13,7 +13,8 @@ export class WorkflowGate {
 
 	recordWorkflow(run: WorkflowRun): void {
 		const previous = this.workflows.get(run.runId);
-		if (previous && run.revision <= previous.revision) throw new WorkflowGateError(`Stale workflow revision ${run.runId}`);
+		if (previous && run.revision <= previous.revision)
+			throw new WorkflowGateError(`Stale workflow revision ${run.runId}`);
 		this.workflows.set(run.runId, run);
 	}
 
@@ -26,12 +27,16 @@ export class WorkflowGate {
 		this.validators.set(key, result);
 	}
 
-	assertPublishable(subject: { kind: string; id: string; revision: number }, requiredValidatorIds: readonly string[]): void {
+	assertPublishable(
+		subject: { kind: string; id: string; revision: number },
+		requiredValidatorIds: readonly string[],
+	): void {
 		for (const validatorId of requiredValidatorIds) {
 			const key = `${validatorId}\0${subject.kind}\0${subject.id}`;
 			const result = this.validators.get(key);
 			if (!result) throw new WorkflowGateError(`Missing validator ${validatorId}`);
-			if (result.subject.revision !== subject.revision) throw new WorkflowGateError(`Validator ${validatorId} is stale`);
+			if (result.subject.revision !== subject.revision)
+				throw new WorkflowGateError(`Validator ${validatorId} is stale`);
 			if (result.status !== "pass") throw new WorkflowGateError(`Validator ${validatorId} failed`);
 		}
 	}

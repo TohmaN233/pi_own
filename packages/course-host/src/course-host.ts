@@ -1,10 +1,10 @@
 import {
-	HARNESS_CONTRACT_VERSION,
-	parseCourseMaterialInput,
 	type CourseMaterial,
 	type CourseMaterialInput,
 	type CourseVersion,
+	HARNESS_CONTRACT_VERSION,
 	type JsonValue,
+	parseCourseMaterialInput,
 	type ResourceSnapshot,
 	type SessionBinding,
 	type SourceSpan,
@@ -29,7 +29,14 @@ export interface PublishCourseVersionOptions {
 	createdAt?: string;
 	pdfTextExtractor?: PdfTextExtractor;
 	maxSpanCharacters?: number;
+	maxPdfTextCharacters?: number;
+	maxCourseTextCharacters?: number;
+	maxCourseSpans?: number;
 }
+
+const DEFAULT_MAX_PDF_TEXT_CHARACTERS = 4_000_000;
+const DEFAULT_MAX_COURSE_TEXT_CHARACTERS = 8_000_000;
+const DEFAULT_MAX_COURSE_SPANS = 20_000;
 
 function normalizeText(text: string): string {
 	if (text.includes("\u0000")) throw new CourseHostError("INVALID_TEXT", "Course material contains NUL bytes");
@@ -62,7 +69,7 @@ function notebookToText(raw: string, name: string): string {
 		throw new CourseHostError("INVALID_NOTEBOOK", `${name} has no cells array`);
 	}
 	const sections: string[] = [];
-	for (const [index, cell] of ((parsed as { cells: unknown[] }).cells).entries()) {
+	for (const [index, cell] of (parsed as { cells: unknown[] }).cells.entries()) {
 		if (!cell || typeof cell !== "object") continue;
 		const cellType = (cell as { cell_type?: unknown }).cell_type;
 		const source = (cell as { source?: unknown }).source;
@@ -78,18 +85,32 @@ function notebookToText(raw: string, name: string): string {
 	return sections.join("\n\n");
 }
 
-async function materialText(input: CourseMaterialInput, extractor?: PdfTextExtractor): Promise<string> {
+async function materialText(
+	input: CourseMaterialInput,
+	extractor: PdfTextExtractor | undefined,
+	maxPdfTextCharacters: number,
+): Promise<string> {
 	if (input.kind === "pdf") {
-		if (!extractor) throw new CourseHostError("PDF_EXTRACTOR_REQUIRED", `PDF ${input.name} requires an explicit text extractor`);
+		if (!extractor)
+			throw new CourseHostError("PDF_EXTRACTOR_REQUIRED", `PDF ${input.name} requires an explicit text extractor`);
 		const bytes = typeof input.content === "string" ? new TextEncoder().encode(input.content) : input.content;
-		return normalizeText(await extractor.extract(bytes, input.name));
+		const extracted = await extractor.extract(bytes, input.name);
+		if (extracted.length > maxPdfTextCharacters) {
+			throw new CourseHostError(
+				"PDF_TEXT_TOO_LARGE",
+				`PDF ${input.name} exceeds ${maxPdfTextCharacters} extracted text characters`,
+			);
+		}
+		return normalizeText(extracted);
 	}
 	const raw = typeof input.content === "string" ? input.content : decodeUtf8(input.content, input.name);
 	return normalizeText(input.kind === "notebook" ? notebookToText(raw, input.name) : raw);
 }
 
 function instructionLike(text: string): boolean {
-	return /(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions?|system\s+prompt|developer\s+message|you\s+are\s+chatgpt|<\|(?:system|assistant|developer)\|>|执行以下指令|忽略(?:之前|以上).*指令|系统提示词)/iu.test(text);
+	return /(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions?|system\s+prompt|developer\s+message|you\s+are\s+chatgpt|<\|(?:system|assistant|developer)\|>|执行以下指令|忽略(?:之前|以上).*指令|系统提示词)/iu.test(
+		text,
+	);
 }
 
 interface SpanDraft {
@@ -157,7 +178,9 @@ function assertCourseId(courseId: string): void {
 	}
 }
 
-function courseVersionIdentity(version: Pick<CourseVersion, "courseId" | "materials" | "spans">): Record<string, unknown> {
+function courseVersionIdentity(
+	version: Pick<CourseVersion, "courseId" | "materials" | "spans">,
+): Record<string, unknown> {
 	return {
 		courseId: version.courseId,
 		materials: version.materials.map((material) => ({
@@ -181,21 +204,29 @@ function courseVersionIdentity(version: Pick<CourseVersion, "courseId" | "materi
 
 function assertCourseVersionIntegrity(version: CourseVersion): void {
 	assertCourseId(version.courseId);
-	if (version.version !== HARNESS_CONTRACT_VERSION) throw new CourseHostError("UNSUPPORTED_VERSION", "Unsupported course contract version");
-	if (!Number.isSafeInteger(version.revision) || version.revision < 1) throw new CourseHostError("INVALID_REVISION", "Course revision must be positive");
-	if (!Number.isFinite(Date.parse(version.createdAt))) throw new CourseHostError("INVALID_TIMESTAMP", "Course createdAt must be ISO-8601");
+	if (version.version !== HARNESS_CONTRACT_VERSION)
+		throw new CourseHostError("UNSUPPORTED_VERSION", "Unsupported course contract version");
+	if (!Number.isSafeInteger(version.revision) || version.revision < 1)
+		throw new CourseHostError("INVALID_REVISION", "Course revision must be positive");
+	if (!Number.isFinite(Date.parse(version.createdAt)))
+		throw new CourseHostError("INVALID_TIMESTAMP", "Course createdAt must be ISO-8601");
 	const materialById = new Map<string, CourseMaterial>();
 	for (const material of version.materials) {
-		if (materialById.has(material.materialId)) throw new CourseHostError("DUPLICATE_MATERIAL", `Duplicate material ${material.materialId}`);
-		if (`sha256:${sha256Hex(material.normalizedText)}` !== material.contentHash) throw new CourseHostError("MATERIAL_HASH_MISMATCH", `Material ${material.materialId} failed integrity check`);
+		if (materialById.has(material.materialId))
+			throw new CourseHostError("DUPLICATE_MATERIAL", `Duplicate material ${material.materialId}`);
+		if (`sha256:${sha256Hex(material.normalizedText)}` !== material.contentHash)
+			throw new CourseHostError("MATERIAL_HASH_MISMATCH", `Material ${material.materialId} failed integrity check`);
 		materialById.set(material.materialId, material);
 	}
 	for (const span of version.spans) {
 		const material = materialById.get(span.materialId);
-		if (!material || material.contentHash !== span.materialHash) throw new CourseHostError("SPAN_MATERIAL_MISMATCH", `Span ${span.spanId} references an invalid material`);
-		if (span.courseVersionId !== version.courseVersionId) throw new CourseHostError("SPAN_VERSION_MISMATCH", `Span ${span.spanId} references another course version`);
+		if (!material || material.contentHash !== span.materialHash)
+			throw new CourseHostError("SPAN_MATERIAL_MISMATCH", `Span ${span.spanId} references an invalid material`);
+		if (span.courseVersionId !== version.courseVersionId)
+			throw new CourseHostError("SPAN_VERSION_MISMATCH", `Span ${span.spanId} references another course version`);
 		const textHash = `sha256:${sha256Hex(span.text)}`;
-		if (textHash !== span.textHash) throw new CourseHostError("SPAN_HASH_MISMATCH", `Span ${span.spanId} failed text integrity check`);
+		if (textHash !== span.textHash)
+			throw new CourseHostError("SPAN_HASH_MISMATCH", `Span ${span.spanId} failed text integrity check`);
 		const spanId = deterministicId("span", {
 			materialHash: span.materialHash,
 			ordinal: span.ordinal,
@@ -203,11 +234,20 @@ function assertCourseVersionIntegrity(version: CourseVersion): void {
 			endLine: span.endLine,
 			textHash,
 		});
-		if (spanId !== span.spanId) throw new CourseHostError("SPAN_ID_MISMATCH", `Span ${span.spanId} has an invalid identity`);
+		if (spanId !== span.spanId)
+			throw new CourseHostError("SPAN_ID_MISMATCH", `Span ${span.spanId} has an invalid identity`);
 	}
 	const identity = courseVersionIdentity(version);
-	if (contentHash(identity) !== version.contentHash) throw new CourseHostError("COURSE_HASH_MISMATCH", `Course version ${version.courseVersionId} failed integrity check`);
-	if (deterministicId("course-version", identity, 32) !== version.courseVersionId) throw new CourseHostError("COURSE_ID_MISMATCH", `Course version ${version.courseVersionId} has an invalid identity`);
+	if (contentHash(identity) !== version.contentHash)
+		throw new CourseHostError(
+			"COURSE_HASH_MISMATCH",
+			`Course version ${version.courseVersionId} failed integrity check`,
+		);
+	if (deterministicId("course-version", identity, 32) !== version.courseVersionId)
+		throw new CourseHostError(
+			"COURSE_ID_MISMATCH",
+			`Course version ${version.courseVersionId} has an invalid identity`,
+		);
 }
 
 export interface CourseHostState {
@@ -225,20 +265,57 @@ export class CourseHost {
 		options: PublishCourseVersionOptions = {},
 	): Promise<CourseVersion> {
 		assertCourseId(courseId);
-		if (materialValues.length === 0) throw new CourseHostError("EMPTY_COURSE", "A course version needs at least one material");
+		if (materialValues.length === 0)
+			throw new CourseHostError("EMPTY_COURSE", "A course version needs at least one material");
 		const maxSpanCharacters = options.maxSpanCharacters ?? 1200;
 		if (!Number.isSafeInteger(maxSpanCharacters) || maxSpanCharacters < 200 || maxSpanCharacters > 10000) {
 			throw new CourseHostError("INVALID_SPAN_LIMIT", "maxSpanCharacters must be an integer from 200 to 10000");
 		}
+		const maxPdfTextCharacters = options.maxPdfTextCharacters ?? DEFAULT_MAX_PDF_TEXT_CHARACTERS;
+		if (
+			!Number.isSafeInteger(maxPdfTextCharacters) ||
+			maxPdfTextCharacters < 1_000 ||
+			maxPdfTextCharacters > 16_000_000
+		) {
+			throw new CourseHostError(
+				"INVALID_PDF_TEXT_LIMIT",
+				"maxPdfTextCharacters must be an integer from 1000 to 16000000",
+			);
+		}
+		const maxCourseTextCharacters = options.maxCourseTextCharacters ?? DEFAULT_MAX_COURSE_TEXT_CHARACTERS;
+		if (
+			!Number.isSafeInteger(maxCourseTextCharacters) ||
+			maxCourseTextCharacters < 1_000 ||
+			maxCourseTextCharacters > 32_000_000
+		) {
+			throw new CourseHostError(
+				"INVALID_COURSE_TEXT_LIMIT",
+				"maxCourseTextCharacters must be an integer from 1000 to 32000000",
+			);
+		}
+		const maxCourseSpans = options.maxCourseSpans ?? DEFAULT_MAX_COURSE_SPANS;
+		if (!Number.isSafeInteger(maxCourseSpans) || maxCourseSpans < 1 || maxCourseSpans > 100_000) {
+			throw new CourseHostError("INVALID_COURSE_SPAN_LIMIT", "maxCourseSpans must be an integer from 1 to 100000");
+		}
 		const names = new Set<string>();
 		const materials: CourseMaterial[] = [];
 		const spanDrafts: Array<{ material: CourseMaterial; spans: SpanDraft[] }> = [];
+		let courseTextCharacters = 0;
+		let courseSpanCount = 0;
 		for (const value of materialValues) {
 			const input = parseCourseMaterialInput(value);
-			if (names.has(input.name)) throw new CourseHostError("DUPLICATE_MATERIAL", `Duplicate material name ${input.name}`);
+			if (names.has(input.name))
+				throw new CourseHostError("DUPLICATE_MATERIAL", `Duplicate material name ${input.name}`);
 			names.add(input.name);
-			const normalizedText = await materialText(input, options.pdfTextExtractor);
+			const normalizedText = await materialText(input, options.pdfTextExtractor, maxPdfTextCharacters);
 			if (!normalizedText) throw new CourseHostError("EMPTY_MATERIAL", `${input.name} has no normalized text`);
+			courseTextCharacters += normalizedText.length;
+			if (courseTextCharacters > maxCourseTextCharacters) {
+				throw new CourseHostError(
+					"COURSE_TEXT_TOO_LARGE",
+					`Course ${courseId} exceeds ${maxCourseTextCharacters} normalized text characters`,
+				);
+			}
 			const materialHash = `sha256:${sha256Hex(normalizedText)}`;
 			const material: CourseMaterial = {
 				materialId: deterministicId("material", { courseId, name: input.name, kind: input.kind, materialHash }),
@@ -250,7 +327,12 @@ export class CourseHost {
 				metadata: { ...(input.metadata ?? {}) },
 			};
 			materials.push(material);
-			spanDrafts.push({ material, spans: splitIntoSpans(normalizedText, input.kind, maxSpanCharacters) });
+			const drafts = splitIntoSpans(normalizedText, input.kind, maxSpanCharacters);
+			courseSpanCount += drafts.length;
+			if (courseSpanCount > maxCourseSpans) {
+				throw new CourseHostError("COURSE_SPAN_LIMIT", `Course ${courseId} exceeds ${maxCourseSpans} source spans`);
+			}
+			spanDrafts.push({ material, spans: drafts });
 		}
 		materials.sort((left, right) => left.name.localeCompare(right.name));
 		spanDrafts.sort((left, right) => left.material.name.localeCompare(right.material.name));
@@ -281,7 +363,8 @@ export class CourseHost {
 		if (existing) return existing;
 		const previous = this.getLatest(courseId);
 		const createdAt = options.createdAt ?? new Date().toISOString();
-		if (!Number.isFinite(Date.parse(createdAt))) throw new CourseHostError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
+		if (!Number.isFinite(Date.parse(createdAt)))
+			throw new CourseHostError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
 		const spans: SourceSpan[] = spanDrafts.flatMap(({ material, spans: drafts }) =>
 			drafts.map((span) => {
 				const textHash = `sha256:${sha256Hex(span.text)}`;
@@ -351,15 +434,20 @@ export class CourseHost {
 	}
 
 	restoreState(state: CourseHostState): void {
-		if (!state || state.version !== 1 || !Array.isArray(state.versions)) throw new CourseHostError("INVALID_STATE", "Invalid CourseHost state");
-		if (this.versionsById.size > 0) throw new CourseHostError("STATE_NOT_EMPTY", "CourseHost restore requires an empty host");
+		if (!state || state.version !== 1 || !Array.isArray(state.versions))
+			throw new CourseHostError("INVALID_STATE", "Invalid CourseHost state");
+		if (this.versionsById.size > 0)
+			throw new CourseHostError("STATE_NOT_EMPTY", "CourseHost restore requires an empty host");
 		for (const candidate of state.versions) {
 			assertCourseVersionIntegrity(candidate);
 			const previous = this.getLatest(candidate.courseId);
 			const expectedRevision = previous ? previous.revision + 1 : 1;
 			const expectedParent = previous?.courseVersionId ?? null;
 			if (candidate.revision !== expectedRevision || candidate.parentCourseVersionId !== expectedParent) {
-				throw new CourseHostError("VERSION_CHAIN_MISMATCH", `Course ${candidate.courseId} has a broken version chain`);
+				throw new CourseHostError(
+					"VERSION_CHAIN_MISMATCH",
+					`Course ${candidate.courseId} has a broken version chain`,
+				);
 			}
 			const restored = deepFreeze(JSON.parse(stableStringify(candidate)) as CourseVersion);
 			this.versionsById.set(restored.courseVersionId, restored);
@@ -372,29 +460,35 @@ export class CourseHost {
 	readSpan(courseVersionId: string, spanId: string): SourceSpan {
 		const version = this.getVersion(courseVersionId);
 		const span = version.spans.find((item) => item.spanId === spanId);
-		if (!span) throw new CourseHostError("SPAN_SCOPE_MISMATCH", `Span ${spanId} is not in course version ${courseVersionId}`);
+		if (!span)
+			throw new CourseHostError("SPAN_SCOPE_MISMATCH", `Span ${spanId} is not in course version ${courseVersionId}`);
 		return span;
 	}
 
 	assertBoundAccess(binding: SessionBinding, snapshot: ResourceSnapshot, courseVersionId: string): void {
-		if (binding.courseVersionId !== courseVersionId) throw new CourseHostError("COURSE_BINDING_MISMATCH", "Session is bound to another course version");
-		if (snapshot.courseVersionId !== courseVersionId) throw new CourseHostError("SNAPSHOT_BINDING_MISMATCH", "Snapshot is bound to another course version");
-		if (binding.resourceSnapshotId !== snapshot.resourceSnapshotId) throw new CourseHostError("SNAPSHOT_BINDING_MISMATCH", "Binding references another snapshot");
+		if (binding.courseVersionId !== courseVersionId)
+			throw new CourseHostError("COURSE_BINDING_MISMATCH", "Session is bound to another course version");
+		if (snapshot.courseVersionId !== courseVersionId)
+			throw new CourseHostError("SNAPSHOT_BINDING_MISMATCH", "Snapshot is bound to another course version");
+		if (binding.resourceSnapshotId !== snapshot.resourceSnapshotId)
+			throw new CourseHostError("SNAPSHOT_BINDING_MISMATCH", "Binding references another snapshot");
 	}
 
 	exportManifest(courseVersionId: string): JsonValue {
 		const version = this.getVersion(courseVersionId);
-		return JSON.parse(stableStringify({
-			version: version.version,
-			courseId: version.courseId,
-			courseVersionId: version.courseVersionId,
-			revision: version.revision,
-			parentCourseVersionId: version.parentCourseVersionId,
-			contentHash: version.contentHash,
-			createdAt: version.createdAt,
-			materials: version.materials.map(({ normalizedText: _text, ...material }) => material),
-			spans: version.spans.map(({ text: _text, ...span }) => span),
-		})) as JsonValue;
+		return JSON.parse(
+			stableStringify({
+				version: version.version,
+				courseId: version.courseId,
+				courseVersionId: version.courseVersionId,
+				revision: version.revision,
+				parentCourseVersionId: version.parentCourseVersionId,
+				contentHash: version.contentHash,
+				createdAt: version.createdAt,
+				materials: version.materials.map(({ normalizedText: _text, ...material }) => material),
+				spans: version.spans.map(({ text: _text, ...span }) => span),
+			}),
+		) as JsonValue;
 	}
 }
 
@@ -403,10 +497,14 @@ export class CourseSessionRegistry {
 	private readonly bindingBySession = new Map<string, SessionBinding>();
 
 	register(binding: SessionBinding): void {
-		if (!binding.courseVersionId) throw new CourseHostError("COURSE_REQUIRED", "Course session needs a course version");
+		if (!binding.courseVersionId)
+			throw new CourseHostError("COURSE_REQUIRED", "Course session needs a course version");
 		const existing = this.bindingBySession.get(binding.sessionId);
 		if (existing && existing.courseVersionId !== binding.courseVersionId) {
-			throw new CourseHostError("COURSE_REBIND_FORBIDDEN", "An existing session cannot move to another course version");
+			throw new CourseHostError(
+				"COURSE_REBIND_FORBIDDEN",
+				"An existing session cannot move to another course version",
+			);
 		}
 		this.bindingBySession.set(binding.sessionId, binding);
 		const sessions = this.byCourseVersion.get(binding.courseVersionId) ?? [];

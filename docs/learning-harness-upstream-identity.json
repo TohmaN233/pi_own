@@ -17,7 +17,32 @@
 		"upstream": "agegr/pi-web",
 		"plannedBaselineCommit": "28bab3c25f5f6770c9b0b745ebbfec1c27f7b948",
 		"plannedVersion": "0.8.11",
-		"integrated": false
+		"integrated": true,
+		"vendoredPath": "apps/pi-web",
+		"upstreamTree": "51cdc97801ea0f8316ee6fd19ab0adcc7a8b0204",
+		"manifest": "docs/pi-web-upstream-manifest.json",
+		"downstreamModifiedPaths": [
+			"AGENTS.md",
+			"app/api/agent/[id]/events/route.ts",
+			"app/api/agent/[id]/route.ts",
+			"app/api/agent/new/route.ts",
+			"app/page.tsx",
+			"components/AppShell.file-viewer-state.test.mjs",
+			"components/SessionSidebar.test.mjs",
+			"components/SessionSidebar.tsx",
+			"hooks/useAgentSession.test.mjs",
+			"lib/directory-browser.test.mjs",
+			"lib/model-discovery.test.mjs",
+			"lib/next-config.test.mjs",
+			"lib/project-command-env.test.mjs",
+			"lib/rpc-manager.test.mjs",
+			"lib/rpc-manager.ts",
+			"lib/subagent-input.test.mjs",
+			"next.config.ts",
+			"package-lock.json",
+			"package.json",
+			"tsconfig.json"
+		]
 	},
 	"ynReference": {
 		"repository": "TohmaN233/YN-translation-workshop",

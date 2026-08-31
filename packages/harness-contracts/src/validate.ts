@@ -1,20 +1,20 @@
 import {
 	HARNESS_CONTRACT_VERSION,
 	HARNESS_ROLES,
-	HOST_NAMES,
-	VALIDATOR_SEVERITIES,
-	VALIDATOR_STATUSES,
-	WORKFLOW_KINDS,
-	WORKFLOW_STATUSES,
 	type HarnessJsonlEntry,
+	HOST_NAMES,
 	type HostCommand,
 	type JsonValue,
 	type ResourceSnapshotRef,
 	type RuntimeJournalRecord,
 	type SessionBinding,
+	VALIDATOR_SEVERITIES,
+	VALIDATOR_STATUSES,
 	type ValidatorIssue,
 	type ValidatorResult,
 	type ValidatorSubject,
+	WORKFLOW_KINDS,
+	WORKFLOW_STATUSES,
 	type WorkflowRun,
 } from "./contracts.ts";
 
@@ -133,16 +133,7 @@ export function parseSessionBinding(value: unknown): SessionBinding {
 	const record = expectRecord(value, path);
 	expectExactKeys(
 		record,
-		[
-			"version",
-			"bindingId",
-			"sessionId",
-			"courseVersionId",
-			"resourceSnapshotId",
-			"role",
-			"createdAt",
-			"revision",
-		],
+		["version", "bindingId", "sessionId", "courseVersionId", "resourceSnapshotId", "role", "createdAt", "revision"],
 		path,
 	);
 	return {
@@ -162,15 +153,7 @@ export function parseResourceSnapshotRef(value: unknown): ResourceSnapshotRef {
 	const record = expectRecord(value, path);
 	expectExactKeys(
 		record,
-		[
-			"version",
-			"resourceSnapshotId",
-			"profileId",
-			"profileRevision",
-			"courseVersionId",
-			"contentHash",
-			"createdAt",
-		],
+		["version", "resourceSnapshotId", "profileId", "profileRevision", "courseVersionId", "contentHash", "createdAt"],
 		path,
 	);
 	return {
@@ -189,17 +172,7 @@ export function parseWorkflowRun(value: unknown): WorkflowRun {
 	const record = expectRecord(value, path);
 	expectExactKeys(
 		record,
-		[
-			"version",
-			"runId",
-			"sessionBindingId",
-			"kind",
-			"status",
-			"sequence",
-			"startedAt",
-			"updatedAt",
-			"revision",
-		],
+		["version", "runId", "sessionBindingId", "kind", "status", "sequence", "startedAt", "updatedAt", "revision"],
 		path,
 	);
 	return {
