@@ -6,6 +6,7 @@ on:
       - feature/mode-pack-platform-fallback
     paths:
       - 'scripts/.apply-mode-pack-p1.mjs'
+      - '.github/workflows/apply-mode-pack-p1.yml'
 
 permissions:
   contents: write
@@ -54,7 +55,7 @@ jobs:
           node --test apps/pi-web/components/harness/HarnessShell.test.mjs
           node --test scripts/mode-pack-session-runtime.test.mjs
 
-      - name: Commit the exact reviewed file set
+      - name: Commit the exact reviewed source file set
         shell: bash
         run: |
           set -euo pipefail
@@ -76,16 +77,14 @@ jobs:
             apps/pi-web/lib/mode-pack-pi-runtime.test.mjs \
             scripts/mode-pack-session-runtime.test.mjs \
             scripts/mode-pack-workflow-runtime.test.mjs \
-            scripts/mode-pack-live-wiring.test.mjs \
-            .github/workflows/mode-pack-checkpoint.yml
+            scripts/mode-pack-live-wiring.test.mjs
           git add -u -- \
             packages/education-mode-host/package.json \
             scripts/.apply-mode-pack-p1.mjs \
             scripts/.mode-pack-p1.0 \
             scripts/.mode-pack-p1.1 \
             scripts/.mode-pack-p1.2 \
-            scripts/.mode-pack-p1.3 \
-            .github/workflows/apply-mode-pack-p1.yml
+            scripts/.mode-pack-p1.3
           git diff --cached --check
           git commit -m 'feat: complete live Mode Pack runtime'
           git push origin HEAD:feature/mode-pack-platform-fallback
