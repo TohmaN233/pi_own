@@ -10,6 +10,7 @@ import {
   searchHarnessCourse,
   selectHarnessCourse,
 	switchHarnessProfile,
+  type HarnessModePackDraft,
   type HarnessSpan,
   type HarnessStatus,
   type HarnessTimelineEvent,
@@ -21,7 +22,7 @@ export function HarnessShell({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session") ?? undefined;
   const [status, setStatus] = useState<HarnessStatus | null>(null);
-  const [panel, setPanel] = useState<"import" | "sources" | "timeline" | "practice" | "snapshot" | null>(null);
+  const [panel, setPanel] = useState<"import" | "sources" | "timeline" | "practice" | "snapshot" | "modes" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
@@ -141,6 +142,76 @@ export function HarnessShell({ children }: { children: ReactNode }) {
 		}
 	};
 
+	const createCustomModePack = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (!sessionId || !status?.session) return;
+		const form = new FormData(event.currentTarget);
+		const modePackId = String(form.get("modePackId") ?? "").trim();
+		const title = String(form.get("title") ?? "").trim();
+		const description = String(form.get("description") ?? "").trim() || "Custom course-bound learner Mode Pack.";
+		const systemPrompt = String(form.get("systemPrompt") ?? "").trim();
+		const rawWorkflow = String(form.get("baseWorkflow") ?? "tutor");
+		const workflow = rawWorkflow === "practice" || rawWorkflow === "teach-back" ? rawWorkflow : "tutor";
+		if (!modePackId.startsWith("custom.") || !title || !systemPrompt) {
+			setNotice("Custom Mode Pack id, title, and prompt are required; the id must start with custom.");
+			return;
+		}
+		const selectedSkills = new Set(form.getAll("components").map((value) => String(value)));
+		if (workflow === "teach-back") selectedSkills.add("education.feynman-teach-back");
+		const runtimeMode = workflow === "practice" ? "practice" as const : "student-learn" as const;
+		const draft: HarnessModePackDraft = {
+			version: 1,
+			modePackId,
+			revision: 1,
+			title,
+			description,
+			category: "education",
+			role: "student",
+			runtimeMode,
+			provider: null,
+			model: null,
+			thinkingLevel: "high",
+			externalKnowledgePolicy: runtimeMode === "practice" ? "deny" : "explain-and-label",
+			courseRequired: true,
+			tools: [],
+			components: [
+				{ type: "plugin", id: "learning-harness", required: true, enabled: true },
+				{ type: "workflow", id: workflow, required: true, enabled: true },
+				...[...selectedSkills].sort().map((id) => ({
+					type: "skill" as const,
+					id,
+					required: false,
+					enabled: true,
+				})),
+			],
+			systemPrompt,
+			instructions: [],
+		};
+		const current = status.session;
+		const operation = `${current.resourceSnapshotId}\u0000${modePackId}\u0000${JSON.stringify(draft)}`;
+		const idempotencyKey = profileOperationKeys.current.get(operation) ?? crypto.randomUUID();
+		profileOperationKeys.current.set(operation, idempotencyKey);
+		setBusy(true);
+		setNotice(null);
+		try {
+			await switchHarnessProfile(
+				sessionId,
+				modePackId,
+				current.resourceSnapshotId,
+				idempotencyKey,
+				draft,
+			);
+			profileOperationKeys.current.delete(operation);
+			await refresh();
+			setPanel(null);
+			setNotice(`Activated ${title} as immutable Mode Pack ${modePackId}.`);
+		} catch (error) {
+			setNotice(error instanceof Error ? error.message : String(error));
+		} finally {
+			setBusy(false);
+		}
+	};
+
   const selected = status?.activeCourseVersionId ?? "";
 
   return (
@@ -163,7 +234,7 @@ export function HarnessShell({ children }: { children: ReactNode }) {
         </select>
 		<select
 			className={styles.select}
-			aria-label="Learning profile"
+			aria-label="Mode Pack"
 			aria-busy={busy || Boolean(status?.session?.pendingTransition)}
 			value={status?.session?.profileId ?? ""}
 			onChange={(event) => void switchProfile(event.target.value)}
@@ -172,7 +243,7 @@ export function HarnessShell({ children }: { children: ReactNode }) {
 			<option value="">No bound learner profile</option>
 			{status?.availableProfiles.map((profile) => (
 				<option key={profile.profileId} value={profile.profileId} disabled={!profile.selectable} title={profile.disabledReason ?? undefined}>
-					{profile.profileId}{profile.selectable ? "" : ` — ${profile.disabledReason}`}
+					{profile.title} · {profile.profileId}{profile.selectable ? "" : ` — ${profile.disabledReason}`}
 				</option>
 			))}
 		</select>
@@ -183,6 +254,9 @@ export function HarnessShell({ children }: { children: ReactNode }) {
         <button className={styles.button} type="button" onClick={() => setPanel(panel === "import" ? null : "import")} aria-expanded={panel === "import"}>
           Import
         </button>
+		<button className={styles.button} type="button" onClick={() => setPanel(panel === "modes" ? null : "modes")} aria-expanded={panel === "modes"} disabled={!status?.session}>
+			Modes
+		</button>
 		<button className={styles.button} type="button" onClick={() => setPanel(panel === "snapshot" ? null : "snapshot")} aria-expanded={panel === "snapshot"} disabled={!status?.session}>
 			Snapshot
 		</button>
@@ -221,6 +295,84 @@ export function HarnessShell({ children }: { children: ReactNode }) {
         </section>
       )}
 
+      {panel === "modes" && status?.session && sessionId && (
+        <section className={styles.panel} aria-label="Mode Pack editor">
+          <h2 className={styles.panelTitle}>Mode Packs</h2>
+          <p className={styles.empty}>
+            Active: {status.availableProfiles.find((item) => item.profileId === status.session?.profileId)?.title ?? status.session.profileId}
+            {" · "}{status.session.profileId}
+          </p>
+          <form className={styles.form} onSubmit={createCustomModePack}>
+            <label>
+              Custom Mode Pack ID
+              <input
+                className={styles.input}
+                name="modePackId"
+                required
+                pattern="custom\.[a-z0-9]+(?:[.-][a-z0-9]+)*"
+                placeholder="custom.statistics"
+              />
+            </label>
+            <label>
+              Display title
+              <input className={styles.input} name="title" required placeholder="Statistics coach" />
+            </label>
+            <label>
+              Description
+              <input className={styles.input} name="description" placeholder="How this mode should be used" />
+            </label>
+            <label>
+              Base workflow
+              <select className={styles.select} name="baseWorkflow" defaultValue="tutor">
+                <option value="tutor">Tutor</option>
+                <option value="practice">Practice</option>
+                <option value="teach-back">Teach-back</option>
+              </select>
+            </label>
+            <label>
+              Fixed Mode Pack prompt
+              <textarea
+                className={styles.textarea}
+                name="systemPrompt"
+                required
+                rows={6}
+                placeholder="State the teaching style, workflow emphasis, terminology, and quality bar for this mode."
+              />
+            </label>
+            <fieldset className={styles.modeFieldset}>
+              <legend>Installed optional Skills</legend>
+              {status.modePackComponents.filter((option) => option.type === "skill").map((option) => (
+                <label className={styles.componentOption} key={option.id}>
+                  <input
+                    type="checkbox"
+                    name="components"
+                    value={option.id}
+                    defaultChecked={option.recommended}
+                  />
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <button className={styles.button} type="submit" disabled={busy || !status.session.runtime.verified}>
+              {busy ? "Activating…" : "Compile and activate"}
+            </button>
+          </form>
+          <div className={styles.modeList}>
+            {status.availableProfiles.map((profile) => (
+              <article className={styles.modeCard} key={profile.profileId}>
+                <strong>{profile.title}</strong>
+                <span className={styles.resultMeta}>{profile.profileId} · {profile.runtimeMode} · {profile.source}</span>
+                <span>{profile.description}</span>
+                {!profile.selectable && <span className={styles.resultMeta}>{profile.disabledReason}</span>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {panel === "sources" && status?.session && sessionId && (
         <section className={styles.panel} aria-label="Course sources">
           <h2 className={styles.panelTitle}>Current-course sources</h2>
@@ -247,13 +399,16 @@ export function HarnessShell({ children }: { children: ReactNode }) {
 				<h2 className={styles.panelTitle}>Snapshot inspector</h2>
 				<div className={styles.inspector}>
 					<dl>
-						<dt>Profile</dt><dd>{status.session.snapshot.profileId} · {status.session.snapshot.mode}</dd>
+						<dt>Mode Pack</dt><dd>{status.availableProfiles.find((item) => item.profileId === status.session?.profileId)?.title ?? status.session.snapshot.profileId} · {status.session.snapshot.profileId}</dd>
+						<dt>Runtime envelope</dt><dd>{status.session.snapshot.mode} · {status.session.snapshot.role}</dd>
 						<dt>Binding revision</dt><dd>{status.session.bindingRevision}</dd>
 						<dt>Snapshot</dt><dd>{status.session.snapshot.resourceSnapshotId}</dd>
+						<dt>Snapshot hash</dt><dd>{status.session.snapshot.contentHash}</dd>
 						<dt>Course</dt><dd>{status.session.snapshot.courseVersionId}</dd>
 						<dt>Runtime</dt><dd>{status.session.runtime.verified ? "verified" : status.session.runtime.diagnostic ?? "recovery required"}</dd>
 						<dt>Active tools</dt><dd>{status.session.runtime.activeTools.join(", ") || "none"}</dd>
-						<dt>Resources</dt><dd>{status.session.snapshot.resources.map((resource) => `${resource.kind}:${resource.id}@${resource.version}`).join(", ") || "none"}</dd>
+						<dt>Resources</dt><dd>{status.session.snapshot.resources.map((resource) => `${resource.kind}:${resource.id}@${resource.version}#${resource.contentHash.slice(0, 18)}`).join(", ") || "none"}</dd>
+						<dt>Compiled instructions</dt><dd>{status.session.snapshot.instructions.length}</dd>
 					</dl>
 					{status.session.pendingTransition && <p className={styles.empty}>Recovery required: a profile transition is pending for {status.session.pendingTransition.targetProfileId}.</p>}
 					{!status.session.runtime.verified && <p className={styles.empty}>Profile switching stays disabled until this runtime is verified.</p>}

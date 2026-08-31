@@ -24,7 +24,8 @@ export interface HarnessSessionSummary {
 		thinkingLevel: string;
 		externalKnowledgePolicy: string;
 		tools: string[];
-		resources: Array<{ kind: string; id: string; version: string; required: boolean; enabled: boolean }>;
+		resources: Array<{ kind: string; id: string; version: string; contentHash: string; required: boolean; enabled: boolean }>;
+		instructions: string[];
 		createdAt: string;
 		contentHash: string;
 	};
@@ -34,8 +35,49 @@ export interface HarnessSessionSummary {
 
 export interface HarnessAvailableProfile {
 	profileId: string;
+	title: string;
+	description: string;
+	category: string;
+	source: "builtin" | "custom";
+	runtimeMode: string;
 	selectable: boolean;
 	disabledReason: string | null;
+	missingRequiredResources: string[];
+	missingOptionalResources: string[];
+	identityMismatches: string[];
+}
+
+export interface HarnessModePackComponentOption {
+	type: "skill" | "workflow";
+	id: string;
+	title: string;
+	description: string;
+	recommended: boolean;
+}
+
+export interface HarnessModePackDraft {
+	version: 1;
+	modePackId: string;
+	revision: number;
+	title: string;
+	description: string;
+	category: "education" | "coding" | "creative" | "general";
+	role: "student" | "teacher" | "general";
+	runtimeMode: "general" | "student-learn" | "practice" | "visual-lab" | "teacher-prep";
+	provider: string | null;
+	model: string | null;
+	thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	externalKnowledgePolicy: "deny" | "explain-and-label" | "allow";
+	courseRequired: boolean;
+	tools: string[];
+	components: Array<{
+		type: "skill" | "plugin" | "prompt" | "workflow" | "theme";
+		id: string;
+		required: boolean;
+		enabled: boolean;
+	}>;
+	systemPrompt: string;
+	instructions: string[];
 }
 
 export interface HarnessStatus {
@@ -44,6 +86,7 @@ export interface HarnessStatus {
   courses: HarnessCourseSummary[];
   session: HarnessSessionSummary | null;
 	availableProfiles: HarnessAvailableProfile[];
+	modePackComponents: HarnessModePackComponentOption[];
 }
 
 async function harnessRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -63,11 +106,18 @@ export function switchHarnessProfile(
 	targetProfileId: string,
 	expectedSnapshotId: string,
 	idempotencyKey: string,
+	modePackDraft?: HarnessModePackDraft,
 ): Promise<{ sessionId: string; profileId: string; resourceSnapshotId: string; bindingRevision: number }> {
 	return harnessRequest("/api/harness/profile", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ sessionId, targetProfileId, expectedSnapshotId, idempotencyKey }),
+		body: JSON.stringify({
+			sessionId,
+			targetProfileId,
+			expectedSnapshotId,
+			idempotencyKey,
+			...(modePackDraft ? { modePackDraft } : {}),
+		}),
 	});
 }
 

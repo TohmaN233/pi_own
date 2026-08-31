@@ -43,7 +43,8 @@ PDF 提取器按以下顺序解析：
 4. 新建一个 Pi 会话并选择该课程。课程选择只作用于**之后新建**的会话；已有会话不会被重新绑定。
 5. 在 **Sources** 中输入课程内的术语检索，打开结果并点击引用，确认来源内容和课程范围正确。
 6. 点击 **Practice**，选择练习，提交至少三字符的具体推理，再按需逐级显示 Hint。满足门槛后可以点击一次 **Reveal solution once**；关闭面板或刷新页面会丢弃浏览器内存中的答案，服务端 Capability 也已经消费。
-7. 在已绑定会话顶部的 **Learning profile** 中切换 `student-learn` 和 `practice`，然后打开 **Snapshot**。切换会保留同一个 Pi session 和 JSONL，并在 Inspector 中显示新的 Snapshot、Binding revision 与 runtime verification。`visual-lab` 和 `teacher-prep` 会明确显示不可用原因；当前版本不提供硬课程/角色切换。
+7. 在已绑定会话顶部的 **Mode Pack** 中切换 Tutor、Practice 和 Teach-back，然后打开 **Snapshot**。切换会保留同一个 Pi session 和 JSONL，并在 Inspector 中显示 Mode Pack、Runtime envelope、Snapshot hash、Binding revision、实际工具和精确资源清单。
+8. 打开 **Modes**，以 `custom.` 开头填写 ID，选择 Tutor / Practice / Teach-back workflow、固定提示词和可选 Skills，点击 **Compile and activate**。刷新或重启后确认自定义 Mode Pack 仍在下拉框和 Snapshot history 中。`visual-lab`、`teacher-prep`、`coding`、`creative` 和 `general` 会显示缺少运行时或需要 hard transition 的原因，不会伪装成已安装。
 
 若要验证跨课程隔离，可导入第二门课程，分别为两门课程新建会话；当前会话的 Sources 只能返回其绑定课程的 span，伪造的跨课程引用会被拒绝。
 
@@ -53,12 +54,12 @@ PDF 提取器按以下顺序解析：
 - SQLite/WAL 持久化课程、内容寻址源字节、会话课程绑定、资源快照、学习事件和当前课程检索；重启后可恢复已提交状态。
 - 当前课程检索、可点击来源、跨课程引用拒绝，以及 Pi JSONL 分支/克隆/导航后的受限恢复。
 - 绑定会话中的练习列表、Start、Meaningful Attempt、Feedback、Hint、一次性 Solution Reveal；公开 Assessment 状态和私有题解分表持久化，重启后不会重置已消费 Capability。
-- `student-learn ↔ practice` 的同会话 Warm Switch；学生学习模式仅激活内部的 publication submit 工具，练习模式没有 Pi coding tool，练习能力由 Practice UI 提供。普通未绑定 Pi 会话不受此配置影响。
+- Tutor / Practice / Teach-back / 自定义 learner Mode Pack 的同会话切换；每次激活都使用不可变 Resource Snapshot 固定提示词、Skill、plugin 和 workflow 身份。学生学习模式仅激活内部的 publication submit 工具，练习模式没有 Pi coding tool，练习能力由 Practice UI 提供。普通未绑定 Pi 会话不受此配置影响。
 
 ## 明确未完成项
 
-- 模型回答端到端教学流程及其语义证据审查。
+- Teach-back 的完整自由文本状态机、跨课概念遭遇史，以及模型回答的语义蕴含审查。
 - 完整 Rubric、练习作者/教师授权流程、针对 Prompt Injection 与直接工具调用的攻击测试，以及浏览器级 Practice E2E。
-- 完整 Timeline、Practice UI、Visual Stage/隔离执行器。
+- Visual Stage/隔离执行器、可交互数学验证、全局跨会话自定义 Mode Pack 库，以及 Coding/Creative/Teacher 的 hard transition。
 - Teacher Studio UI、物理教师构建拆分和发布流程。
 - 规范化 FTS/文件源存储、精确 PDF 页码锚点，以及浏览器级崩溃/重连端到端测试。

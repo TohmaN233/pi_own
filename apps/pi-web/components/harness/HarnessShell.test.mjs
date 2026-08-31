@@ -18,10 +18,20 @@ test("Practice is mounted only for a current bound Harness session", async () =>
 
 test("profile selector exposes disabled modes and the snapshot inspector", async () => {
   const source = await readFile(new URL("./HarnessShell.tsx", import.meta.url), "utf8");
-  assert.match(source, /aria-label="Learning profile"/);
+  assert.match(source, /aria-label="Mode Pack"/);
   assert.match(source, /!status\.session\.runtime\.verified/);
   assert.match(source, /switchHarnessProfile\(sessionId, targetProfileId, current\.resourceSnapshotId, idempotencyKey\)/);
   assert.match(source, /profile\.selectable \? "" :/);
   assert.match(source, /aria-label="Snapshot inspector"/);
   assert.match(source, /Profile switching stays disabled until this runtime is verified/);
+});
+
+test("custom Mode Pack editor compiles prompt, Skills, plugin, and workflow into one switch request", async () => {
+  const source = await readFile(new URL("./HarnessShell.tsx", import.meta.url), "utf8");
+  assert.match(source, /aria-label="Mode Pack editor"/);
+  assert.match(source, /modePackId\.startsWith\("custom\."\)/);
+  assert.match(source, /type: "plugin", id: "learning-harness"/);
+  assert.match(source, /type: "workflow", id: workflow/);
+  assert.match(source, /switchHarnessProfile\([\s\S]*draft,[\s\S]*\)/);
+  assert.match(source, /Compile and activate/);
 });

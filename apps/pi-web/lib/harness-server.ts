@@ -6,6 +6,7 @@ import {
   LearningHarness,
   type HarnessSession,
 } from "../../../packages/learning-harness/src/index.ts";
+import { MODE_PACK_COMPONENT_OPTIONS } from "../../../packages/profile-resource-host/src/index.ts";
 import { invalidateSessionListCache, invalidateSessionPathCache } from "./session-reader";
 
 export const HARNESS_COURSE_COOKIE = "pi-harness-course-version";
@@ -157,4 +158,8 @@ export function courseSummary(courseVersionId: string) {
 
 export function listCourseSummaries() {
   return getLearningHarness().listCourses().map((version) => courseSummary(version.courseVersionId));
+}
+
+export function listModePackComponents() {
+  return structuredClone(MODE_PACK_COMPONENT_OPTIONS);
 }

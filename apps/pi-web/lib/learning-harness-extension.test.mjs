@@ -52,6 +52,8 @@ test("grounded extension stages a valid draft, strips intermediate prose, and on
   const messageEnd = handlers.get("message_end");
   const initial = before({ prompt: "What is a variable?", systemPrompt: "base", systemPromptOptions: {} });
   assert.match(initial.systemPrompt, /Grounding Packet/);
+  assert.match(initial.systemPrompt, /Mode Pack ID: student-learn/);
+  assert.match(initial.systemPrompt, /plan backward/iu);
   assert.doesNotMatch(initial.systemPrompt, /A variable represents an unknown value/);
   assert.match(initial.message.content, /<untrusted_course_content/);
   assert.match(initial.message.content, /A variable represents an unknown value/);
@@ -89,6 +91,7 @@ test("grounded extension stages a valid draft, strips intermediate prose, and on
   assert.equal(insufficient.isError, undefined);
   const insufficientFinal = messageEnd({ message: { role: "assistant", content: [{ type: "text", text: "must be replaced" }] } });
   assert.match(text(insufficientFinal.message), /> Scope: insufficient/);
+  assert.match(text(insufficientFinal.message), /> Reason: No issued source span supports it\./);
 
   before({ prompt: "Repeat with forged source", systemPrompt: "base", systemPromptOptions: {} });
   const rejected = await tool.execute("tool-2", {
@@ -138,7 +141,16 @@ test("grounded extension keeps its outbound gate closed when durable lookup fail
 test("practice profile does not start the grounded publication gate", () => {
   const handlers = new Map();
   const { extension, outboundGate } = createLearningHarnessExtension("practice-session", {
-    findCurrentSession() { return { snapshot: { mode: "practice" } }; },
+    findCurrentSession() {
+      return {
+        snapshot: {
+          mode: "practice",
+          profileId: "custom.practice",
+          resourceSnapshotId: "snapshot-custom-practice",
+          instructions: ["Mode Pack: Custom practice (custom.practice)", "Give one hint at a time."],
+        },
+      };
+    },
     searchCurrentCourse() { throw new Error("practice must not issue a packet"); },
     validateCurrentDraft() { throw new Error("unreachable"); },
     publishCurrentGroundedAnswer() { throw new Error("unreachable"); },
@@ -147,6 +159,8 @@ test("practice profile does not start the grounded publication gate", () => {
     on(event, handler) { handlers.set(event, handler); },
     registerTool() {},
   });
-  assert.equal(handlers.get("before_agent_start")({ prompt: "help with this exercise", systemPrompt: "base", systemPromptOptions: {} }), undefined);
+  const result = handlers.get("before_agent_start")({ prompt: "help with this exercise", systemPrompt: "base", systemPromptOptions: {} });
+  assert.match(result.systemPrompt, /Mode Pack ID: custom\.practice/);
+  assert.match(result.systemPrompt, /Give one hint at a time/);
   assert.equal(outboundGate.isActive(), false);
 });

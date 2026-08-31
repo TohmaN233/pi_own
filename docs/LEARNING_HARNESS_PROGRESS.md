@@ -1,6 +1,6 @@
 # Pi Learning Harness progress
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 Reference plan: `docs/PI_LEARNING_HARNESS_DETAILED_PLAN_V001.md`
 
 ## Current status
@@ -10,6 +10,12 @@ The repository contains a reviewed **Learning Harness foundation and library-lev
 Windows local launch and the current manual verification path are documented in [LOCAL_TESTING.zh-CN.md](LOCAL_TESTING.zh-CN.md).
 
 PR #1 establishes the contracts and core Host boundaries needed to continue implementation without replacing Pi's native Agent loop or transcript. It also contains early in-memory reference implementations for later milestones. Those reference implementations prove interfaces and hard invariants; they do not by themselves satisfy the full product exit conditions in the plan.
+
+## Mode Pack checkpoint
+
+The first Mode Pack vertical slice is implemented on top of the existing Profile / Resource Snapshot boundary. Tutor, Practice, and Teach-back compile fixed prompts, pinned Skills/plugins/workflows, and runtime policy into immutable snapshots. The Harness Modes panel can create a strict custom course-bound learner pack; its selected resources and prompt survive restart in snapshot history. Coding, Creative, General, Teacher Prep, and Visual Lab are declared in the same registry but remain unavailable where a hard role/runtime transition or missing visual tools would be required.
+
+See [MODE_PACKS.md](MODE_PACKS.md) for the contract and current boundary.
 
 ## Status vocabulary
 
@@ -64,7 +70,7 @@ Regression coverage was added under `scripts/learning-harness-review-hardening.t
 ## Important limitations of the merged foundation
 
 - Visual, Teacher, and several Profile Hosts remain reference implementations. Assessment now persists public state in the Harness SQLite transaction and stores immutable private solutions in a separate table; it is not exported through the general state blob.
-- Pi Web is vendored and has a typed Local API, course/profile bar, ZIP/PDF import, Source Inspector, durable shared Timeline, a bound-session Practice panel, and a Profile selector. Only `student-learn` and `practice` are installed product profiles. Visual Lab and Teacher Prep are explicitly unavailable with diagnostics; they are not represented as working runtime resources.
+- Pi Web is vendored and has a typed Local API, course/Mode Pack bar, ZIP/PDF import, Source Inspector, durable shared Timeline, a bound-session Practice panel, a Snapshot Inspector, and a custom learner Mode Pack editor. Tutor, Practice, and Teach-back use the installed learner runtime. Visual Lab, Teacher Prep, Coding, Creative, and General remain explicit unavailable hard/missing-runtime transitions rather than pretend working modes.
 - PDF extraction requires the shipped `pdftotext` adapter and a local `pdftotext` binary. It bounds PDF input, extracted stdout, stderr, execution time, extracted text, total course text, and span count. Validated size-budget rejections return 413; extractor configuration, spawn, stdout/stderr, cleanup, and timeout failures are operational errors, are logged, and return 500. Exact page-number anchors are not implemented.
 - Source bytes are content-addressed SQLite BLOBs in this vertical slice; the planned filesystem content store and normalized/FTS schema remain future work.
 - A SQLite write failure, including failure to acquire `BEGIN IMMEDIATE`, poisons the live composition root so uncommitted in-memory Host state cannot be used or persisted later; the process must reopen the last committed database state.
@@ -79,7 +85,7 @@ Regression coverage was added under `scripts/learning-harness-review-hardening.t
 The M2 integrated vertical slice has passed implementation review and an independent final review. Product implementation is paused here at the owner's request while the remaining work is replanned. The items below are planning inputs, not an approved execution sequence; do not start them until a replacement plan is accepted.
 
 1. **Harden the completed vertical slice** — add browser crash/reconnect E2E, normalized SQLite migrations/FTS, filesystem source storage, and PDF page anchors.
-2. **Profile activation hardening** — add real Pi Skill/package activation beyond the currently installed inline extension, complete fault injection around runtime replacement, and implement hard course/role transitions.
+2. **Mode Pack activation hardening** — extend the current content-addressed prompt/Skill/plugin/workflow catalog with plugin installation, complete fault injection around runtime replacement, a global custom-pack library, and hard course/role transitions.
 3. **Assessment hardening** — richer rubric evaluation, prompt/direct-tool bypass tests, authoring and teacher authorization, and browser E2E.
 4. **Visual sandbox and Stage** — separate runner, computation receipts, artifact revision gate, and five renderer views.
 5. **Physical Teacher split** — distinct student/teacher builds and recursive private-asset scan.

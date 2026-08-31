@@ -232,6 +232,44 @@
   gap: 8px;
 }
 
+.modeFieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.componentOption {
+  grid-template-columns: auto 1fr !important;
+  align-items: start;
+}
+
+.componentOption span {
+  display: grid;
+  gap: 2px;
+}
+
+.componentOption small {
+  color: var(--text-dim);
+}
+
+.modeList {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.modeCard {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
 @media (max-width: 720px) {
   .bar {
     gap: 6px;
