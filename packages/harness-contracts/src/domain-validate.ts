@@ -1,21 +1,21 @@
+import { HARNESS_CONTRACT_VERSION, HARNESS_ROLES, type JsonValue } from "./contracts.ts";
 import {
+	type AnswerClaim,
+	type AnswerDraft,
+	type CourseMaterialInput,
 	EXTERNAL_KNOWLEDGE_POLICIES,
 	MATERIAL_KINDS,
 	PROFILE_MODES,
+	type ProfileDefinition,
 	RESOURCE_KINDS,
+	type ResourceDescriptor,
+	type ResourceSnapshot,
 	SCOPE_LABELS,
 	SNAPSHOT_SWITCH_KINDS,
 	THINKING_LEVELS,
 	VISUALIZATION_KINDS,
-	type AnswerClaim,
-	type AnswerDraft,
-	type CourseMaterialInput,
-	type ProfileDefinition,
-	type ResourceDescriptor,
-	type ResourceSnapshot,
 	type VisualizationSpec,
 } from "./domain.ts";
-import { HARNESS_CONTRACT_VERSION, HARNESS_ROLES, type JsonValue } from "./contracts.ts";
 import { HarnessContractError } from "./validate.ts";
 
 type RecordValue = Record<string, unknown>;
@@ -143,7 +143,9 @@ export function parseProfileDefinition(value: unknown): ProfileDefinition {
 		),
 		courseRequired: booleanValue(item.courseRequired, `${path}.courseRequired`),
 		tools: strings(item.tools, `${path}.tools`),
-		resources: item.resources.map((resource, index) => parseResourceDescriptor(resource, `${path}.resources[${index}]`)),
+		resources: item.resources.map((resource, index) =>
+			parseResourceDescriptor(resource, `${path}.resources[${index}]`),
+		),
 		instructions: strings(item.instructions, `${path}.instructions`),
 	};
 }
@@ -194,7 +196,9 @@ export function parseResourceSnapshot(value: unknown): ResourceSnapshot {
 			`${path}.externalKnowledgePolicy`,
 		),
 		tools: strings(item.tools, `${path}.tools`),
-		resources: item.resources.map((resource, index) => parseResourceDescriptor(resource, `${path}.resources[${index}]`)),
+		resources: item.resources.map((resource, index) =>
+			parseResourceDescriptor(resource, `${path}.resources[${index}]`),
+		),
 		instructions: strings(item.instructions, `${path}.instructions`),
 		createdAt,
 		contentHash: stringValue(item.contentHash, `${path}.contentHash`),
@@ -206,8 +210,10 @@ export function parseCourseMaterialInput(value: unknown): CourseMaterialInput {
 	const item = record(value, path);
 	const allowed = new Set(["name", "kind", "mediaType", "content", "metadata"]);
 	for (const key of Object.keys(item)) if (!allowed.has(key)) fail(`${path}.${key}`, "unknown field");
-	for (const key of ["name", "kind", "mediaType", "content"] as const) if (!(key in item)) fail(`${path}.${key}`, "missing required field");
-	if (typeof item.content !== "string" && !(item.content instanceof Uint8Array)) fail(`${path}.content`, "expected string or Uint8Array");
+	for (const key of ["name", "kind", "mediaType", "content"] as const)
+		if (!(key in item)) fail(`${path}.${key}`, "missing required field");
+	if (typeof item.content !== "string" && !(item.content instanceof Uint8Array))
+		fail(`${path}.content`, "expected string or Uint8Array");
 	let metadata: Record<string, JsonValue> = {};
 	if (item.metadata !== undefined) {
 		const parsed = json(item.metadata, `${path}.metadata`);

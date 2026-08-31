@@ -4,13 +4,15 @@ import { join } from "node:path";
 const dependencySections = ["dependencies", "devDependencies", "optionalDependencies"];
 const exactVersionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const ignoredDirectories = new Set([".git", "dist", "node_modules"]);
+const vendoredDirectories = new Set([join("apps", "pi-web")]);
 const packageJsonFiles = [];
 
 function collectPackageJsonFiles(directory) {
 	for (const entry of readdirSync(directory, { withFileTypes: true })) {
 		if (entry.isDirectory()) {
-			if (!ignoredDirectories.has(entry.name)) {
-				collectPackageJsonFiles(join(directory, entry.name));
+			const child = join(directory, entry.name);
+			if (!ignoredDirectories.has(entry.name) && !vendoredDirectories.has(child)) {
+				collectPackageJsonFiles(child);
 			}
 			continue;
 		}

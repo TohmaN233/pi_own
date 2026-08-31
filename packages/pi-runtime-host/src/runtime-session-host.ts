@@ -1,11 +1,11 @@
 import {
 	HARNESS_CONTRACT_VERSION,
+	type HarnessJsonlEntry,
 	parseHarnessJsonlEntry,
 	parseResourceSnapshotRef,
 	parseRuntimeJournalRecord,
 	parseSessionBinding,
 	parseWorkflowRun,
-	type HarnessJsonlEntry,
 	type ResourceSnapshotRef,
 	type RuntimeJournalRecord,
 	type SessionBinding,
@@ -34,6 +34,11 @@ interface ParsedJournalRecord {
 	record: RuntimeJournalRecord;
 }
 
+interface RecoveredJournal {
+	state: RuntimeSessionState;
+	bindingChain: SessionBinding[];
+}
+
 const TERMINAL_WORKFLOW_STATUSES = new Set<WorkflowStatus>(["succeeded", "failed", "cancelled"]);
 
 const ALLOWED_WORKFLOW_TRANSITIONS: Readonly<Record<WorkflowStatus, ReadonlySet<WorkflowStatus>>> = {
@@ -47,6 +52,14 @@ const ALLOWED_WORKFLOW_TRANSITIONS: Readonly<Record<WorkflowStatus, ReadonlySet<
 
 function sameJson(left: unknown, right: unknown): boolean {
 	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameBindingScope(left: SessionBinding, right: SessionBinding): boolean {
+	return (
+		left.courseVersionId === right.courseVersionId &&
+		left.resourceSnapshotId === right.resourceSnapshotId &&
+		left.role === right.role
+	);
 }
 
 function journalCorruption(nativeEntryId: string, message: string): never {
@@ -83,7 +96,7 @@ export interface PiSessionCustomEntry {
 
 export interface PiSessionStore {
 	getSessionId(): string;
-	getBranch(): Array<PiSessionCustomEntry | { type: string; id: string; [key: string]: unknown }>;
+	getBranch(): Array<{ type: string; id: string; customType?: string; data?: unknown }>;
 	appendCustomEntry(customType: string, data?: unknown): string;
 }
 
@@ -99,9 +112,22 @@ export class RuntimeSessionHost {
 	}
 
 	recover(): RuntimeSessionState {
+		return this.recoverJournal().state;
+	}
+
+	/** Returns the validated binding ancestry, ending with the active binding when present. */
+	inspectBindingLineage(): SessionBinding[] {
+		return this.recoverJournal().bindingChain;
+	}
+
+	private recoverJournal(): RecoveredJournal {
 		const records = this.readJournal();
 		let expectedSequence = 1;
-		let binding: SessionBinding | null = null;
+		let lastBinding: SessionBinding | null = null;
+		let activeBinding: SessionBinding | null = null;
+		let sawCurrentBinding = false;
+		const bindingChain: SessionBinding[] = [];
+		const bindingSessionIds = new Set<string>();
 		const snapshots = new Map<string, ResourceSnapshotRef>();
 		const workflows = new Map<string, WorkflowRun>();
 		const idempotencyKeys = new Set<string>();
@@ -118,7 +144,7 @@ export class RuntimeSessionHost {
 
 			if (record.entry.type === "learning-harness:resource-snapshot") {
 				const snapshot = record.entry.data;
-				if (binding && snapshot.courseVersionId !== binding.courseVersionId) {
+				if (lastBinding && snapshot.courseVersionId !== lastBinding.courseVersionId) {
 					journalCorruption(nativeEntryId, "resource snapshot targets another course after the session was bound");
 				}
 				const previous = snapshots.get(snapshot.resourceSnapshotId);
@@ -131,9 +157,6 @@ export class RuntimeSessionHost {
 
 			if (record.entry.type === "learning-harness:session-binding") {
 				const next = record.entry.data;
-				if (next.sessionId !== this.sessionId) {
-					journalCorruption(nativeEntryId, `binding targets session ${next.sessionId}, current session is ${this.sessionId}`);
-				}
 				const snapshot = snapshots.get(next.resourceSnapshotId);
 				if (!snapshot) {
 					journalCorruption(nativeEntryId, `binding references unknown snapshot ${next.resourceSnapshotId}`);
@@ -141,16 +164,36 @@ export class RuntimeSessionHost {
 				if (snapshot.courseVersionId !== next.courseVersionId) {
 					journalCorruption(nativeEntryId, "binding and resource snapshot courseVersionId differ");
 				}
-				if (binding) {
-					if (binding.bindingId !== next.bindingId) journalCorruption(nativeEntryId, "bindingId changed for an existing session");
-					if (binding.courseVersionId !== next.courseVersionId) journalCorruption(nativeEntryId, "courseVersionId changed for an existing session");
-					if (binding.role !== next.role) journalCorruption(nativeEntryId, "role changed for an existing session");
-					if (binding.createdAt !== next.createdAt) journalCorruption(nativeEntryId, "createdAt changed for an existing session");
-					if (next.revision !== binding.revision + 1) journalCorruption(nativeEntryId, "binding revision must advance exactly once");
+				if (lastBinding && lastBinding.sessionId !== next.sessionId) {
+					if (sawCurrentBinding || bindingSessionIds.has(next.sessionId)) {
+						journalCorruption(nativeEntryId, "forked session has an invalid binding ancestry");
+					}
+					if (!sameBindingScope(lastBinding, next)) {
+						journalCorruption(nativeEntryId, "forked session changed its inherited course, snapshot, or role");
+					}
+					if (next.revision !== 1)
+						journalCorruption(nativeEntryId, "forked session binding must start at revision 1");
+				} else if (lastBinding) {
+					if (lastBinding.bindingId !== next.bindingId)
+						journalCorruption(nativeEntryId, "bindingId changed for an existing session");
+					if (lastBinding.courseVersionId !== next.courseVersionId)
+						journalCorruption(nativeEntryId, "courseVersionId changed for an existing session");
+					if (lastBinding.role !== next.role)
+						journalCorruption(nativeEntryId, "role changed for an existing session");
+					if (lastBinding.createdAt !== next.createdAt)
+						journalCorruption(nativeEntryId, "createdAt changed for an existing session");
+					if (next.revision !== lastBinding.revision + 1)
+						journalCorruption(nativeEntryId, "binding revision must advance exactly once");
 				} else if (next.revision !== 1) {
 					journalCorruption(nativeEntryId, "initial binding revision must be 1");
 				}
-				binding = next;
+				bindingSessionIds.add(next.sessionId);
+				bindingChain.push(next);
+				lastBinding = next;
+				if (next.sessionId === this.sessionId) {
+					sawCurrentBinding = true;
+					activeBinding = next;
+				}
 				continue;
 			}
 
@@ -165,10 +208,13 @@ export class RuntimeSessionHost {
 		}
 
 		return {
-			journalSequence: records.length,
-			binding,
-			snapshots: [...snapshots.values()],
-			workflows: [...workflows.values()],
+			state: {
+				journalSequence: records.length,
+				binding: activeBinding,
+				snapshots: [...snapshots.values()],
+				workflows: [...workflows.values()],
+			},
+			bindingChain,
 		};
 	}
 
@@ -179,13 +225,18 @@ export class RuntimeSessionHost {
 			type: "learning-harness:resource-snapshot",
 			data: snapshot,
 		};
-		return this.appendOnce(entry, idempotencyKey, (state) => {
-			if (state.binding && snapshot.courseVersionId !== state.binding.courseVersionId) {
-				throw new RuntimeSessionHostError("Bound Pi session cannot record a resource snapshot for another course version");
+		return this.appendOnce(entry, idempotencyKey, (state, inheritedBinding) => {
+			const scopeBinding = state.binding ?? inheritedBinding;
+			if (scopeBinding && snapshot.courseVersionId !== scopeBinding.courseVersionId) {
+				throw new RuntimeSessionHostError(
+					"Bound Pi session cannot record a resource snapshot for another course version",
+				);
 			}
 			const existing = state.snapshots.find((item) => item.resourceSnapshotId === snapshot.resourceSnapshotId);
 			if (existing && !sameJson(existing, snapshot)) {
-				throw new RuntimeSessionHostError(`Resource snapshot ${snapshot.resourceSnapshotId} already exists with different data`);
+				throw new RuntimeSessionHostError(
+					`Resource snapshot ${snapshot.resourceSnapshotId} already exists with different data`,
+				);
 			}
 		});
 	}
@@ -197,9 +248,11 @@ export class RuntimeSessionHost {
 			type: "learning-harness:session-binding",
 			data: binding,
 		};
-		return this.appendOnce(entry, idempotencyKey, (state) => {
+		return this.appendOnce(entry, idempotencyKey, (state, inheritedBinding) => {
 			if (binding.sessionId !== this.sessionId) {
-				throw new RuntimeSessionHostError(`Binding sessionId ${binding.sessionId} does not match ${this.sessionId}`);
+				throw new RuntimeSessionHostError(
+					`Binding sessionId ${binding.sessionId} does not match ${this.sessionId}`,
+				);
 			}
 			const snapshot = state.snapshots.find((item) => item.resourceSnapshotId === binding.resourceSnapshotId);
 			if (!snapshot) throw new RuntimeSessionHostError(`Unknown resource snapshot ${binding.resourceSnapshotId}`);
@@ -207,6 +260,11 @@ export class RuntimeSessionHost {
 				throw new RuntimeSessionHostError("Binding and resource snapshot courseVersionId must match");
 			}
 			if (!state.binding) {
+				if (inheritedBinding && !sameBindingScope(inheritedBinding, binding)) {
+					throw new RuntimeSessionHostError(
+						"Forked Pi session must inherit its course, resource snapshot, and role",
+					);
+				}
 				if (binding.revision !== 1) throw new RuntimeSessionHostError("Initial binding revision must be 1");
 				return;
 			}
@@ -246,7 +304,11 @@ export class RuntimeSessionHost {
 		});
 	}
 
-	private appendOnce(entry: HarnessJsonlEntry, idempotencyKey: string, validateNewEntry: (state: RuntimeSessionState) => void): string {
+	private appendOnce(
+		entry: HarnessJsonlEntry,
+		idempotencyKey: string,
+		validateNewEntry: (state: RuntimeSessionState, inheritedBinding: SessionBinding | null) => void,
+	): string {
 		const normalizedEntry = parseHarnessJsonlEntry(entry);
 		const records = this.readJournal();
 		const existing = records.find((item) => item.record.idempotencyKey === idempotencyKey);
@@ -257,8 +319,9 @@ export class RuntimeSessionHost {
 			return existing.nativeEntryId;
 		}
 
-		const state = this.recover();
-		validateNewEntry(state);
+		const recovered = this.recoverJournal();
+		const state = recovered.state;
+		validateNewEntry(state, recovered.bindingChain.at(-1) ?? null);
 		const record: RuntimeJournalRecord = {
 			version: HARNESS_CONTRACT_VERSION,
 			sequence: state.journalSequence + 1,
@@ -274,7 +337,7 @@ export class RuntimeSessionHost {
 		for (const entry of this.sessionManager.getBranch()) {
 			if (entry.type !== "custom" || entry.customType !== RUNTIME_JOURNAL_CUSTOM_TYPE) continue;
 			try {
-				records.push({ nativeEntryId: entry.id, record: parseRuntimeJournalRecord((entry as PiSessionCustomEntry).data) });
+				records.push({ nativeEntryId: entry.id, record: parseRuntimeJournalRecord(entry.data) });
 			} catch (error) {
 				journalCorruption(entry.id, error instanceof Error ? error.message : String(error));
 			}

@@ -1,11 +1,11 @@
 import {
 	HARNESS_CONTRACT_VERSION,
-	parseProfileDefinition,
-	parseResourceSnapshot,
 	type ProfileDefinition,
 	type ProfileLayer,
 	type ProfileMode,
 	type ProfilePatch,
+	parseProfileDefinition,
+	parseResourceSnapshot,
 	type ResourceDescriptor,
 	type ResourceKind,
 	type ResourceSnapshot,
@@ -40,7 +40,8 @@ export class ResourceCatalog {
 	constructor(entries: readonly ResourceCatalogEntry[]) {
 		for (const entry of entries) {
 			const key = resourceKey(entry);
-			if (this.resources.has(key)) throw new ProfileResolutionError("DUPLICATE_RESOURCE", `Duplicate resource ${key}`);
+			if (this.resources.has(key))
+				throw new ProfileResolutionError("DUPLICATE_RESOURCE", `Duplicate resource ${key}`);
 			this.resources.set(key, { ...entry });
 		}
 	}
@@ -53,7 +54,11 @@ export class ResourceCatalog {
 		if (!resource.enabled) return;
 		const installed = this.get(resource.kind, resource.id);
 		if (!installed) {
-			if (resource.required) throw new ProfileResolutionError("MISSING_RESOURCE", `Required resource ${resourceKey(resource)} is not installed`);
+			if (resource.required)
+				throw new ProfileResolutionError(
+					"MISSING_RESOURCE",
+					`Required resource ${resourceKey(resource)} is not installed`,
+				);
 			return;
 		}
 		if (installed.version !== resource.version || installed.contentHash !== resource.contentHash) {
@@ -65,7 +70,10 @@ export class ResourceCatalog {
 	}
 }
 
-function mergeResources(base: readonly ResourceDescriptor[], patch: readonly ResourceDescriptor[] | undefined): ResourceDescriptor[] {
+function mergeResources(
+	base: readonly ResourceDescriptor[],
+	patch: readonly ResourceDescriptor[] | undefined,
+): ResourceDescriptor[] {
 	const merged = new Map<string, ResourceDescriptor>();
 	for (const resource of base) merged.set(resourceKey(resource), { ...resource });
 	for (const resource of patch ?? []) merged.set(resourceKey(resource), { ...resource });
@@ -105,7 +113,10 @@ function assertStudentSafety(profile: ProfileDefinition): void {
 	const forbiddenTools = new Set(["bash", "powershell", "write", "edit"]);
 	const forbidden = profile.tools.filter((tool) => forbiddenTools.has(tool));
 	if (forbidden.length > 0) {
-		throw new ProfileResolutionError("UNSAFE_STUDENT_TOOL", `Student profile enables forbidden tools: ${forbidden.join(", ")}`);
+		throw new ProfileResolutionError(
+			"UNSAFE_STUDENT_TOOL",
+			`Student profile enables forbidden tools: ${forbidden.join(", ")}`,
+		);
 	}
 	if (profile.mode === "practice" && profile.externalKnowledgePolicy !== "deny") {
 		throw new ProfileResolutionError("UNSAFE_PRACTICE_POLICY", "Practice profile must deny external knowledge");
@@ -147,7 +158,8 @@ export function resolveProfileSnapshot(options: ResolveProfileOptions): Resource
 	}
 	const resources = validateCatalog(profile, options.catalog);
 	const createdAt = options.createdAt ?? new Date().toISOString();
-	if (!Number.isFinite(Date.parse(createdAt))) throw new ProfileResolutionError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
+	if (!Number.isFinite(Date.parse(createdAt)))
+		throw new ProfileResolutionError("INVALID_TIMESTAMP", "createdAt must be ISO-8601");
 	const payload = {
 		version: HARNESS_CONTRACT_VERSION,
 		profileId: profile.profileId,
@@ -166,7 +178,11 @@ export function resolveProfileSnapshot(options: ResolveProfileOptions): Resource
 	const hash = contentHash(payload);
 	const snapshot = parseResourceSnapshot({
 		...payload,
-		resourceSnapshotId: deterministicId("snapshot", payload),
+		// A resource snapshot is an immutable *instance*, not merely a content
+		// address.  The journal stores createdAt in its reference, so excluding it
+		// here could make two separately prepared instances share an id while
+		// carrying different references.
+		resourceSnapshotId: deterministicId("snapshot", { ...payload, createdAt }),
 		createdAt,
 		contentHash: hash,
 	});
@@ -191,7 +207,13 @@ function comparable(snapshot: ResourceSnapshot): Record<string, unknown> {
 }
 
 export function classifySnapshotSwitch(current: ResourceSnapshot | null, next: ResourceSnapshot): SnapshotDiff {
-	if (!current) return { kind: "hard", changedFields: ["initial"], addedResources: next.resources.map(resourceKey), removedResources: [] };
+	if (!current)
+		return {
+			kind: "hard",
+			changedFields: ["initial"],
+			addedResources: next.resources.map(resourceKey),
+			removedResources: [],
+		};
 	const changedFields: string[] = [];
 	const left = comparable(current);
 	const right = comparable(next);
@@ -239,7 +261,8 @@ export async function applySnapshotAtomically<TCheckpoint>(
 		if (diff.kind === "hot") await adapter.applyHot(next);
 		else if (diff.kind === "warm") await adapter.reloadResources(next);
 		else await adapter.replaceSession(next);
-		if (!(await adapter.verify(next))) throw new ProfileResolutionError("SNAPSHOT_VERIFY_FAILED", "Runtime did not apply the requested snapshot");
+		if (!(await adapter.verify(next)))
+			throw new ProfileResolutionError("SNAPSHOT_VERIFY_FAILED", "Runtime did not apply the requested snapshot");
 		return diff;
 	} catch (error) {
 		await adapter.restore(checkpoint);
@@ -251,27 +274,12 @@ const TOOL_HASH = "sha256:built-in-tool";
 
 export function createDefaultResourceCatalog(): ResourceCatalog {
 	return new ResourceCatalog([
-		...[
-			"read",
-			"grep",
-			"find",
-			"ls",
-			"search_course_knowledge",
-			"read_course_span",
-			"get_course_context",
-			"record_learning_event",
-			"get_learning_progress",
-			"issue_exercise",
-			"submit_attempt",
-			"request_hint",
-			"request_solution_unlock",
-			"read_exercise_solution",
-			"create_visual_spec",
-			"validate_visual_artifact",
-		].map((id) => ({ kind: "tool" as const, id, version: "1", contentHash: TOOL_HASH })),
-		{ kind: "skill", id: "grounded-teaching", version: "1", contentHash: "sha256:grounded-teaching-v1" },
-		{ kind: "skill", id: "assessment-dialogue", version: "1", contentHash: "sha256:assessment-dialogue-v1" },
-		{ kind: "skill", id: "visual-explanation", version: "1", contentHash: "sha256:visual-explanation-v1" },
+		...["read", "grep", "find", "ls"].map((id) => ({
+			kind: "tool" as const,
+			id,
+			version: "1",
+			contentHash: TOOL_HASH,
+		})),
 		{ kind: "extension", id: "learning-harness", version: "1", contentHash: "sha256:learning-harness-v1" },
 	]);
 }
@@ -307,17 +315,10 @@ export const BUILTIN_PROFILES: Readonly<Record<string, ProfileDefinition>> = dee
 		thinkingLevel: "high",
 		externalKnowledgePolicy: "explain-and-label",
 		courseRequired: true,
-		tools: [
-			"get_course_context",
-			"get_learning_progress",
-			"read_course_span",
-			"record_learning_event",
-			"search_course_knowledge",
-		],
-		resources: [
-			descriptor("extension", "learning-harness", "1", "sha256:learning-harness-v1"),
-			descriptor("skill", "grounded-teaching", "1", "sha256:grounded-teaching-v1"),
-		],
+		// Course retrieval and the publication gate are implemented by the inline
+		// extension.  There are deliberately no Pi coding tools in a learner run.
+		tools: [],
+		resources: [descriptor("extension", "learning-harness", "1", "sha256:learning-harness-v1")],
 		instructions: ["Prefer current-course evidence; label every derived, computed, external, or insufficient claim."],
 	},
 	practice: {
@@ -331,18 +332,11 @@ export const BUILTIN_PROFILES: Readonly<Record<string, ProfileDefinition>> = dee
 		thinkingLevel: "high",
 		externalKnowledgePolicy: "deny",
 		courseRequired: true,
-		tools: [
-			"get_course_context",
-			"issue_exercise",
-			"read_exercise_solution",
-			"request_hint",
-			"request_solution_unlock",
-			"submit_attempt",
-		],
-		resources: [
-			descriptor("extension", "learning-harness", "1", "sha256:learning-harness-v1"),
-			descriptor("skill", "assessment-dialogue", "1", "sha256:assessment-dialogue-v1"),
-		],
+		// Practice is exposed through the authenticated Harness Practice UI.  It
+		// intentionally contributes no Pi tool that could leak a private solution
+		// into the one authoritative Pi JSONL transcript.
+		tools: [],
+		resources: [descriptor("extension", "learning-harness", "1", "sha256:learning-harness-v1")],
 		instructions: ["Do not reveal a solution before Assessment Host authorizes it after a meaningful attempt."],
 	},
 	"visual-lab": {
@@ -376,6 +370,8 @@ export const BUILTIN_PROFILES: Readonly<Record<string, ProfileDefinition>> = dee
 		courseRequired: false,
 		tools: ["find", "grep", "ls", "read"],
 		resources: [descriptor("extension", "learning-harness", "1", "sha256:learning-harness-v1")],
-		instructions: ["Teacher-only actions remain in the optional teacher package and must never enter student bundles."],
+		instructions: [
+			"Teacher-only actions remain in the optional teacher package and must never enter student bundles.",
+		],
 	},
 });

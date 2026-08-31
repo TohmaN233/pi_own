@@ -197,6 +197,7 @@ export const LEARNING_EVENT_KINDS = [
 	"reviewed",
 	"reflection",
 	"visualized",
+	"answer-published",
 ] as const;
 export type LearningEventKind = (typeof LEARNING_EVENT_KINDS)[number];
 

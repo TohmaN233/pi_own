@@ -192,15 +192,7 @@ export const HOST_COMMAND_SCHEMA = {
 	$id: "pi-learning-harness/host-command/v1",
 	type: "object",
 	additionalProperties: false,
-	required: [
-		"version",
-		"commandId",
-		"host",
-		"kind",
-		"idempotencyKey",
-		"expectedRevision",
-		"payload",
-	],
+	required: ["version", "commandId", "host", "kind", "idempotencyKey", "expectedRevision", "payload"],
 } as const;
 
 export const VALIDATOR_RESULT_SCHEMA = {

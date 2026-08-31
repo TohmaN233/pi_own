@@ -13,6 +13,9 @@ V1 guarantees:
 - exact replay of the same command returns the original native Pi entry id;
 - reuse of an idempotency key with different data fails closed;
 - a session binding can only reference the active Pi session and an already-recorded resource snapshot;
+- copied fork/clone history may carry an arbitrary validated binding ancestry; each child binding starts at revision 1 and retains the inherited course, snapshot, and role;
+- an empty child journal is not generic copied history and is rejected by the public inheritance path; the Pi Web adapter may admit a direct empty fork only after verifying its JSONL header points to the supplied parent exactly;
+- `recover()` reports a binding only when the active Pi session has its own binding. Callers that intentionally reconcile copied ancestor history can inspect the separately validated binding lineage and explicitly append the active session's durable binding only after matching that ancestor to durable Harness state;
 - course version, role, binding identity, and creation time are immutable inside one session;
 - a replacement resource snapshot must remain in the bound course;
 - workflow revisions and workflow-local sequence numbers advance exactly by one;
