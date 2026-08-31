@@ -68,7 +68,7 @@ const expectedHashes = {
   "mode-pack-session-store.ts": "93ad5d4c5e88ba4957cb775cef6ef2cf26acb99c07afc5ca133fe31d7a95e41b",
   "mode-pack-pi-resources.ts": "0a53ca63fbb3e434869781d119d56d61aed199e634630c5747fe6f670269c0e9",
   "mode-pack-workflow-runtime.ts": "f0ec788f8aeb9202382885f950a2a3dd6092b9cdffc92a08ab2a69d6d703f6ec",
-  "mode-pack-pi-runtime.ts": "a244f65dc916c255cb25b45e59d2f4cff41ba77b08205d94ac00184fdcb27b2",
+  "mode-pack-pi-runtime.ts": "a244f65dc916c255cb25b45e59d2f4cff41ba77b08205d94ac0018cb256f4c1d",
   "mode-pack-service.ts": "e95a6b0ccba0108a5e73e70cc14d7dd723ad812098cb6c642356b73940542fa2",
   "mode-pack-client.ts": "54c19aee2bd44ec9c0cb528fe5e4de924e186f9bffdf0827b3a87dd6d22559a8",
   "mode-pack-session-route.ts": "21b67b439c0ed20c35db001579e16365a704db980a0d2a05466a2973dc17e2ba",
