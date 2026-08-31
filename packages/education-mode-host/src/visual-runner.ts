@@ -43,11 +43,12 @@ export async function runVisualWorker(
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
 
 		const finish = (error?: Error, value?: VisualWorkerResult): void => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(timer);
+			if (timer) clearTimeout(timer);
 			options.signal?.removeEventListener("abort", abort);
 			if (!child.killed) child.kill("SIGKILL");
 			if (error) reject(error);
@@ -57,7 +58,7 @@ export async function runVisualWorker(
 		const abort = (): void => finish(new EducationModeError("VISUAL_WORKER_ABORTED", "aborted"));
 		if (options.signal?.aborted) return abort();
 		options.signal?.addEventListener("abort", abort, { once: true });
-		const timer = setTimeout(
+		timer = setTimeout(
 			() => finish(new EducationModeError("VISUAL_WORKER_TIMEOUT", `${timeoutMs}ms`)),
 			timeoutMs,
 		);
