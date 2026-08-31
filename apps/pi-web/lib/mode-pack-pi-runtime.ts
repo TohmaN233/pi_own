@@ -510,12 +510,18 @@ async function buildCandidate(
 		},
 	});
 	const sourceModel = source.inner.model;
-	const model = sourceModel
-		? services.modelRuntime.getModel(sourceModel.provider, sourceModel.id)
+	// A new Pi session can expose the SDK's unknown/unknown placeholder before
+	// any real model has been selected. Preserve only a model that the source
+	// runtime itself can resolve; otherwise let Pi choose its normal default.
+	const sourceRegisteredModel = sourceModel
+		? source.inner.modelRuntime.getModel(sourceModel.provider, sourceModel.id)
 		: undefined;
-	if (sourceModel && !model) {
+	const model = sourceRegisteredModel
+		? services.modelRuntime.getModel(sourceRegisteredModel.provider, sourceRegisteredModel.id)
+		: undefined;
+	if (sourceRegisteredModel && !model) {
 		throw Object.assign(
-			new Error(`Mode Pack candidate cannot restore model ${sourceModel.provider}/${sourceModel.id}`),
+			new Error(`Mode Pack candidate cannot restore model ${sourceRegisteredModel.provider}/${sourceRegisteredModel.id}`),
 			{ code: "MODE_MODEL_UNAVAILABLE" },
 		);
 	}
