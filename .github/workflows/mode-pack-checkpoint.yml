@@ -52,6 +52,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.19.0'
+      # Separate processes prevent test-owned global registries from leaking across files.
       - name: Run deterministic Mode Pack checks in isolated processes
         run: |
           node --experimental-strip-types --test scripts/mode-pack-platform.test.mjs
