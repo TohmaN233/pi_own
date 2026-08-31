@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "checkpoint": "mode-pack-p0-p5-2026-08-31",
+  "baseCommit": "4bc23f831b2da0f98a3736c24facd225debc9508",
+  "levels": {
+    "deterministic": "Parser, state, identity, hash, transaction, and publication invariants with no model call.",
+    "browserE2E": "Real Pi Web, AgentSession, SSE, crash/reconnect, and user-interface evidence.",
+    "modelQuality": "Provider/model runs judged for grounded teaching, hint discipline, diagnosis, and transfer quality."
+  },
+  "cases": [
+    {
+      "id": "mp-001",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Unknown Mode Pack fields fail closed."
+    },
+    {
+      "id": "mp-002",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Missing required resources block preparation; optional omissions are explicit."
+    },
+    {
+      "id": "mp-003",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Effective prompt and loaded resources must match the candidate activation receipt before commit."
+    },
+    {
+      "id": "mp-004",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Custom revisions are immutable and parent-Hash linked."
+    },
+    {
+      "id": "mp-005",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Role or context-kind changes require a hard transition."
+    },
+    {
+      "id": "edu-001",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Practice cannot issue feedback before a persisted learner attempt."
+    },
+    {
+      "id": "edu-002",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Teach-back cannot diagnose before a learner explanation, diagnoses at most two gaps, and cannot complete before revision plus transfer."
+    },
+    {
+      "id": "edu-003",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "A spiral revisit without structural growth is rejected."
+    },
+    {
+      "id": "edu-004",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Research status does not equate unsupported or not-yet-verified with contradicted."
+    },
+    {
+      "id": "edu-005",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Personal Skill publication requires evidence and an explicit approving user turn."
+    },
+    {
+      "id": "vis-001",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "Matrix and algorithm activities are deterministic, bounded, and receipt-verified."
+    },
+    {
+      "id": "vis-002",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "A Visual Artifact cannot publish before receipt verification and result-Hash matching."
+    },
+    {
+      "id": "wire-001",
+      "level": "deterministic",
+      "status": "implemented",
+      "claim": "The existing grounded publication renderer exposes Claim reason."
+    },
+    {
+      "id": "wire-002",
+      "level": "browserE2E",
+      "status": "future",
+      "claim": "Selecting a Mode Pack replaces the live Pi AgentSession prompt/resources and the Inspector shows the verified receipt."
+    },
+    {
+      "id": "wire-003",
+      "level": "browserE2E",
+      "status": "future",
+      "claim": "Switch, crash, reconnect, fork, and late-SSE recovery retain one authoritative active snapshot."
+    },
+    {
+      "id": "teacher-001",
+      "level": "browserE2E",
+      "status": "future",
+      "claim": "Production student bundles and exported courses contain no Teacher-only resources or private solutions."
+    },
+    {
+      "id": "quality-001",
+      "level": "modelQuality",
+      "status": "future",
+      "claim": "Tutor answers directly, grounds factual claims, exposes derivation and boundary reasons, and avoids unnecessary attempt gates."
+    },
+    {
+      "id": "quality-002",
+      "level": "modelQuality",
+      "status": "future",
+      "claim": "Practice feedback guides without leaking the protected solution under adversarial prompts."
+    },
+    {
+      "id": "quality-003",
+      "level": "modelQuality",
+      "status": "future",
+      "claim": "Teach-back identifies the smallest load-bearing gap and asks before telling."
+    }
+  ]
+}
