@@ -35,6 +35,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mode-pack-checkpoint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   invariant-tests:
     strategy:
@@ -48,13 +52,12 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.19.0'
-      - name: Run deterministic Mode Pack checks
-        run: >-
-          node --experimental-strip-types --test
-          scripts/mode-pack-platform.test.mjs
-          scripts/mode-pack-session-runtime.test.mjs
-          scripts/mode-pack-workflow-runtime.test.mjs
-          scripts/mode-pack-live-wiring.test.mjs
+      - name: Run deterministic Mode Pack checks in isolated processes
+        run: |
+          node --experimental-strip-types --test scripts/mode-pack-platform.test.mjs
+          node --experimental-strip-types --test scripts/mode-pack-session-runtime.test.mjs
+          node --experimental-strip-types --test scripts/mode-pack-workflow-runtime.test.mjs
+          node --experimental-strip-types --test scripts/mode-pack-live-wiring.test.mjs
 
   pi-web-live-runtime:
     runs-on: ubuntu-latest
