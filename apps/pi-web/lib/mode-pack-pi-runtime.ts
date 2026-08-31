@@ -259,26 +259,27 @@ function createVisualModeExtension(
 		name: "pi-own-mode-visual-tool",
 		hidden: true,
 		factory(pi) {
-			pi.registerTool({
+			const parameters = Type.Object(
+				{
+					kind: Type.Union([
+						Type.Literal("matrix-transform"),
+						Type.Literal("algorithm-trace"),
+						Type.Literal("function-plot"),
+						Type.Literal("graph-trace"),
+						Type.Literal("state-machine"),
+					]),
+					seed: Type.Integer(),
+					inputs: Type.Record(Type.String(), Type.Unknown()),
+					maxSteps: Type.Integer({ minimum: 1, maximum: 10_000 }),
+				},
+				{ additionalProperties: false },
+			);
+			pi.registerTool<typeof parameters, Record<string, unknown>>({
 				name: "render_visual_activity",
 				label: "Render verified visual activity",
 				description:
 					"Run a closed deterministic visual computation after the learner has recorded a prediction.",
-				parameters: Type.Object(
-					{
-						kind: Type.Union([
-							Type.Literal("matrix-transform"),
-							Type.Literal("algorithm-trace"),
-							Type.Literal("function-plot"),
-							Type.Literal("graph-trace"),
-							Type.Literal("state-machine"),
-						]),
-						seed: Type.Integer(),
-						inputs: Type.Record(Type.String(), Type.Unknown()),
-						maxSteps: Type.Integer({ minimum: 1, maximum: 10_000 }),
-					},
-					{ additionalProperties: false },
-				),
+				parameters,
 				async execute(_toolCallId, params, signal) {
 					const manager = getRpcSession(sessionId)?.inner.sessionManager;
 					const current = manager ? activeModePackBinding(manager) : null;
