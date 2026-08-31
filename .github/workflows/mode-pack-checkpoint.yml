@@ -1,0 +1,48 @@
+name: Mode Pack checkpoint
+
+on:
+  pull_request:
+    paths:
+      - 'packages/profile-resource-host/**'
+      - 'packages/learning-harness/**'
+      - 'packages/education-mode-host/**'
+      - 'apps/pi-web/lib/mode-pack-**'
+      - 'apps/pi-web/lib/grounded-answer-markdown.ts'
+      - 'apps/pi-web/app/api/mode-packs/**'
+      - 'apps/pi-web/app/mode-packs/**'
+      - 'apps/pi-web/components/mode-pack-manager.tsx'
+      - 'scripts/mode-pack-platform.test.mjs'
+      - '.github/workflows/mode-pack-checkpoint.yml'
+  push:
+    branches:
+      - feature/mode-pack-platform-fallback
+    paths:
+      - 'packages/profile-resource-host/**'
+      - 'packages/learning-harness/**'
+      - 'packages/education-mode-host/**'
+      - 'apps/pi-web/lib/mode-pack-**'
+      - 'apps/pi-web/lib/grounded-answer-markdown.ts'
+      - 'apps/pi-web/app/api/mode-packs/**'
+      - 'apps/pi-web/app/mode-packs/**'
+      - 'apps/pi-web/components/mode-pack-manager.tsx'
+      - 'scripts/mode-pack-platform.test.mjs'
+      - '.github/workflows/mode-pack-checkpoint.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  invariant-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+      - name: Run deterministic Mode Pack checks
+        run: node --experimental-strip-types --test scripts/mode-pack-platform.test.mjs
