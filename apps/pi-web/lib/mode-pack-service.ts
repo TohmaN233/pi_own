@@ -20,21 +20,29 @@ interface GlobalModePackState {
 	[GLOBAL_KEY]?: ModePackRegistry;
 }
 
-function dataDirectory(): string {
+export function modePackDataDirectory(): string {
 	const configured = process.env.PI_LEARNING_HARNESS_DIR?.trim();
 	const directory = resolve(configured || join(process.cwd(), DEFAULT_DATA_DIRECTORY));
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	return directory;
 }
 
+export function modePackDatabasePath(): string {
+	return join(modePackDataDirectory(), "mode-packs.sqlite");
+}
+
 function registry(): ModePackRegistry {
 	const globalState = globalThis as typeof globalThis & GlobalModePackState;
 	if (!globalState[GLOBAL_KEY]) {
 		globalState[GLOBAL_KEY] = new ModePackRegistry({
-			databasePath: join(dataDirectory(), "mode-packs.sqlite"),
+			databasePath: modePackDatabasePath(),
 		});
 	}
 	return globalState[GLOBAL_KEY];
+}
+
+export function getModePackRegistry(): ModePackRegistry {
+	return registry();
 }
 
 export interface ModePackCatalogEntry {
@@ -124,7 +132,10 @@ export function resolveModePackForRuntime(
 	return resolveModePack(findModePack(idOrAlias, revision), actualResources);
 }
 
-export function customModePackTemplate(parentId = "education-tutor", now = new Date().toISOString()): ModePackDefinition {
+export function customModePackTemplate(
+	parentId = "education-tutor",
+	now = new Date().toISOString(),
+): ModePackDefinition {
 	const parent = findModePack(parentId);
 	return {
 		...parent,
