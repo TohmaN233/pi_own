@@ -25,7 +25,7 @@ test("real Pi AgentSession activates, restores, and warm-switches Mode Packs", a
 		ensurePiModePackRuntime,
 		getPiModePackStatus,
 	} = await jiti.import("./mode-pack-pi-runtime.ts");
-	const { publishModePackDefinition } = await jiti.import("./mode-pack-service.ts");
+	const { publishCustomModePack } = await jiti.import("./mode-pack-service.ts");
 	const { BUILTIN_MODE_PACKS } = await jiti.import(
 		"../../../packages/profile-resource-host/src/mode-packs.ts",
 	);
@@ -98,7 +98,7 @@ test("real Pi AgentSession activates, restores, and warm-switches Mode Packs", a
 			createdAt: "2026-08-31T21:00:02.000Z",
 		},
 	};
-	publishModePackDefinition(customDefinition, null);
+	publishCustomModePack(customDefinition);
 	const custom = await activatePiModePack({
 		sessionId: coding.targetSessionId,
 		modePackId: customDefinition.id,
