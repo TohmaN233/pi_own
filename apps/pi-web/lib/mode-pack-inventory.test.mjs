@@ -10,6 +10,7 @@ const {
   applyModePackToolSelection,
   buildModePackRuntimePlanFromInventory,
   collectModePackRuntimeEvidence,
+  expectedModePackActiveTools,
   inspectModePackInventory,
 } = await jiti.import("./mode-pack-inventory.ts");
 const { resolveModePackSnapshot } = await jiti.import("../../../packages/profile-resource-host/src/index.ts");
@@ -50,4 +51,21 @@ test("runtime inventory compiles built-in coding resources without the learning-
   applyModePackToolSelection(fake, plan);
   const evidence = collectModePackRuntimeEvidence(fake, plan);
   assert.equal(verifyModePackRuntime(snapshot, evidence, plan.expected).verified, true);
+});
+
+// PR #3 CI exposed the AgentSessionLike boundary: sourceInfo is unknown.
+test("plugin tool selection rejects malformed metadata and accepts only selected physical sources", () => {
+  const selected = join(tmpdir(), "pi-own-selected-plugin.ts");
+  const other = join(tmpdir(), "pi-own-other-plugin.ts");
+  const metadata = [undefined, null, 17, "text", [], {}, { path: null }, { path: 17 }, { path: "" }];
+  const tools = metadata.map((sourceInfo, index) => ({ name: `invalid-${index}`, sourceInfo }));
+  tools.push(
+    { name: "builtin-extra", sourceInfo: { path: "<builtin:extra>" } },
+    { name: "unselected", sourceInfo: { path: other } },
+    { name: "selected", sourceInfo: { path: selected } },
+  );
+  const session = { getAllTools: () => tools };
+  const plan = { toolNames: ["read"], extensionPaths: [selected] };
+  assert.deepEqual(expectedModePackActiveTools(session, plan), ["read", "selected"]);
+  assert.deepEqual(expectedModePackActiveTools(session, { ...plan, extensionPaths: [] }), ["read"]);
 });
