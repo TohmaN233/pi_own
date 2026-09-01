@@ -29,6 +29,7 @@ concurrency:
 jobs:
   mode-pack-p1:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,9 +47,11 @@ jobs:
         run: node --test scripts/mode-pack-runtime-binding.test.mjs
 
       - name: Install Pi Web dependencies
+        id: web_install
         run: npm ci --prefix apps/pi-web --ignore-scripts
 
       - name: Run Mode Pack Pi Web tests
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
         run: |
           cd apps/pi-web
           node --test \
@@ -59,7 +62,17 @@ jobs:
             app/mode-packs/page.test.mjs
 
       - name: Typecheck Pi Web
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
         run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
 
       - name: Lint Pi Web
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
         run: npm run lint --prefix apps/pi-web
+
+      - name: Run complete Pi Web test suite
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: npm test --prefix apps/pi-web
+
+      - name: Build Pi Web production application
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: npm run build --prefix apps/pi-web
