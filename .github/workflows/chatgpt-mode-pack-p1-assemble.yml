@@ -1,0 +1,58 @@
+name: Assemble Mode Pack P1 upload
+
+on:
+  push:
+    branches:
+      - chatgpt/mode-pack-p1-upload
+
+permissions:
+  contents: write
+
+concurrency:
+  group: assemble-mode-pack-p1-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Assemble and verify exact source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .chatgpt-upload/inventory.00 .chatgpt-upload/inventory.01 .chatgpt-upload/inventory.02a .chatgpt-upload/inventory.02b .chatgpt-upload/inventory.03 | base64 --decode > apps/pi-web/lib/mode-pack-inventory.ts
+          cat .chatgpt-upload/rpc.00 .chatgpt-upload/rpc.01 .chatgpt-upload/rpc.02 .chatgpt-upload/rpc.03 .chatgpt-upload/rpc.04 | base64 --decode > apps/pi-web/lib/rpc-manager.ts
+          cat .chatgpt-upload/host.00 .chatgpt-upload/host.01 .chatgpt-upload/host.02 | base64 --decode > packages/mode-pack-host/src/index.ts
+          cat .chatgpt-upload/docs.00 .chatgpt-upload/docs.01 | base64 --decode > docs/MODE_PACKS.md
+
+          cat > /tmp/mode-pack-p1.sha256 <<'EOF'
+          bfb01b268feaf7e9026c6eefa81ff9c029a5c5f3b2462136a1b634e11b6a1a2e  apps/pi-web/lib/mode-pack-inventory.ts
+          fc694ed848683d1dd1e684968605565766783e135d59adbcf0a5c164b057dee6  apps/pi-web/lib/rpc-manager.ts
+          56feeb4776cdc2fb3c5c8568721952a3836c79acdb3c1d9ab125f9ccd0174335  packages/mode-pack-host/src/index.ts
+          d681ed7157b82f5c39fbce61afd717bd9b03c26958f3a373be4af3cbff7e5744  docs/MODE_PACKS.md
+          EOF
+          sha256sum --check /tmp/mode-pack-p1.sha256
+
+          test "$(git hash-object apps/pi-web/lib/mode-pack-inventory.ts)" = "b964e1440aac718c60beb6ea8124345e9770235d"
+          test "$(git hash-object apps/pi-web/lib/rpc-manager.ts)" = "8efa54b939b27a5167518d6aa416f7d41707f372"
+          test "$(git hash-object packages/mode-pack-host/src/index.ts)" = "7b83f377eb7fe5c19360292ac6774aaf65d8f872"
+          test "$(git hash-object docs/MODE_PACKS.md)" = "cd62ba855729d46da4f8d6c407d95bfc41bc0e92"
+          git diff --check
+
+      - name: Replace transport chunks with final files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .chatgpt-upload
+          rm .github/workflows/chatgpt-mode-pack-p1-assemble.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore: assemble Mode Pack P1 sources"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
