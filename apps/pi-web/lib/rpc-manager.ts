@@ -193,7 +193,9 @@ function persistUnflushedSession(sessionManager: SessionManager): void {
 function appendModePackBinding(sessionManager: SessionManager, binding: ModePackSessionBinding): void {
   sessionManager.appendCustomEntry(MODE_PACK_BINDING_CUSTOM_TYPE, binding);
   persistUnflushedSession(sessionManager);
-  const recovered = modePackRecovery(sessionManager).current;
+  const sessionFile = sessionManager.getSessionFile();
+  if (!sessionFile) throw new Error("Mode Pack binding has no persisted Pi transcript");
+  const recovered = modePackRecovery(SessionManager.open(sessionFile, undefined)).current;
   if (!recovered || recovered.requestHash !== binding.requestHash || recovered.revision !== binding.revision) {
     throw new Error("Mode Pack binding was not durably recovered from the Pi JSONL transcript");
   }
@@ -213,7 +215,9 @@ function requestedModelForSnapshot(
     return pinned;
   }
   if (!preservedModel) return undefined;
-  return modelRuntime.getModel(preservedModel.provider, preservedModel.id);
+  const preserved = modelRuntime.getModel(preservedModel.provider, preservedModel.id);
+  if (!preserved) throw new Error(`Saved Pi session model is unavailable: ${preservedModel.provider}/${preservedModel.id}`);
+  return preserved;
 }
 
 async function createModePackCandidate(options: {
@@ -261,23 +265,19 @@ async function createModePackCandidate(options: {
     services.modelRuntime,
     services.settingsManager.getEnabledModels(),
   );
-  const requested = requestedModelForSnapshot(options.snapshot, services.modelRuntime, options.preservedModel);
-  const hasExistingMessages = options.sessionManager
-    .getBranch()
-    .some((entry) => entry.type === "message");
   // An unpinned Mode Pack must not replace a persisted session's saved model
-  // with the current global default during restart recovery. Activation passes
-  // preservedModel explicitly; an existing transcript otherwise lets Pi restore
-  // its own saved model while the Mode Pack still pins thinking and model scope.
-  const initial = requested || !hasExistingMessages
-    ? selectInitialModelScope(scope, {
-        ...(requested ? { requestedModel: { provider: requested.provider, modelId: requested.id } } : {}),
-        thinkingLevel: options.snapshot.thinkingLevel as ThinkingLevel,
-      })
-    : {
-        scopedModels: [...scope.scopedModels],
-        thinkingLevel: options.snapshot.thinkingLevel as ThinkingLevel,
-      };
+  // with the current global default during restart recovery. Read Pi's model
+  // entry explicitly even before the first message; SDK default selection is
+  // not a substitute for restoring the transcript's model identity.
+  const savedModel = options.sessionManager.buildSessionContext().model;
+  const preservedModel = options.preservedModel ?? (savedModel
+    ? { provider: savedModel.provider, id: savedModel.modelId }
+    : undefined);
+  const requested = requestedModelForSnapshot(options.snapshot, services.modelRuntime, preservedModel);
+  const initial = selectInitialModelScope(scope, {
+    ...(requested ? { requestedModel: { provider: requested.provider, modelId: requested.id } } : {}),
+    thinkingLevel: options.snapshot.thinkingLevel as ThinkingLevel,
+  });
   const { session: inner } = await createAgentSessionFromServices({
     services,
     sessionManager: options.sessionManager,
