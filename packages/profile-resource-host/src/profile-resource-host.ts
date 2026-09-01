@@ -12,6 +12,7 @@ import {
 	type SnapshotDiff,
 } from "../../harness-contracts/src/index.ts";
 import { contentHash, deepFreeze, deterministicId, stableStringify } from "../../harness-core/src/index.ts";
+import { BUILTIN_MODE_RESOURCES } from "./builtin-mode-resources.ts";
 
 export class ProfileResolutionError extends Error {
 	readonly code: string;
@@ -32,6 +33,7 @@ export interface ResourceCatalogEntry {
 	id: string;
 	version: string;
 	contentHash: string;
+	instructions?: string[];
 }
 
 export class ResourceCatalog {
@@ -42,7 +44,13 @@ export class ResourceCatalog {
 			const key = resourceKey(entry);
 			if (this.resources.has(key))
 				throw new ProfileResolutionError("DUPLICATE_RESOURCE", `Duplicate resource ${key}`);
-			this.resources.set(key, { ...entry });
+			this.resources.set(key, {
+				kind: entry.kind,
+				id: entry.id,
+				version: entry.version,
+				contentHash: entry.contentHash,
+				...(entry.instructions ? { instructions: [...entry.instructions] } : {}),
+			});
 		}
 	}
 
@@ -173,7 +181,10 @@ export function resolveProfileSnapshot(options: ResolveProfileOptions): Resource
 		externalKnowledgePolicy: profile.externalKnowledgePolicy,
 		tools: [...profile.tools].sort(),
 		resources,
-		instructions: [...profile.instructions],
+		instructions: [
+			...profile.instructions,
+			...resources.flatMap((resource) => options.catalog.get(resource.kind, resource.id)?.instructions ?? []),
+		].filter((instruction, index, all) => all.indexOf(instruction) === index),
 	};
 	const hash = contentHash(payload);
 	const snapshot = parseResourceSnapshot({
@@ -274,13 +285,14 @@ const TOOL_HASH = "sha256:built-in-tool";
 
 export function createDefaultResourceCatalog(): ResourceCatalog {
 	return new ResourceCatalog([
-		...["read", "grep", "find", "ls"].map((id) => ({
+		...["read", "grep", "find", "ls", "bash", "powershell", "write", "edit"].map((id) => ({
 			kind: "tool" as const,
 			id,
 			version: "1",
 			contentHash: TOOL_HASH,
 		})),
 		{ kind: "extension", id: "learning-harness", version: "1", contentHash: "sha256:learning-harness-v1" },
+		...BUILTIN_MODE_RESOURCES,
 	]);
 }
 

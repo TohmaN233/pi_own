@@ -20,6 +20,7 @@ import {
 	type LearningEvent,
 	type LearningEventKind,
 	type MasteryProjection,
+	type ModePackDefinition,
 	type PublicationReceipt,
 	parseCourseMaterialInput,
 	parseResourceSnapshot,
@@ -35,9 +36,11 @@ import { KnowledgeHost, type KnowledgeHostState } from "../../knowledge-host/src
 import { LearningHost, type LearningHostState } from "../../learning-host/src/index.ts";
 import { type PiSessionStore, RuntimeSessionHost } from "../../pi-runtime-host/src/index.ts";
 import {
-	BUILTIN_PROFILES,
+	compileModePackDraft,
+	createBuiltinModePacks,
 	createDefaultResourceCatalog,
-	resolveProfileSnapshot,
+	inspectModePackAvailability,
+	resolveModePackSnapshot,
 } from "../../profile-resource-host/src/index.ts";
 
 const STORE_VERSION = 1;
@@ -71,7 +74,7 @@ export interface HarnessSession {
 export interface PreparedProfileTransition {
 	idempotencyKey: string;
 	expectedSnapshotId: string;
-	targetProfileId: "student-learn" | "practice";
+	targetProfileId: string;
 	previousSnapshotId: string;
 	snapshot: ResourceSnapshot;
 	preparedAt: string;
@@ -79,7 +82,7 @@ export interface PreparedProfileTransition {
 
 export interface CommittedProfileTransition {
 	idempotencyKey: string;
-	targetProfileId: "student-learn" | "practice";
+	targetProfileId: string;
 	previousSnapshotId: string;
 	snapshotId: string;
 	bindingRevision: number;
@@ -88,8 +91,16 @@ export interface CommittedProfileTransition {
 
 export interface ProfileAvailability {
 	profileId: string;
+	title: string;
+	description: string;
+	category: string;
+	source: "builtin" | "custom";
+	runtimeMode: string;
 	selectable: boolean;
 	disabledReason: string | null;
+	missingRequiredResources: string[];
+	missingOptionalResources: string[];
+	identityMismatches: string[];
 }
 
 export interface PrepareProfileTransitionOptions {
@@ -98,6 +109,7 @@ export interface PrepareProfileTransitionOptions {
 	expectedSnapshotId: string;
 	idempotencyKey: string;
 	createdAt?: string;
+	modePackDraft?: unknown;
 }
 
 export interface OpenStudentSessionOptions {
@@ -177,6 +189,21 @@ function sourceBytes(input: CourseMaterialInput): Uint8Array {
 	return typeof input.content === "string" ? new TextEncoder().encode(input.content) : new Uint8Array(input.content);
 }
 
+function requireModePack(pack: ModePackDefinition | undefined, modePackId: string): ModePackDefinition {
+	if (!pack) throw new LearningHarnessError("MODE_PACK_NOT_FOUND", `Unknown Mode Pack ${modePackId}`);
+	return pack;
+}
+
+function modePackTitle(snapshot: ResourceSnapshot): string {
+	const marker = snapshot.instructions.find((instruction) => instruction.startsWith("Mode Pack: "));
+	const match = marker ? /^Mode Pack: (.+) \(([^)]+)\)$/u.exec(marker) : null;
+	return match?.[2] === snapshot.profileId ? (match[1] as string) : snapshot.profileId;
+}
+
+function isInstalledLearnerRuntime(mode: ResourceSnapshot["mode"]): boolean {
+	return mode === "student-learn" || mode === "practice";
+}
+
 function sessionFromUnknown(value: unknown, courseHost: CourseHost): HarnessSession {
 	if (!isRecord(value)) throw new LearningHarnessError("CORRUPT_STATE", "Persisted session must be an object");
 	if (typeof value.sessionId !== "string" || !("binding" in value) || !("snapshot" in value)) {
@@ -225,7 +252,8 @@ function parsePreparedProfileTransition(value: unknown): PreparedProfileTransiti
 	if (
 		typeof value.idempotencyKey !== "string" ||
 		typeof value.expectedSnapshotId !== "string" ||
-		(value.targetProfileId !== "student-learn" && value.targetProfileId !== "practice") ||
+		typeof value.targetProfileId !== "string" ||
+		!value.targetProfileId.trim() ||
 		typeof value.previousSnapshotId !== "string" ||
 		typeof value.preparedAt !== "string"
 	)
@@ -246,7 +274,8 @@ function parseCommittedProfileTransition(value: unknown): CommittedProfileTransi
 		throw new LearningHarnessError("CORRUPT_STATE", "Persisted profile transition history must be an object");
 	if (
 		typeof value.idempotencyKey !== "string" ||
-		(value.targetProfileId !== "student-learn" && value.targetProfileId !== "practice") ||
+		typeof value.targetProfileId !== "string" ||
+		!value.targetProfileId.trim() ||
 		typeof value.previousSnapshotId !== "string" ||
 		typeof value.snapshotId !== "string" ||
 		typeof value.bindingRevision !== "number" ||
@@ -367,10 +396,11 @@ export class LearningHarness {
 		this.courseHost.getVersion(options.courseVersionId);
 		const createdAt = options.createdAt ?? new Date().toISOString();
 		requireTimestamp(createdAt);
-		const snapshot = resolveProfileSnapshot({
-			base: BUILTIN_PROFILES["student-learn"],
+		const catalog = createDefaultResourceCatalog();
+		const snapshot = resolveModePackSnapshot({
+			pack: requireModePack(createBuiltinModePacks(catalog)["student-learn"], "student-learn"),
 			courseVersionId: options.courseVersionId,
-			catalog: createDefaultResourceCatalog(),
+			catalog,
 			createdAt,
 		});
 		const binding = parseSessionBinding({
@@ -610,32 +640,68 @@ export class LearningHarness {
 
 	availableProfiles(sessionId: string): ProfileAvailability[] {
 		const session = this.requireSession(sessionId);
-		if (session.binding.role !== "student" || !session.binding.courseVersionId) {
-			return Object.keys(BUILTIN_PROFILES).map((profileId) => ({
-				profileId,
-				selectable: false,
-				disabledReason: "This Pi session is not a course-bound student session.",
-			}));
+		const catalog = createDefaultResourceCatalog();
+		const builtins = createBuiltinModePacks(catalog);
+		const result: ProfileAvailability[] = Object.values(builtins).map((pack) => {
+			const availability = inspectModePackAvailability(pack, catalog);
+			let disabledReason: string | null = null;
+			if (pack.role !== session.binding.role) {
+				disabledReason = `Requires a hard transition to the ${pack.role} role.`;
+			} else if (pack.courseRequired && !session.binding.courseVersionId) {
+				disabledReason = "This Mode Pack requires a bound course.";
+			} else if (session.binding.role === "student" && !isInstalledLearnerRuntime(pack.runtimeMode)) {
+				disabledReason = `${pack.title} requires a runtime that is not installed in the learner build.`;
+			} else if (!availability.selectable) {
+				const missing = availability.missingRequiredResources.join(", ");
+				const mismatched = availability.identityMismatches.join(", ");
+				disabledReason = missing
+					? `Required Mode Pack resources are unavailable: ${missing}`
+					: `Mode Pack resource identity mismatch: ${mismatched}`;
+			}
+			return {
+				profileId: pack.modePackId,
+				title: pack.title,
+				description: pack.description,
+				category: pack.category,
+				source: "builtin" as const,
+				runtimeMode: pack.runtimeMode,
+				selectable: disabledReason === null,
+				disabledReason,
+				missingRequiredResources: availability.missingRequiredResources,
+				missingOptionalResources: availability.missingOptionalResources,
+				identityMismatches: availability.identityMismatches,
+			};
+		});
+		const known = new Set(result.map((item) => item.profileId));
+		const historical = [...session.snapshotHistory].sort((left, right) =>
+			right.createdAt.localeCompare(left.createdAt),
+		);
+		for (const snapshot of historical) {
+			if (known.has(snapshot.profileId)) continue;
+			known.add(snapshot.profileId);
+			let disabledReason: string | null = null;
+			if (snapshot.role !== session.binding.role) {
+				disabledReason = `Requires a hard transition to the ${snapshot.role} role.`;
+			} else if (snapshot.courseVersionId !== session.binding.courseVersionId) {
+				disabledReason = "The saved Mode Pack belongs to another course version.";
+			} else if (session.binding.role === "student" && !isInstalledLearnerRuntime(snapshot.mode)) {
+				disabledReason = "The saved Mode Pack requires a runtime that is not installed in the learner build.";
+			}
+			result.push({
+				profileId: snapshot.profileId,
+				title: modePackTitle(snapshot),
+				description: "Custom immutable Mode Pack saved in this session's snapshot history.",
+				category: "education",
+				source: "custom",
+				runtimeMode: snapshot.mode,
+				selectable: disabledReason === null,
+				disabledReason,
+				missingRequiredResources: [],
+				missingOptionalResources: [],
+				identityMismatches: [],
+			});
 		}
-		return [
-			{ profileId: "student-learn", selectable: true, disabledReason: null },
-			{ profileId: "practice", selectable: true, disabledReason: null },
-			{
-				profileId: "visual-lab",
-				selectable: false,
-				disabledReason: "Visual Lab is unavailable until the Visual Sandbox and HTML Stage are installed.",
-			},
-			{
-				profileId: "teacher-prep",
-				selectable: false,
-				disabledReason: "Teacher Prep is unavailable in the student build.",
-			},
-			{
-				profileId: "general",
-				selectable: false,
-				disabledReason: "Switching a bound learner session to the general role is a future hard transition.",
-			},
-		];
+		return result;
 	}
 
 	prepareProfileTransition(options: PrepareProfileTransitionOptions): PreparedProfileTransition {
@@ -646,13 +712,54 @@ export class LearningHarness {
 				"PROFILE_IDEMPOTENCY_REQUIRED",
 				"Profile transition requires an idempotency key",
 			);
-		const available = this.availableProfiles(options.sessionId).find(
-			(item) => item.profileId === options.targetProfileId,
-		);
-		if (!available || !available.selectable) {
+		const catalog = createDefaultResourceCatalog();
+		const builtins = createBuiltinModePacks(catalog);
+		let requestedPack: ModePackDefinition | null = null;
+		let requestedSnapshot: ResourceSnapshot | null = null;
+		if (options.modePackDraft !== undefined) {
+			requestedPack = compileModePackDraft(options.modePackDraft, catalog);
+			if (requestedPack.modePackId !== options.targetProfileId) {
+				throw new LearningHarnessError(
+					"MODE_PACK_ID_MISMATCH",
+					"targetProfileId must match the custom Mode Pack id",
+				);
+			}
+			if (!requestedPack.modePackId.startsWith("custom.")) {
+				throw new LearningHarnessError(
+					"CUSTOM_MODE_PACK_ID_REQUIRED",
+					"Custom Mode Pack ids must start with custom.",
+				);
+			}
+			if (
+				requestedPack.role !== session.binding.role ||
+				!requestedPack.courseRequired ||
+				!isInstalledLearnerRuntime(requestedPack.runtimeMode) ||
+				requestedPack.tools.length > 0 ||
+				!requestedPack.components.some(
+					(component) => component.type === "plugin" && component.id === "learning-harness" && component.required,
+				)
+			) {
+				throw new LearningHarnessError(
+					"MODE_PACK_SESSION_INCOMPATIBLE",
+					"Custom learner Mode Packs must stay course-bound, use the installed student runtime, include the Harness plugin, and declare no Pi coding tools.",
+				);
+			}
+			const requestedAt = options.createdAt ?? new Date().toISOString();
+			requireTimestamp(requestedAt);
+			requestedSnapshot = resolveModePackSnapshot({
+				pack: requestedPack,
+				courseVersionId: session.binding.courseVersionId,
+				catalog,
+				createdAt: requestedAt,
+			});
+		}
+		const available = requestedPack
+			? null
+			: this.availableProfiles(options.sessionId).find((item) => item.profileId === options.targetProfileId);
+		if (!requestedPack && (!available || !available.selectable)) {
 			throw new LearningHarnessError(
 				"PROFILE_UNAVAILABLE",
-				available?.disabledReason ?? `Unknown profile ${options.targetProfileId}`,
+				available?.disabledReason ?? `Unknown Mode Pack ${options.targetProfileId}`,
 			);
 		}
 		const previous = session.profileTransitionHistory.find((item) => item.idempotencyKey === options.idempotencyKey);
@@ -669,6 +776,12 @@ export class LearningHarness {
 			const snapshot = session.snapshotHistory.find((item) => item.resourceSnapshotId === previous.snapshotId);
 			if (!snapshot)
 				throw new LearningHarnessError("CORRUPT_STATE", "Committed profile transition lost its snapshot.");
+			if (requestedSnapshot && requestedSnapshot.contentHash !== snapshot.contentHash) {
+				throw new LearningHarnessError(
+					"PROFILE_IDEMPOTENCY_REUSE",
+					"Profile transition idempotency key was reused with different Mode Pack content.",
+				);
+			}
 			return {
 				idempotencyKey: previous.idempotencyKey,
 				expectedSnapshotId: previous.previousSnapshotId,
@@ -696,6 +809,12 @@ export class LearningHarness {
 						"Profile transition idempotency key was reused for another request.",
 					);
 				}
+				if (requestedSnapshot && requestedSnapshot.contentHash !== pending.snapshot.contentHash) {
+					throw new LearningHarnessError(
+						"PROFILE_IDEMPOTENCY_REUSE",
+						"Profile transition idempotency key was reused with different Mode Pack content.",
+					);
+				}
 				return structuredClone(pending);
 			}
 			throw new LearningHarnessError(
@@ -703,15 +822,44 @@ export class LearningHarness {
 				"A profile transition is already prepared for this session.",
 			);
 		}
-		const preparedAt = options.createdAt ?? new Date().toISOString();
+		const preparedAt = requestedSnapshot?.createdAt ?? options.createdAt ?? new Date().toISOString();
 		requireTimestamp(preparedAt);
-		const targetProfileId = options.targetProfileId as "student-learn" | "practice";
-		const snapshot = resolveProfileSnapshot({
-			base: BUILTIN_PROFILES[targetProfileId],
-			courseVersionId: session.binding.courseVersionId,
-			catalog: createDefaultResourceCatalog(),
-			createdAt: preparedAt,
-		});
+		const targetProfileId = options.targetProfileId;
+		let snapshot: ResourceSnapshot;
+		if (requestedPack) {
+			if (!requestedSnapshot) {
+				throw new LearningHarnessError("CORRUPT_STATE", "Custom Mode Pack did not produce a resource snapshot.");
+			}
+			snapshot = requestedSnapshot;
+		} else {
+			const builtin = builtins[targetProfileId];
+			if (builtin) {
+				snapshot = resolveModePackSnapshot({
+					pack: builtin,
+					courseVersionId: session.binding.courseVersionId,
+					catalog,
+					createdAt: preparedAt,
+				});
+			} else {
+				const historical = [...session.snapshotHistory]
+					.reverse()
+					.find((item) => item.profileId === targetProfileId);
+				if (!historical) {
+					throw new LearningHarnessError("MODE_PACK_NOT_FOUND", `Unknown Mode Pack ${targetProfileId}`);
+				}
+				if (
+					historical.role !== session.binding.role ||
+					historical.courseVersionId !== session.binding.courseVersionId ||
+					!isInstalledLearnerRuntime(historical.mode)
+				) {
+					throw new LearningHarnessError(
+						"MODE_PACK_SESSION_INCOMPATIBLE",
+						"Saved Mode Pack cannot be activated in this learner session.",
+					);
+				}
+				snapshot = historical;
+			}
+		}
 		const pending: PreparedProfileTransition = {
 			idempotencyKey: options.idempotencyKey,
 			expectedSnapshotId: options.expectedSnapshotId,
@@ -720,7 +868,9 @@ export class LearningHarness {
 			snapshot,
 			preparedAt,
 		};
-		session.snapshotHistory.push(snapshot);
+		if (!session.snapshotHistory.some((item) => item.resourceSnapshotId === snapshot.resourceSnapshotId)) {
+			session.snapshotHistory.push(snapshot);
+		}
 		session.pendingProfileTransition = pending;
 		this.persist();
 		return structuredClone(pending);

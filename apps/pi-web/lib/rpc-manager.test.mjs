@@ -297,7 +297,7 @@ test("reopening a journal-ahead profile uses the reconciled snapshot allowlist i
 });
 
 test("get_tools preserves the SDK tool definition fields", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const getToolsSource = source.slice(
     source.indexOf('case "get_tools"'),
     source.indexOf('case "get_commands"'),
@@ -309,7 +309,7 @@ test("get_tools preserves the SDK tool definition fields", async () => {
 });
 
 test("RPC session startup preloads extension-registered providers before restoring models", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
 
   assert.match(startupSource, /createAgentSessionServices\(/);
@@ -318,7 +318,7 @@ test("RPC session startup preloads extension-registered providers before restori
 });
 
 test("built-in subagents persist their selected resource policy", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const subagentSource = await readFile(new URL("./subagent-runtime.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
 
@@ -346,7 +346,7 @@ test("built-in subagents persist their selected resource policy", async () => {
 });
 
 test("running snapshots expose sessions with suppressed completion notifications", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const runningRouteSource = await readFile(new URL("../app/api/agent/running/route.ts", import.meta.url), "utf8");
   const sessionsRouteSource = await readFile(new URL("../app/api/sessions/route.ts", import.meta.url), "utf8");
   const snapshotSource = source.slice(
@@ -360,7 +360,7 @@ test("running snapshots expose sessions with suppressed completion notifications
 });
 
 test("RPC session startup resolves and passes the SDK-native enabled model scope", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
   const resolveIndex = startupSource.indexOf("resolveVisibleModels(");
   const createIndex = startupSource.indexOf("createAgentSessionFromServices(");
@@ -374,7 +374,7 @@ test("RPC session startup resolves and passes the SDK-native enabled model scope
 });
 
 test("RPC session startup treats only sessions with messages as continuing", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
 
   assert.match(
@@ -387,7 +387,7 @@ test("RPC session startup treats only sessions with messages as continuing", asy
 });
 
 test("RPC session startup opens an existing session file only once and trusts its cwd", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
   const routeSource = await readFile(new URL("../app/api/agent/[id]/route.ts", import.meta.url), "utf8");
   const eventRouteSource = await readFile(new URL("../app/api/agent/[id]/events/route.ts", import.meta.url), "utf8");
@@ -403,7 +403,7 @@ test("RPC session startup opens an existing session file only once and trusts it
 });
 
 test("RPC wrapper avoids per-chunk idle maintenance", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startSource = source.slice(
     source.indexOf("  start(): void"),
     source.indexOf("  beginExtensionBinding"),
@@ -414,7 +414,7 @@ test("RPC wrapper avoids per-chunk idle maintenance", async () => {
 });
 
 test("normal session teardown paths use graceful extension shutdown", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const deleteRouteSource = await readFile(new URL("../app/api/sessions/[id]/route.ts", import.meta.url), "utf8");
   const trustRouteSource = await readFile(new URL("../app/api/project-trust/route.ts", import.meta.url), "utf8");
   const idleSource = source.slice(
@@ -443,7 +443,7 @@ test("normal session teardown paths use graceful extension shutdown", async () =
 });
 
 test("clone copies the requested leaf into a child session", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const cloneSource = source.slice(
     source.indexOf('case "clone"'),
     source.indexOf('case "navigate_tree"'),
@@ -752,7 +752,7 @@ test("prompt routes mark only preflight failures as rejected", async () => {
 });
 
 test("the wrapper reapplies an exact prompt after SDK preflight", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const promptSource = source.slice(
     source.indexOf('case "prompt"'),
     source.indexOf('case "abort"'),
@@ -763,7 +763,7 @@ test("the wrapper reapplies an exact prompt after SDK preflight", async () => {
 });
 
 test("RPC session startup persists explicit preferences without replaying setters", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
 
   assert.match(startupSource, /persistExplicitStartupPreferences\(/);
@@ -771,7 +771,7 @@ test("RPC session startup persists explicit preferences without replaying setter
 });
 
 test("custom extension UI receives the fixed headless terminal facade", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const customUiSource = source.slice(
     source.indexOf("private requestExtensionCustomUi"),
     source.indexOf("private requestExtensionUi"),
@@ -782,7 +782,7 @@ test("custom extension UI receives the fixed headless terminal facade", async ()
 });
 
 test("reloading a session invalidates the models cache", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const reloadSource = source.slice(
     source.indexOf('case "reload"'),
     source.indexOf('case "abort_compaction"'),
@@ -793,7 +793,7 @@ test("reloading a session invalidates the models cache", async () => {
 });
 
 test("normal sessions restore persisted tool selections before loading resources", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
   const registrationSource = source.slice(
     source.indexOf("function registerRpcWrapper"),
@@ -810,7 +810,7 @@ test("normal sessions restore persisted tool selections before loading resources
 });
 
 test("crossing the Chat-only boundary persists and rebuilds the wrapper", async () => {
-  const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
   const switchSource = source.slice(
     source.indexOf("export async function setRpcSessionTools"),
     source.indexOf("export function getRunningRpcSessionIds"),

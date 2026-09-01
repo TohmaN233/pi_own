@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     const expectedSnapshotId = requireString(data, "expectedSnapshotId");
     const idempotencyKey = requireString(data, "idempotencyKey");
     const harness = getLearningHarness();
-    const prepared = harness.prepareProfileTransition({ sessionId, targetProfileId, expectedSnapshotId, idempotencyKey });
+    const prepared = harness.prepareProfileTransition({ sessionId, targetProfileId, expectedSnapshotId, idempotencyKey, modePackDraft: data.modePackDraft });
     const session = await warmSwitchHarnessProfile(sessionId, prepared);
     const current = harness.findCurrentSession(sessionId);
     if (!current) throw new Error("Profile transition committed without a durable Harness session.");

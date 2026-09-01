@@ -1,4 +1,5 @@
 import type {
+  AgentSession,
   AgentSessionEvent,
   BashOperations,
   SessionManager,
@@ -72,7 +73,7 @@ interface SkillLike {
   sourceInfo: SlashCommandInfo["sourceInfo"];
 }
 
-interface ResourceLoaderLike {
+interface ResourceLoaderLike extends Pick<AgentSession["resourceLoader"], "getExtensions" | "getPrompts" | "getThemes"> {
   getSkills(): { skills: SkillLike[] };
   getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
 }

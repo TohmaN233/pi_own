@@ -75,7 +75,8 @@ test("the reload resolver reads the latest persisted trust decision", async (t) 
 });
 
 test("all project resource loaders and reloads enforce project trust", async () => {
-  const rpcSource = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const rpcSource = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
+  const modePackRpcSource = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
   const modelsSource = await readFile(new URL("../app/api/models/route.ts", import.meta.url), "utf8");
   const skillsSource = await readFile(new URL("./skills-service.ts", import.meta.url), "utf8");
   const skillsInstallSource = await readFile(new URL("../app/api/skills/install/route.ts", import.meta.url), "utf8");
@@ -84,6 +85,9 @@ test("all project resource loaders and reloads enforce project trust", async () 
   assert.match(rpcSource, /const sessionCwd = sessionManager\.getCwd\(\)/);
   assert.match(rpcSource, /projectTrustReloadOptions\(sessionCwd, agentDir\)/);
   assert.match(rpcSource, /resourceLoaderReloadOptions: trustReloadOptions/);
+  assert.match(modePackRpcSource, /import \* as Base from "\.\/rpc-manager-base"/);
+  assert.match(modePackRpcSource, /const sessionCwd = options\.sessionManager\.getCwd\(\)/);
+  assert.match(modePackRpcSource, /resourceLoaderReloadOptions: projectTrustReloadOptions\(sessionCwd, agentDir\)/);
   assert.equal(
     Array.from(rpcSource.matchAll(/this\.syncProjectTrust\(\);\s*await this\.inner\.reload/g)).length,
     2,
@@ -106,7 +110,7 @@ test("all project resource loaders and reloads enforce project trust", async () 
 
 test("the trust API invalidates cached models and restricted runtimes", async () => {
   const source = await readFile(new URL("../app/api/project-trust/route.ts", import.meta.url), "utf8");
-  const rpcSource = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
+  const rpcSource = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
 
   assert.match(source, /trustProject\(result\.cwd, agentDir\)/);
   assert.match(source, /invalidateModelsCache\(\)/);

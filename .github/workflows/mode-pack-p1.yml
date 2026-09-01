@@ -1,0 +1,101 @@
+name: Mode Pack P1
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/mode-pack-host/**"
+      - "packages/harness-contracts/**"
+      - "packages/profile-resource-host/**"
+      - "apps/pi-web/**"
+      - "scripts/mode-pack-*.test.mjs"
+      - "docs/MODE_PACKS.md"
+      - ".github/workflows/mode-pack-p1.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/mode-pack-host/**"
+      - "packages/harness-contracts/**"
+      - "packages/profile-resource-host/**"
+      - "apps/pi-web/**"
+      - "scripts/mode-pack-*.test.mjs"
+      - "docs/MODE_PACKS.md"
+      - ".github/workflows/mode-pack-p1.yml"
+
+concurrency:
+  group: mode-pack-p1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mode-pack-p1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Record checkout identity
+        run: |
+          git log -1 --format='%H %P %s'
+          git status --porcelain
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run Mode Pack host tests
+        run: node --test scripts/mode-pack-runtime-binding.test.mjs
+
+      - name: Install Pi Web dependencies
+        id: web_install
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Run Mode Pack Pi Web tests
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: |
+          cd apps/pi-web
+          node --test \
+            lib/mode-pack-inventory.test.mjs \
+            lib/mode-pack-store.test.mjs \
+            lib/rpc-manager-mode-pack.test.mjs \
+            components/harness/HarnessShell.test.mjs \
+            app/mode-packs/page.test.mjs
+
+      - name: Typecheck Pi Web
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+
+      - name: Lint Pi Web
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: npm run lint --prefix apps/pi-web
+
+      - name: Run complete Pi Web test suite
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: |
+          set +e
+          npm test --prefix apps/pi-web > "$RUNNER_TEMP/pi-web-tests.log" 2>&1
+          result=$?
+          awk '/^not ok / { print; remaining=14; next } remaining>0 { print substr($0,1,400); remaining-- } /^# (tests|pass|fail) / { print }' "$RUNNER_TEMP/pi-web-tests.log"
+          tail -n 12 "$RUNNER_TEMP/pi-web-tests.log"
+          exit "$result"
+
+      - name: Build Pi Web production application
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: npm run build --prefix apps/pi-web
+
+      - name: Report final gate diagnostics
+        if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
+        run: |
+          echo '=== CHECKOUT AND WORKTREE IDENTITY ==='
+          git log -1 --format='%H %P %s'
+          git status --porcelain
+          echo '=== BOUNDED FAILURE SUMMARY ==='
+          if test -f "$RUNNER_TEMP/pi-web-tests.log"; then
+            awk '/^not ok / { print; remaining=14; next } remaining>0 { print substr($0,1,400); remaining-- } /^# (tests|pass|fail) / { print }' "$RUNNER_TEMP/pi-web-tests.log"
+            tail -n 12 "$RUNNER_TEMP/pi-web-tests.log"
+          fi

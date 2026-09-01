@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getLearningHarness, listCourseSummaries, selectedCourseVersion } from "@/lib/harness-server";
+import { getLearningHarness, listCourseSummaries, listModePackComponents, selectedCourseVersion } from "@/lib/harness-server";
 import { harnessHttpStatus, logHarnessOperationalError } from "@/lib/harness-http";
 import { getHarnessRuntimeVerification } from "@/lib/rpc-manager";
 
@@ -30,6 +30,7 @@ export async function GET(request: Request) {
 			runtime: getHarnessRuntimeVerification(current.sessionId, current.snapshot),
       } : null,
 		availableProfiles: availability,
+		modePackComponents: listModePackComponents(),
     });
   } catch (error) {
     logHarnessOperationalError("harness status", error);
