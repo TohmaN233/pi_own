@@ -41,9 +41,10 @@ export async function forkGenericModePackSession(
     // precedes activation. Carry forward only validated host binding metadata;
     // never invent assistant messages to force the SDK's deferred first flush.
     recoverModePackBindingHistory(child.getEntries(), child.getSessionId());
-    const copied = new Set(child.getEntries()
-      .filter((item) => item.type === "custom" && item.customType === MODE_PACK_BINDING_CUSTOM_TYPE)
-      .map((item) => parseModePackSessionBinding(item.data).requestHash));
+    const copied = new Set(child.getEntries().flatMap((item) =>
+      item.type === "custom" && item.customType === MODE_PACK_BINDING_CUSTOM_TYPE
+        ? [parseModePackSessionBinding(item.data).requestHash]
+        : []));
     for (const item of parent.getEntries()) {
       if (item.type !== "custom" || item.customType !== MODE_PACK_BINDING_CUSTOM_TYPE) continue;
       const binding = parseModePackSessionBinding(item.data);
