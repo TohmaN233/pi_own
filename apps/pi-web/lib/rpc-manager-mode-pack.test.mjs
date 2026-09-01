@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ test("rpc manager rebuilds and verifies generic Mode Pack runtimes instead of mu
   assert.match(source, /Mode Pack sessions own their tool selection/);
 });
 
-// PR #3: actual SDK sessions and JSONL, not a source-pattern substitute for recovery.
+// Actual SDK sessions and JSONL, not a source-pattern substitute for recovery.
 // This test makes no provider request and is NOT the credentialed/browser smoke.
 test("real Pi runtime switches, restarts, forks, and fails closed after a committed activation", { timeout: 90_000 }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "pi-own-mode-runtime-"));
@@ -36,7 +36,6 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
     PI_CODING_AGENT_SESSION_DIR: join(root, "sessions"),
     PI_LEARNING_HARNESS_DIR: join(root, "harness"),
     PI_MODE_PACK_STORE_PATH: join(root, "mode-packs.json"),
-    // Offline model availability only. The fetch tripwire prohibits requests.
     ANTHROPIC_API_KEY: "mode-pack-smoke-not-a-real-key",
   };
   const previous = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
@@ -56,6 +55,7 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   });
   const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
   const rpc = await jiti.import("./rpc-manager.ts");
+  const { resolveSessionPath } = await jiti.import("./session-reader.ts");
   const { ModePackStore } = await jiti.import("./mode-pack-store.ts");
   const { SessionManager } = await jiti.import("@earendil-works/pi-coding-agent");
   const { recoverModePackBindingHistory } = await jiti.import("../../../packages/mode-pack-host/src/index.ts");
@@ -99,7 +99,10 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
 
   // Fail specifically after append/registration, when status verification reads the store.
   const originalList = ModePackStore.prototype.list;
-  ModePackStore.prototype.list = async () => { throw new Error("injected post-commit status failure"); };
+  ModePackStore.prototype.list = async () => {
+    await assert.rejects(rpc.startRpcSession(sessionId, sessionFile, undefined), /activation is in progress/i);
+    throw new Error("injected post-commit status failure");
+  };
   try {
     await assert.rejects(rpc.activateGenericModePack({
       sessionId, modePackId: "general", expectedSnapshotId: second.binding.snapshot.resourceSnapshotId,
@@ -113,8 +116,7 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   const recovered = await rpc.startRpcSession(sessionId, sessionFile, undefined);
   assert.equal((await rpc.getGenericModePackStatus(sessionId)).runtime.binding.snapshot.profileId, "general");
 
-  // The real fork command copies the committed binding before this fixture turn.
-  // No assistant response is fabricated and no paid API is called.
+  // Fork before the first assistant message; do not fabricate a provider response.
   const userEntryId = recovered.session.inner.sessionManager.appendMessage({
     role: "user", content: "Mode Pack fork fixture; not a provider request.", timestamp: Date.now(),
   });
@@ -123,42 +125,78 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   assert.notEqual(forked.newSessionId, sessionId);
   const childStatus = await rpc.getGenericModePackStatus(forked.newSessionId);
   assert.equal(childStatus.runtime.inheritedBinding?.snapshot.profileId, "general");
-  const childFile = SessionManager.list(cwd, join(root, "sessions"));
-  // Resolve the SDK-created child by its persisted header, not by guessing a filename.
-  const sessions = await childFile;
-  const child = sessions.find((entry) => entry.id === forked.newSessionId);
-  assert.ok(child, "fork must be discoverable as a real persisted Pi session");
-  const resumedChild = await rpc.startRpcSession(forked.newSessionId, child.path, undefined);
+  const childPath = await resolveSessionPath(forked.newSessionId);
+  assert.ok(childPath && existsSync(childPath), "fork must be a real persisted Pi session");
+  const resumedChild = await rpc.startRpcSession(forked.newSessionId, childPath, undefined);
   const inherited = (await rpc.getGenericModePackStatus(forked.newSessionId)).runtime.binding;
   assert.equal(inherited.sessionId, forked.newSessionId);
   assert.equal(inherited.parentBindingId, readBinding().bindingId);
   assert.equal(inherited.revision, 1);
   assert.deepEqual(modelOf(resumedChild.session), expectedModel);
 
+  // A historical cut before the first binding must still inherit the active pack.
+  const firstEntry = resumedChild.session.inner.sessionManager.getEntries()[0];
+  assert.equal(firstEntry.parentId, null);
+  const earlyFork = await resumedChild.session.send({ type: "fork", entryId: firstEntry.id });
+  assert.equal(earlyFork.cancelled, false);
+  const grandchildPath = await resolveSessionPath(earlyFork.newSessionId);
+  assert.ok(grandchildPath && existsSync(grandchildPath));
+  const grandchild = await rpc.startRpcSession(earlyFork.newSessionId, grandchildPath, undefined);
+  const grandchildBinding = (await rpc.getGenericModePackStatus(earlyFork.newSessionId)).runtime.binding;
+  assert.equal(grandchildBinding.parentBindingId, inherited.bindingId);
+  assert.equal(grandchildBinding.snapshot.profileId, "general");
+  assert.deepEqual(modelOf(grandchild.session), expectedModel);
+
   // A missing required physical Skill blocks restart, never falls back to ordinary Pi.
   const skillDir = join(agentDir, "skills", "mode-pack-required-smoke");
   mkdirSync(skillDir, { recursive: true });
   const skillFile = join(skillDir, "SKILL.md");
-  const skillText = "---\nname: mode-pack-required-smoke\ndescription: Required runtime smoke fixture.\n---\nUse this fixture only for deterministic runtime verification.\n";
-  writeFileSync(skillFile, skillText);
+  writeFileSync(skillFile, "---\nname: mode-pack-required-smoke\ndescription: Required runtime smoke fixture.\n---\nUse this fixture only for deterministic runtime verification.\n");
   const store = new ModePackStore();
   const listed = await store.list(cwd);
   const requiredSkill = listed.inventory.resources.find((resource) => resource.kind === "skill" && resource.paths.includes(skillFile));
   assert.ok(requiredSkill, "fixture Skill must be discovered by the real inventory");
-  const base = listed.inventory.builtinPacks.general;
-  const { contentHash: _hash, ...draft } = base;
+  const draft = { ...listed.inventory.builtinPacks.general };
+  delete draft.contentHash;
   const definition = await store.saveDraft({
     ...draft, modePackId: "custom.smoke-required", revision: 1,
     components: [{ type: "skill", id: requiredSkill.id, required: true, enabled: true }],
   }, cwd, 0);
   const required = await rpc.activateGenericModePack({
-    sessionId: forked.newSessionId, modePackId: definition.modePackId,
-    expectedSnapshotId: inherited.snapshot.resourceSnapshotId, idempotencyKey: "smoke-required",
+    sessionId: earlyFork.newSessionId, modePackId: definition.modePackId,
+    expectedSnapshotId: grandchildBinding.snapshot.resourceSnapshotId, idempotencyKey: "smoke-required",
   });
   assert.equal(required.runtime.verified, true);
-  await rpc.getRpcSession(forked.newSessionId).shutdown();
+  await rpc.getRpcSession(earlyFork.newSessionId).shutdown();
   rmSync(skillFile);
-  await assert.rejects(rpc.startRpcSession(forked.newSessionId, child.path, undefined), /required.*missing|missing.*required/i);
-  assert.equal(rpc.getRpcSession(forked.newSessionId)?.isAlive() ?? false, false);
-  assert.match(readFileSync(child.path, "utf8"), /custom\.smoke-required/);
+  await assert.rejects(rpc.startRpcSession(earlyFork.newSessionId, grandchildPath, undefined), /required.*missing|missing.*required/i);
+  assert.equal(rpc.getRpcSession(earlyFork.newSessionId)?.isAlive() ?? false, false);
+  assert.match(readFileSync(grandchildPath, "utf8"), /custom\.smoke-required/);
+
+  // A candidate rejected AFTER SDK construction must not change the old saved model.
+  const parent = await rpc.startRpcSession(sessionId, sessionFile, undefined);
+  const otherModel = models.find((model) => model.id !== chosen.id);
+  const rejectedPack = await store.saveDraft({
+    ...draft, modePackId: "custom.smoke-rejected", revision: 1,
+    provider: otherModel.provider, model: otherModel.id, thinkingLevel: "low", components: [],
+  }, cwd, 0);
+  const prototype = Object.getPrototypeOf(parent.session.inner);
+  const originalActiveTools = prototype.getActiveToolNames;
+  prototype.getActiveToolNames = function () {
+    const tools = originalActiveTools.call(this);
+    return this === parent.session.inner ? tools : [...tools, "injected-unexpected-candidate-tool"];
+  };
+  try {
+    await assert.rejects(rpc.activateGenericModePack({
+      sessionId, modePackId: rejectedPack.modePackId,
+      expectedSnapshotId: readBinding().snapshot.resourceSnapshotId, idempotencyKey: "smoke-rejected-candidate",
+    }), /runtime verification failed/i);
+  } finally {
+    prototype.getActiveToolNames = originalActiveTools;
+  }
+  assert.equal(readBinding().snapshot.profileId, "general");
+  assert.deepEqual(modelOf(rpc.getRpcSession(sessionId)), expectedModel);
+  assert.deepEqual(SessionManager.open(sessionFile, undefined).buildSessionContext().model, {
+    provider: expectedModel.provider, modelId: expectedModel.id,
+  }, "a rejected candidate must not alter the authoritative saved model");
 });
