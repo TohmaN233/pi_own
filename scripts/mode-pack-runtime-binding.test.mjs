@@ -29,6 +29,10 @@ const firstSnapshot = resolveModePackSnapshot({
   createdAt: "2026-08-31T20:00:00.000Z",
 });
 assertGenericModePackSnapshot(firstSnapshot);
+assert.throws(() => assertGenericModePackSnapshot({
+  ...firstSnapshot,
+  resources: [...firstSnapshot.resources].reverse(),
+}), /invalid content hash/i);
 const first = prepareModePackSessionBinding({
   sessionId: "session-mode-1",
   targetSnapshot: firstSnapshot,

@@ -136,9 +136,6 @@ export function assertResourceSnapshotIntegrity(value: unknown): ResourceSnapsho
 	if (new Set(resourceKeys).size !== resourceKeys.length) {
 		throw new Error(`Resource snapshot ${snapshot.resourceSnapshotId} has duplicate resources`);
 	}
-	if (stableStringify(resourceKeys) !== stableStringify([...resourceKeys].sort())) {
-		throw new Error(`Resource snapshot ${snapshot.resourceSnapshotId} resources must be sorted`);
-	}
 	return snapshot;
 }
 
