@@ -44,8 +44,6 @@ jobs:
         run: |
           git log -1 --format='%H %P %s'
           git status --porcelain
-          git ls-files '*practice-gate*' '*student-learn-grounded*'
-          node -p 'JSON.stringify(require("./apps/pi-web/package.json").dependencies)'
 
       - name: Install root dependencies
         run: npm ci --ignore-scripts
@@ -82,7 +80,7 @@ jobs:
           set +e
           npm test --prefix apps/pi-web > "$RUNNER_TEMP/pi-web-tests.log" 2>&1
           result=$?
-          sed -n '/^not ok /,/^  \.\.\./p' "$RUNNER_TEMP/pi-web-tests.log"
+          awk '/^not ok / { print; remaining=14; next } remaining>0 { print substr($0,1,400); remaining-- } /^# (tests|pass|fail) / { print }' "$RUNNER_TEMP/pi-web-tests.log"
           tail -n 12 "$RUNNER_TEMP/pi-web-tests.log"
           exit "$result"
 
@@ -96,10 +94,8 @@ jobs:
           echo '=== CHECKOUT AND WORKTREE IDENTITY ==='
           git log -1 --format='%H %P %s'
           git status --porcelain
-          git ls-files '*practice-gate*' '*student-learn-grounded*'
-          node -p 'JSON.stringify(require("./apps/pi-web/package.json").dependencies)'
-          echo '=== COMPLETE FAILURE SUMMARY ==='
+          echo '=== BOUNDED FAILURE SUMMARY ==='
           if test -f "$RUNNER_TEMP/pi-web-tests.log"; then
-            sed -n '/^not ok /,/^  \.\.\./p' "$RUNNER_TEMP/pi-web-tests.log"
+            awk '/^not ok / { print; remaining=14; next } remaining>0 { print substr($0,1,400); remaining-- } /^# (tests|pass|fail) / { print }' "$RUNNER_TEMP/pi-web-tests.log"
             tail -n 12 "$RUNNER_TEMP/pi-web-tests.log"
           fi
