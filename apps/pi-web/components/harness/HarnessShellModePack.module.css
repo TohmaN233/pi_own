@@ -1,0 +1,14 @@
+.shell,
+.generic {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* The generic Mode Pack bar replaces, rather than overlays, the course-only bar. */
+.generic > :nth-child(2) {
+  --harness-bar-height: 44px;
+}
+
+.generic > :nth-child(2) > header {
+  display: none;
+}
