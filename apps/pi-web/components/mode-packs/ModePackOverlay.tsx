@@ -14,12 +14,24 @@ export type ModePackStatusKind = ModePackStatusResponse["kind"] | null;
 export function ModePackOverlay({ onStatusKind }: { onStatusKind?: (kind: ModePackStatusKind) => void }) {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session") ?? "";
+  return <SessionModePackOverlay key={sessionId} sessionId={sessionId} onStatusKind={onStatusKind} />;
+}
+
+function SessionModePackOverlay({ sessionId, onStatusKind }: {
+  sessionId: string;
+  onStatusKind?: (kind: ModePackStatusKind) => void;
+}) {
   const [status, setStatus] = useState<ModePackStatusResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operationKeys = useRef(new Map<string, string>());
+  const refreshRequest = useRef<AbortController | null>(null);
+  const activationRequest = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
+    refreshRequest.current?.abort();
+    const request = new AbortController();
+    refreshRequest.current = request;
     if (!sessionId) {
       setStatus(null);
       onStatusKind?.(null);
@@ -27,10 +39,13 @@ export function ModePackOverlay({ onStatusKind }: { onStatusKind?: (kind: ModePa
     }
     try {
       const next = await getModePackStatus(sessionId);
+      if (request.signal.aborted) return;
+      if (next.sessionId !== sessionId) throw new Error("Mode Pack status belongs to another session.");
       setStatus(next);
       onStatusKind?.(next.kind);
       setError(null);
     } catch (value) {
+      if (request.signal.aborted) return;
       setStatus(null);
       onStatusKind?.(null);
       setError(value instanceof Error ? value.message : String(value));
@@ -39,7 +54,10 @@ export function ModePackOverlay({ onStatusKind }: { onStatusKind?: (kind: ModePa
 
   useEffect(() => {
     void refresh();
+    return () => { refreshRequest.current?.abort(); };
   }, [refresh]);
+
+  useEffect(() => () => { activationRequest.current?.abort(); }, []);
 
   const selectable = useMemo(
     () => status?.packs.filter((pack) => pack.selectable) ?? [],
@@ -47,8 +65,12 @@ export function ModePackOverlay({ onStatusKind }: { onStatusKind?: (kind: ModePa
   );
 
   const activate = async (modePackId: string) => {
-    if (!status || !sessionId || !modePackId || modePackId === status.currentModePackId) return;
-    const operation = `${status.currentSnapshotId ?? "none"}\0${modePackId}`;
+    if (busy || !status || status.sessionId !== sessionId || !sessionId || !modePackId || modePackId === status.currentModePackId) return;
+    if (activationRequest.current && !activationRequest.current.signal.aborted) return;
+    const request = new AbortController();
+    activationRequest.current = request;
+    refreshRequest.current?.abort();
+    const operation = `${sessionId}\0${status.currentSnapshotId ?? "none"}\0${modePackId}`;
     const idempotencyKey = operationKeys.current.get(operation) ?? crypto.randomUUID();
     operationKeys.current.set(operation, idempotencyKey);
     setBusy(true);
@@ -60,16 +82,20 @@ export function ModePackOverlay({ onStatusKind }: { onStatusKind?: (kind: ModePa
         expectedSnapshotId: status.currentSnapshotId,
         idempotencyKey,
       });
+      if (request.signal.aborted) return;
       operationKeys.current.delete(operation);
       await refresh();
     } catch (value) {
-      setError(value instanceof Error ? value.message : String(value));
+      if (!request.signal.aborted) {
+        setError(value instanceof Error ? value.message : String(value));
+      }
     } finally {
-      setBusy(false);
+      if (!request.signal.aborted) setBusy(false);
+      if (activationRequest.current === request) activationRequest.current = null;
     }
   };
 
-  if (!sessionId || !status || status.kind !== "generic") return null;
+  if (!sessionId || !status || status.sessionId !== sessionId || status.kind !== "generic") return null;
   const canSwitch = status.live && !status.busy && !busy && (status.currentSnapshotId === null || status.verified);
   return (
     <div className={styles.overlay} aria-label="Active Mode Pack">
