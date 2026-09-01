@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   activateModePack,
@@ -49,6 +49,10 @@ function forkDraft(item: ModePackLibraryItem): Record<string, unknown> {
 export default function ModePacksPage() {
   const searchParams = useSearchParams();
   const initialSessionId = searchParams.get("sessionId") ?? "";
+  return <ModePacksEditor key={initialSessionId} initialSessionId={initialSessionId} />;
+}
+
+function ModePacksEditor({ initialSessionId }: { initialSessionId: string }) {
   const [sessionId, setSessionId] = useState(initialSessionId);
   const [status, setStatus] = useState<ModePackStatusResponse | null>(null);
   const [packs, setPacks] = useState<ModePackLibraryItem[]>([]);
@@ -56,37 +60,77 @@ export default function ModePacksPage() {
   const [editor, setEditor] = useState(pretty(BLANK_DRAFT));
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const refreshRequest = useRef<AbortController | null>(null);
+  const mutationRequest = useRef<AbortController | null>(null);
+  const loadedForSession = status?.sessionId === sessionId.trim();
 
-  const refresh = useCallback(async () => {
-    if (!sessionId.trim()) return;
-    const [nextStatus, library] = await Promise.all([
-      getModePackStatus(sessionId.trim()),
-      getModePackLibrary(sessionId.trim()),
-    ]);
-    if (nextStatus.kind !== "generic") {
-      throw new Error("The full Mode Pack editor is for ordinary Pi sessions; course-bound learner packs stay in the Learning Harness panel.");
+  const refresh = useCallback(async (): Promise<boolean> => {
+    refreshRequest.current?.abort();
+    const request = new AbortController();
+    refreshRequest.current = request;
+    const requestedSessionId = sessionId.trim();
+    if (!requestedSessionId) return false;
+    try {
+      const [nextStatus, library] = await Promise.all([
+        getModePackStatus(requestedSessionId),
+        getModePackLibrary(requestedSessionId),
+      ]);
+      if (request.signal.aborted) return false;
+      if (nextStatus.sessionId !== requestedSessionId) throw new Error("Mode Pack status belongs to another session.");
+      if (nextStatus.kind !== "generic") {
+        throw new Error("The full Mode Pack editor is for ordinary Pi sessions; course-bound learner packs stay in the Learning Harness panel.");
+      }
+      setStatus(nextStatus);
+      setPacks(library.packs);
+      setResources(library.resources);
+      setNotice(null);
+      return true;
+    } catch (error) {
+      if (request.signal.aborted) return false;
+      setStatus(null);
+      setPacks([]);
+      setResources([]);
+      setNotice(error instanceof Error ? error.message : String(error));
+      return false;
     }
-    setStatus(nextStatus);
-    setPacks(library.packs);
-    setResources(library.resources);
   }, [sessionId]);
 
   useEffect(() => {
-    if (!initialSessionId) return;
-    void refresh().catch((error) => setNotice(error instanceof Error ? error.message : String(error)));
-  }, [initialSessionId, refresh]);
+    void refresh();
+    return () => { refreshRequest.current?.abort(); };
+  }, [refresh]);
+
+  useEffect(() => () => { mutationRequest.current?.abort(); }, []);
 
   const parsedEditor = useMemo(() => {
     try {
-      return JSON.parse(editor) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(editor);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
     } catch {
       return null;
     }
   }, [editor]);
 
+  const beginMutation = (): AbortController | null => {
+    if (busy || !loadedForSession || mutationRequest.current) return null;
+    refreshRequest.current?.abort();
+    const request = new AbortController();
+    mutationRequest.current = request;
+    setBusy(true);
+    setNotice(null);
+    return request;
+  };
+
+  const finishMutation = (request: AbortController) => {
+    if (!request.signal.aborted) setBusy(false);
+    if (mutationRequest.current === request) mutationRequest.current = null;
+  };
+
   const save = async () => {
-    if (!parsedEditor || !sessionId.trim()) {
-      setNotice("The editor must contain valid JSON and a session id is required.");
+    if (!parsedEditor || !sessionId.trim() || !loadedForSession) {
+      setNotice("Load the session first; the editor must contain a valid JSON object.");
       return;
     }
     const revision = Number(parsedEditor.revision);
@@ -94,47 +138,52 @@ export default function ModePacksPage() {
       setNotice("draft.revision must be a positive integer.");
       return;
     }
-    setBusy(true);
+    const request = beginMutation();
+    if (!request) return;
     try {
       const saved = await saveModePack({
         sessionId: sessionId.trim(),
         draft: parsedEditor,
         expectedRevision: revision - 1,
       });
+      if (request.signal.aborted) return;
       setEditor(pretty({ ...saved.draft, revision: revision + 1 }));
-      await refresh();
-      setNotice(`Saved immutable revision ${revision}.`);
+      const refreshed = await refresh();
+      if (!request.signal.aborted && refreshed) setNotice(`Saved immutable revision ${revision}.`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      if (!request.signal.aborted) setNotice(error instanceof Error ? error.message : String(error));
     } finally {
-      setBusy(false);
+      finishMutation(request);
     }
   };
 
   const remove = async () => {
-    if (!parsedEditor || typeof parsedEditor.modePackId !== "string") return;
+    if (!parsedEditor || typeof parsedEditor.modePackId !== "string" || !loadedForSession) return;
     const current = packs.find((item) => item.definition.modePackId === parsedEditor.modePackId);
     const revision = Number(current?.definition.revision ?? 0);
     if (!current || current.builtin || !Number.isSafeInteger(revision)) {
       setNotice("Select a saved custom Mode Pack before deleting.");
       return;
     }
-    setBusy(true);
+    const request = beginMutation();
+    if (!request) return;
     try {
       await deleteModePack({ modePackId: parsedEditor.modePackId, expectedRevision: revision });
+      if (request.signal.aborted) return;
       setEditor(pretty(BLANK_DRAFT));
-      await refresh();
-      setNotice(`Deleted ${parsedEditor.modePackId}.`);
+      const refreshed = await refresh();
+      if (!request.signal.aborted && refreshed) setNotice(`Deleted ${parsedEditor.modePackId}.`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      if (!request.signal.aborted) setNotice(error instanceof Error ? error.message : String(error));
     } finally {
-      setBusy(false);
+      finishMutation(request);
     }
   };
 
   const activate = async (modePackId: string) => {
-    if (!status) return;
-    setBusy(true);
+    if (!status || status.sessionId !== sessionId.trim() || !status.live || status.busy) return;
+    const request = beginMutation();
+    if (!request) return;
     try {
       await activateModePack({
         sessionId: status.sessionId,
@@ -142,13 +191,24 @@ export default function ModePacksPage() {
         expectedSnapshotId: status.currentSnapshotId,
         idempotencyKey: crypto.randomUUID(),
       });
-      await refresh();
-      setNotice(`Activated ${modePackId}.`);
+      if (request.signal.aborted) return;
+      const refreshed = await refresh();
+      if (!request.signal.aborted && refreshed) setNotice(`Activated ${modePackId}.`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      if (!request.signal.aborted) setNotice(error instanceof Error ? error.message : String(error));
     } finally {
-      setBusy(false);
+      finishMutation(request);
     }
+  };
+
+  const changeSession = (value: string) => {
+    if (mutationRequest.current) return;
+    refreshRequest.current?.abort();
+    setStatus(null);
+    setPacks([]);
+    setResources([]);
+    setNotice(null);
+    setSessionId(value);
   };
 
   return (
@@ -162,9 +222,9 @@ export default function ModePacksPage() {
       </header>
 
       <section className={styles.toolbar}>
-        <input className={styles.input} value={sessionId} onChange={(event) => setSessionId(event.target.value)} placeholder="Pi session id" aria-label="Pi session id" />
-        <button className={styles.button} type="button" disabled={busy || !sessionId.trim()} onClick={() => void refresh().catch((error) => setNotice(error instanceof Error ? error.message : String(error)))}>Load</button>
-        {status && <span className={status.verified ? styles.active : styles.warning}>{status.currentModePackId ?? "No active Mode Pack"} · {status.verified ? "verified" : status.diagnostic ?? "unverified"}</span>}
+        <input className={styles.input} value={sessionId} disabled={busy} onChange={(event) => changeSession(event.target.value)} placeholder="Pi session id" aria-label="Pi session id" />
+        <button className={styles.button} type="button" disabled={busy || !sessionId.trim()} onClick={() => void refresh()}>Load</button>
+        {status && loadedForSession && <span className={status.verified ? styles.active : styles.warning}>{status.currentModePackId ?? "No active Mode Pack"} · {status.verified ? "verified" : status.diagnostic ?? "unverified"}</span>}
       </section>
 
       {notice && <p className={styles.warning}>{notice}</p>}
@@ -187,8 +247,8 @@ export default function ModePacksPage() {
                 <span className={styles.meta}>{String(definition.description)}</span>
                 {!item.selectable && <span className={styles.warning}>{[...item.missingRequiredResources, ...item.identityMismatches].join(", ")}</span>}
                 <div className={styles.actions}>
-                  <button className={styles.button} type="button" onClick={() => setEditor(pretty(item.builtin ? forkDraft(item) : { ...item.draft, revision: revision + 1 }))}>{item.builtin ? "Fork" : "Edit next revision"}</button>
-                  <button className={styles.button} type="button" disabled={busy || !item.selectable || !status?.live || status.busy} onClick={() => void activate(id)}>Activate</button>
+                  <button className={styles.button} type="button" disabled={busy || !loadedForSession} onClick={() => setEditor(pretty(item.builtin ? forkDraft(item) : { ...item.draft, revision: revision + 1 }))}>{item.builtin ? "Fork" : "Edit next revision"}</button>
+                  <button className={styles.button} type="button" disabled={busy || !loadedForSession || !item.selectable || !status?.live || status.busy} onClick={() => void activate(id)}>Activate</button>
                 </div>
               </article>
             );
@@ -200,12 +260,12 @@ export default function ModePacksPage() {
         <section className={styles.panel}>
           <div className={styles.cardHeader}>
             <h2>Custom Mode Pack JSON</h2>
-            <button className={styles.button} type="button" onClick={() => setEditor(pretty(BLANK_DRAFT))}>New</button>
+            <button className={styles.button} type="button" disabled={busy} onClick={() => setEditor(pretty(BLANK_DRAFT))}>New</button>
           </div>
-          <textarea className={styles.textarea} value={editor} onChange={(event) => setEditor(event.target.value)} spellCheck={false} aria-label="Custom Mode Pack JSON" />
+          <textarea className={styles.textarea} value={editor} disabled={busy} onChange={(event) => setEditor(event.target.value)} spellCheck={false} aria-label="Custom Mode Pack JSON" />
           <div className={styles.actions}>
-            <button className={styles.button} type="button" disabled={busy || !parsedEditor || !sessionId.trim()} onClick={() => void save()}>Save revision</button>
-            <button className={styles.button} type="button" disabled={busy || !parsedEditor} onClick={() => void remove()}>Delete custom pack</button>
+            <button className={styles.button} type="button" disabled={busy || !parsedEditor || !loadedForSession} onClick={() => void save()}>Save revision</button>
+            <button className={styles.button} type="button" disabled={busy || !parsedEditor || !loadedForSession} onClick={() => void remove()}>Delete custom pack</button>
           </div>
         </section>
       </div>
