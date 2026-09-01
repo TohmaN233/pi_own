@@ -25,6 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p packages/mode-pack-host/src
           cat .chatgpt-upload/inventory.00 .chatgpt-upload/inventory.01 .chatgpt-upload/inventory.02a .chatgpt-upload/inventory.02b .chatgpt-upload/inventory.03 | base64 --decode > apps/pi-web/lib/mode-pack-inventory.ts
           cat .chatgpt-upload/rpc.00 .chatgpt-upload/rpc.01 .chatgpt-upload/rpc.02 .chatgpt-upload/rpc.03 .chatgpt-upload/rpc.04 | base64 --decode > apps/pi-web/lib/rpc-manager.ts
           cat .chatgpt-upload/host.00 .chatgpt-upload/host.01 .chatgpt-upload/host.02 | base64 --decode > packages/mode-pack-host/src/index.ts
