@@ -85,7 +85,7 @@ interface ResourceLoaderLike {
 
 interface RuntimeSessionLike {
   getActiveToolNames(): string[];
-  getAllTools(): Array<{ name: string; sourceInfo?: { path?: string } }>;
+  getAllTools(): Array<{ name: string; sourceInfo?: unknown }>;
   resourceLoader: ResourceLoaderLike;
   agent?: { state?: { systemPrompt?: string } };
   systemPrompt?: string;
@@ -516,8 +516,10 @@ function selectedPluginToolNames(session: RuntimeSessionLike, plan: ModePackRunt
   return session
     .getAllTools()
     .filter((tool) => {
-      const path = tool.sourceInfo?.path;
-      return Boolean(path && !path.startsWith("<") && selectedPluginPaths.has(normalizePath(path)));
+      const source = tool.sourceInfo;
+      if (!source || typeof source !== "object" || Array.isArray(source) || !("path" in source)) return false;
+      const path = source.path;
+      return typeof path === "string" && Boolean(path) && !path.startsWith("<") && selectedPluginPaths.has(normalizePath(path));
     })
     .map((tool) => tool.name)
     .sort();
