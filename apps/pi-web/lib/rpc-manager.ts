@@ -19,6 +19,7 @@ import {
   type ModePackSessionBinding,
 } from "../../../packages/mode-pack-host/src/index.ts";
 import * as Base from "./rpc-manager-base";
+import { forkGenericModePackSession } from "./mode-pack-fork";
 import { getLearningHarness } from "./harness-server";
 import {
   applyModePackToolSelection,
@@ -76,6 +77,9 @@ class ModePackAgentSessionWrapper extends Base.AgentSessionWrapper {
     }
     if (type === "bash" && !this.modePackSnapshot.tools.some((tool) => tool === "bash" || tool === "powershell")) {
       throw new Error("The active Mode Pack does not allow direct shell commands.");
+    }
+    if (type === "fork") {
+      return forkGenericModePackSession(this, command.entryId, persistUnflushedSession);
     }
     return super.send(command);
   }
@@ -142,8 +146,16 @@ function getModePackStartLocks(): Map<
 function acquireModePackActivation(sessionId: string): () => void {
   const locks = globalThis.__piModePackActivationLocks ??= new Set<string>();
   if (locks.has(sessionId)) throw new Error("A Mode Pack activation is already in progress for this session.");
+  if (getModePackStartLocks().has(`${MODE_PACK_START_PREFIX}${sessionId}`)) {
+    throw new Error("The Mode Pack session is still being restored.");
+  }
   locks.add(sessionId);
-  return () => locks.delete(sessionId);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    locks.delete(sessionId);
+  };
 }
 
 function modePackRecovery(sessionManager: SessionManager) {
@@ -347,6 +359,9 @@ export async function startRpcSession(
   cwd: string | undefined,
   options: Base.RpcSessionStartOptions = {},
 ): Promise<{ session: Base.AgentSessionWrapper; realSessionId: string }> {
+  if (globalThis.__piModePackActivationLocks?.has(sessionId)) {
+    throw new Error("A Mode Pack activation is in progress; retry after runtime cutover.");
+  }
   const existing = Base.getRpcSession(sessionId);
   if (existing?.isAlive() && !options.deferRegister) return { session: existing, realSessionId: sessionId };
   if (
@@ -599,6 +614,7 @@ export async function activateGenericModePack(
       );
     }
     if (!Base.getRpcSession(options.sessionId)?.isAlive() && persistedSessionFile && existsSync(persistedSessionFile)) {
+      releaseGlobal();
       await startRpcSession(options.sessionId, persistedSessionFile, undefined).catch((restoreError) => {
         console.error("[mode-pack] failed to restore previous Pi runtime", restoreError);
       });
