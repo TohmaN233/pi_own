@@ -82,7 +82,8 @@ jobs:
           set +e
           npm test --prefix apps/pi-web > "$RUNNER_TEMP/pi-web-tests.log" 2>&1
           result=$?
-          cat "$RUNNER_TEMP/pi-web-tests.log"
+          sed -n '/^not ok /,/^  \.\.\./p' "$RUNNER_TEMP/pi-web-tests.log"
+          tail -n 12 "$RUNNER_TEMP/pi-web-tests.log"
           exit "$result"
 
       - name: Build Pi Web production application
