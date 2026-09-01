@@ -36,6 +36,7 @@
 			"lib/next-config.test.mjs",
 			"lib/pi-types.ts",
 			"lib/project-command-env.test.mjs",
+			"lib/project-trust.test.mjs",
 			"lib/rpc-manager.test.mjs",
 			"lib/rpc-manager.ts",
 			"lib/subagent-input.test.mjs",
