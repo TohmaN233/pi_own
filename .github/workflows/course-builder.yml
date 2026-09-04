@@ -1,0 +1,101 @@
+name: Course Builder
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/course-builder-host/**"
+      - "packages/profile-resource-host/**"
+      - "packages/mode-pack-host/**"
+      - "packages/learning-harness/**"
+      - "packages/visual-host/**"
+      - "apps/pi-web/**"
+      - "scripts/course-builder*.test.mjs"
+      - "docs/COURSE_BUILDER*.md"
+      - "docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md"
+      - "third_party/noi1r-beamer-skill/**"
+      - ".github/workflows/course-builder.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/course-builder-host/**"
+      - "packages/profile-resource-host/**"
+      - "packages/mode-pack-host/**"
+      - "packages/learning-harness/**"
+      - "packages/visual-host/**"
+      - "apps/pi-web/**"
+      - "scripts/course-builder*.test.mjs"
+      - "docs/COURSE_BUILDER*.md"
+      - "docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md"
+      - "third_party/noi1r-beamer-skill/**"
+      - ".github/workflows/course-builder.yml"
+
+concurrency:
+  group: course-builder-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  root:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+      - name: Verify required product wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d packages/course-builder-host/src
+          test -f packages/course-builder-host/src/index.ts
+          test -f apps/pi-web/app/course-builder/page.tsx
+          test -f docs/COURSE_BUILDER.md
+          test -f docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+          test -f third_party/noi1r-beamer-skill/LICENSE
+          test -z "$(find .github/workflows -maxdepth 1 -type f -name 'chatgpt-course-builder-*' -print -quit)"
+          grep -R --fixed-strings 'course-builder' packages/profile-resource-host/src apps/pi-web >/dev/null
+          grep -R --fixed-strings 'APPROVAL_FIELD_FORBIDDEN' packages/course-builder-host/src >/dev/null
+          grep -R --fixed-strings -- '-no-shell-escape' packages/course-builder-host/src >/dev/null
+      - name: Check repository
+        run: npm run check
+      - name: Run Course Builder tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name 'course-builder*.test.mjs' -print | sort)
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+      - name: Run complete root tests
+        run: npm test
+      - name: Build root packages
+        run: npm run build
+      - name: Verify clean checkout
+        run: git diff --exit-code && git diff --check
+
+  pi-web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+          cache-dependency-path: apps/pi-web/package-lock.json
+      - name: Install Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+      - name: Typecheck Pi Web
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+      - name: Lint Pi Web
+        run: npm run lint --prefix apps/pi-web
+      - name: Run Pi Web tests
+        run: npm test --prefix apps/pi-web
+      - name: Build Pi Web
+        run: npm run build --prefix apps/pi-web
