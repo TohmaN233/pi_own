@@ -1,0 +1,108 @@
+name: Recover Course Builder source from Git history
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-recover-history.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recover-course-builder-source
+  cancel-in-progress: false
+
+jobs:
+  recover-and-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Recover and apply deleted patch blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch_path='.chatgpt-review/course-builder.patch.gz.b64'
+          if ! test -e packages/course-builder-host/src/index.ts; then
+            source_commit=''
+            while IFS= read -r commit; do
+              if git cat-file -e "${commit}:${patch_path}" 2>/dev/null; then
+                source_commit="$commit"
+                break
+              fi
+            done < <(git rev-list --all -- "$patch_path")
+            test -n "$source_commit"
+            echo "Recovering Course Builder patch from $source_commit"
+            git show "${source_commit}:${patch_path}" > "$RUNNER_TEMP/course-builder.patch.gz.b64"
+            base64 --decode "$RUNNER_TEMP/course-builder.patch.gz.b64" > "$RUNNER_TEMP/course-builder.patch.gz"
+            gzip -t "$RUNNER_TEMP/course-builder.patch.gz"
+            gzip -dc "$RUNNER_TEMP/course-builder.patch.gz" > "$RUNNER_TEMP/course-builder.patch"
+            test -s "$RUNNER_TEMP/course-builder.patch"
+            git apply --check "$RUNNER_TEMP/course-builder.patch"
+            git apply "$RUNNER_TEMP/course-builder.patch"
+          fi
+
+          test -e packages/course-builder-host/src/index.ts
+          test -d apps/pi-web/app/course-builder
+          test -d apps/pi-web/app/api/course-builder
+          test -e docs/COURSE_BUILDER.md
+          find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' | grep -q .
+
+          rm -f \
+            .chatgpt-review/course-builder.patch.gz.b64 \
+            .github/workflows/chatgpt-course-builder-export.yml \
+            .github/workflows/chatgpt-course-builder-materialize.yml \
+            .github/workflows/chatgpt-course-builder-materialize-v2.yml \
+            .github/workflows/chatgpt-course-builder-integrate.yml \
+            .github/workflows/chatgpt-course-builder-final-squash.yml \
+            .github/workflows/chatgpt-course-builder-recover-history.yml
+          git diff --check
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Focused Course Builder tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+          printf '%s\n' "${tests[@]}"
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+
+      - name: Repository check
+        run: npm run check
+
+      - name: Install Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Pi Web checks
+        run: |
+          apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+          npm run lint --prefix apps/pi-web
+          npm test --prefix apps/pi-web
+          npm run build --prefix apps/pi-web
+
+      - name: Commit actual source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --name-only -z | xargs -0 -r git add --
+          git ls-files --others --exclude-standard -z | xargs -0 -r git add --
+          test -n "$(git diff --cached --name-only)"
+          git status --short
+          git commit -m "feat(agent): recover Course Builder and Beamer source"
+          git push origin HEAD:feat/course-builder-beamer
