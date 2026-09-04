@@ -1,0 +1,38 @@
+name: Export Course Builder branch as temporary release asset
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-release-export.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build source zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/source"
+          mkdir -p "$RUNNER_TEMP/source"
+          rsync -a --exclude='.git' --exclude='node_modules' --exclude='apps/pi-web/node_modules' ./ "$RUNNER_TEMP/source/"
+          cd "$RUNNER_TEMP/source"
+          zip -qr "$RUNNER_TEMP/pi-own-course-builder-source.zip" .
+      - name: Publish temporary release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='course-builder-working-export'
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$RUNNER_TEMP/pi-own-course-builder-source.zip" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "$RUNNER_TEMP/pi-own-course-builder-source.zip" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title 'Temporary Course Builder working export' --notes 'Temporary machine-generated export; delete after integration.' --prerelease
+          fi
