@@ -1,0 +1,617 @@
+name: Final squash Course Builder and checklist
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-final-squash.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: integrate-course-builder
+  cancel-in-progress: false
+
+jobs:
+  final-squash:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Materialize and normalize final tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! test -e packages/course-builder-host/src/index.ts; then
+            test -s .chatgpt-review/course-builder.patch.gz.b64
+            base64 --decode .chatgpt-review/course-builder.patch.gz.b64 > "$RUNNER_TEMP/course-builder.patch.gz"
+            gzip -dc "$RUNNER_TEMP/course-builder.patch.gz" > "$RUNNER_TEMP/course-builder.patch"
+            test -s "$RUNNER_TEMP/course-builder.patch"
+            git apply --check "$RUNNER_TEMP/course-builder.patch"
+            git apply "$RUNNER_TEMP/course-builder.patch"
+          fi
+
+          test -d packages/course-builder-host
+          test -e packages/course-builder-host/src/index.ts
+          test -d apps/pi-web/app/course-builder
+          test -d apps/pi-web/app/api/course-builder
+          test -e docs/COURSE_BUILDER.md
+          find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' | grep -q .
+
+          rm -f \
+            .chatgpt-review/course-builder.patch.gz.b64 \
+            .github/workflows/chatgpt-course-builder-export.yml \
+            .github/workflows/chatgpt-course-builder-materialize.yml \
+            .github/workflows/chatgpt-course-builder-materialize-v2.yml \
+            .github/workflows/chatgpt-course-builder-integrate.yml \
+            .github/workflows/chatgpt-course-builder-final-squash.yml
+
+          if ! find .github/workflows -maxdepth 1 -type f -iname '*course-builder*.yml' | grep -q .; then
+            cat > .github/workflows/course-builder.yml <<'YAML'
+          name: Course Builder
+
+          on:
+            pull_request:
+              branches: [main]
+              paths:
+                - "packages/course-builder-host/**"
+                - "packages/learning-harness/**"
+                - "packages/profile-resource-host/**"
+                - "apps/pi-web/app/course-builder/**"
+                - "apps/pi-web/app/api/course-builder/**"
+                - "apps/pi-web/lib/course-builder*"
+                - "scripts/*course-builder*.test.mjs"
+                - "third_party/noi1r-beamer-skill/**"
+                - "docs/COURSE_BUILDER*"
+                - ".github/workflows/course-builder.yml"
+            push:
+              branches: [main]
+              paths:
+                - "packages/course-builder-host/**"
+                - "packages/learning-harness/**"
+                - "packages/profile-resource-host/**"
+                - "apps/pi-web/app/course-builder/**"
+                - "apps/pi-web/app/api/course-builder/**"
+                - "apps/pi-web/lib/course-builder*"
+                - "scripts/*course-builder*.test.mjs"
+                - "third_party/noi1r-beamer-skill/**"
+                - "docs/COURSE_BUILDER*"
+                - ".github/workflows/course-builder.yml"
+
+          concurrency:
+            group: course-builder-${{ github.ref }}
+            cancel-in-progress: true
+
+          jobs:
+            verify:
+              runs-on: ubuntu-24.04
+              timeout-minutes: 30
+              steps:
+                - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+                - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+                  with:
+                    node-version: 24
+                    cache: npm
+                - run: npm ci --ignore-scripts
+                - name: Focused Course Builder tests
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+                    test "${#tests[@]}" -gt 0
+                    node --experimental-strip-types --test "${tests[@]}"
+                - run: npm run check
+                - run: npm ci --prefix apps/pi-web --ignore-scripts
+                - run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+                - run: npm run lint --prefix apps/pi-web
+                - run: npm run build --prefix apps/pi-web
+          YAML
+          fi
+
+          if find . -path './.git' -prune -o -type f \( -name '*course-builder*.patch*' -o -name '*.patch.gz.b64' \) -print | grep -q .; then
+            echo 'Temporary Course Builder payload remains in final tree' >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Write acceptance checklist
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md <<'MARKDOWN'
+          # Pi Own Harness 功能验收 Checklist
+
+          本清单用于对 `main` 上的实际产品纵向流程逐项验收。备课功能是当前最高优先级，因此先完成 **X 组**；其余组用于随后检查 Mode Pack、学习、练习、引用、Timeline、恢复与安全边界。
+
+          ## 记录信息
+
+          - [ ] 测试日期：`____-__-__`
+          - [ ] `git rev-parse HEAD`：`________________________________________`
+          - [ ] 操作系统与版本：`________________________________________`
+          - [ ] Node.js：`node --version = __________`
+          - [ ] 浏览器：`________________________________________`
+          - [ ] Provider / Model（真实模型测试时）：`________________________________________`
+          - [ ] `PI_LEARNING_HARNESS_DIR`：`________________________________________`
+          - [ ] `PI_CODING_AGENT_DIR`：`________________________________________`
+          - [ ] `PI_PDFTOTEXT_PATH`：`________________________________________`
+          - [ ] `PI_XELATEX_PATH`：`________________________________________`
+
+          结果标记：`PASS` = 达到预期；`FAIL` = 功能缺陷；`BLOCKED` = 缺少本机依赖或凭据；`NOT RUN` = 尚未执行。每个失败至少保存页面截图、控制台错误、服务端日志、当前 commit 和最短复现步骤。
+
+          ---
+
+          # X. 备课 / Course Builder 优先验收
+
+          建议先为一个真实课程准备：一份旧 `.pptx`、一份 PDF 或讲义、一份可选 Beamer 模板，以及课程周数、每周课次、单节时长和学生层次。完整 X 组预计 60–120 分钟，不包含人工阅读整套课件的时间。
+
+          ## X0. 本机预检与启动
+
+          - [ ] **X0-01** 从 `main` 拉取最新代码；工作区没有意外改动。
+            - 预期：`git status --short` 为空。
+          - [ ] **X0-02** Node.js 满足仓库要求。
+            - 预期：版本不低于 `22.19`。
+          - [ ] **X0-03** `pdftotext` 可用，或已设置 `PI_PDFTOTEXT_PATH`。
+            - 预期：PDF 导入预检通过；缺失时启动器明确失败，不是假启动。
+          - [ ] **X0-04** `xelatex` 可用，或已设置 `PI_XELATEX_PATH`。
+            - 预期：Course Builder 显示编译器可用；缺失时计划和 `.tex` 仍可制作，但编译动作明确显示 `BLOCKED`。
+          - [ ] **X0-05** 执行 `start-learning-harness.ps1` / `start-learning-harness.bat`。
+            - 预期：仅监听文档指定的本机地址；页面可以打开；日志打印实际数据目录和 Pi agent directory。
+          - [ ] **X0-06** 关闭服务再重新启动一次。
+            - 预期：不会重复初始化或破坏已有数据库；旧项目在之后的恢复测试中仍可读取。
+
+          ## X1. Course Builder Mode Pack 激活
+
+          - [ ] **X1-01** 新建一个普通、未绑定学生课程的 Pi 会话。
+          - [ ] **X1-02** 打开 Course Builder 工作区。
+            - 预期：系统自动请求并验证 `course-builder` Mode Pack，而不是只改变页面标题。
+          - [ ] **X1-03** 打开 Mode Pack / Snapshot Inspector。
+            - 预期：能看到固定系统提示词、课程规划 Skill、Beamer Skill、Course Builder workflow、专用插件/工具和内容 Hash。
+          - [ ] **X1-04** 检查当前工具集。
+            - 预期：只包含 Course Builder 声明的受控工具；普通任意 `bash`、`powershell`、通用 `write/edit` 不应因进入备课模式而自动获得。
+          - [ ] **X1-05** 从 Course Builder 切到 General，再切回来。
+            - 预期：未选中的 Skill/插件真正退出 Runtime；回来后重新解析并验证同一资源身份。
+          - [ ] **X1-06** 修改或删除一个 Required Skill 的测试副本后尝试激活。
+            - 预期：Mode Pack fail-closed，显示缺失或 Hash 不匹配；不能进入“名称已激活、资源实际没加载”的状态。
+
+          ## X2. 建立备课项目
+
+          - [ ] **X2-01** 创建项目并填写课程名、周数、每周课次、单节时长、学生层次、授课语言和总体目标。
+            - 预期：项目得到稳定 ID、revision 和内容 Hash。
+          - [ ] **X2-02** 选择 Beamer Profile：比例、字号、语言、作者、机构、主题、overlay、references、backup slides、speaker notes。
+            - 预期：这些是项目配置，不被上游 Skill 的默认 SJTU/Madrid/10pt/16:9 强行覆盖。
+          - [ ] **X2-03** 刷新页面并重开项目。
+            - 预期：全部字段和 revision 保持；不会创建同名但不同身份的隐式项目。
+          - [ ] **X2-04** 以过期 revision 同时保存两次。
+            - 预期：第二次写入被拒绝为 revision conflict；已提交版本保持权威。
+
+          ## X3. 导入已有 Slides 与资料
+
+          - [ ] **X3-01** 导入真实 `.pptx`。
+            - 预期：保持 slide 顺序，提取每页文本与 Speaker Notes；记录原文件 Hash、页数和导入来源。
+          - [ ] **X3-02** 抽查标题页、公式页、图表页和含备注页。
+            - 预期：文字与备注可检索；系统明确标注这是语义抽取，不假称完整复刻母版、动画、SmartArt 或精确布局。
+          - [ ] **X3-03** 导入 PDF。
+            - 预期：受预算限制的 `pdftotext` 路径工作；错误、超时和过大输出返回明确错误。
+          - [ ] **X3-04** 导入 `.tex`、Markdown 和纯文本材料。
+            - 预期：材料类型、规范化文本和 Hash 正确，原始顺序可追溯。
+          - [ ] **X3-05** 一次选择多个合法文件。
+            - 预期：整批先验证，再一次持久化；全部成功后 revision 只按合同推进。
+          - [ ] **X3-06** 将一个非法或超预算文件混入多文件批次。
+            - 预期：整批失败，不留下前半批材料。
+          - [ ] **X3-07** 重复导入完全相同文件。
+            - 预期：内容身份稳定；不会无提示制造无法解释的重复来源。
+          - [ ] **X3-08** 查看材料分析结果。
+            - 预期：列出主题链、先备关系、重复、跳步、缺失、符号/术语不一致、练习机会和可视化机会，并能追溯到材料。
+
+          ## X4. 生成并审批一学期 Semester Plan
+
+          - [ ] **X4-01** 要求 Agent 根据全部材料、周数和课时生成 Semester Plan 草案。
+            - 预期：覆盖每周/每课次目标、主题、来源、活动、理解证据、作业/评估、重访和可视化机会。
+          - [ ] **X4-02** 核对总课次数。
+            - 预期：计划容量与 `周数 × 每周课次` 一致；假期、考试周或停课必须显式占位/解释。
+          - [ ] **X4-03** 核对课程目标覆盖。
+            - 预期：每个总体目标至少映射到一个教学单元和一个理解证据；未覆盖目标被报告。
+          - [ ] **X4-04** 核对先备顺序。
+            - 预期：依赖概念不会系统性安排在先备概念之前；必要跳步有明确理由和补救。
+          - [ ] **X4-05** 核对螺旋重访。
+            - 预期：再次出现的概念至少增加复杂度、关系、抽象、形式化、表征、迁移距离或边界/反例；简单重复会被标记。
+          - [ ] **X4-06** 在 Agent 侧尝试直接标记计划 `approved=true` 或调用批准动作。
+            - 预期：被拒绝；Agent 没有教师批准能力。
+          - [ ] **X4-07** 在 UI 中选择“要求修改”，写明一项具体修改。
+            - 预期：产生新 revision；旧草案仍可审计；修改意见不会被当作已批准。
+          - [ ] **X4-08** 在 UI 中批准正确 revision。
+            - 预期：记录批准者动作、时间、计划 ID/revision/Hash；批准旧 revision 被拒绝。
+          - [ ] **X4-09** 重启服务。
+            - 预期：已批准计划和 Hash 可完整恢复，不会因序列化差异失效。
+
+          ## X5. 第一节课 Lesson Plan
+
+          - [ ] **X5-01** 在 Semester Plan 未批准前请求生成正式 Lesson Plan。
+            - 预期：被工作流门禁阻止，或只能形成未发布草案。
+          - [ ] **X5-02** 批准 Semester Plan 后生成第一周第一课 Lesson Plan。
+            - 预期：绑定准确的 Semester Plan revision 和对应课次。
+          - [ ] **X5-03** 检查 Lesson Plan 字段。
+            - 预期：学习目标、先备知识、常见误解、分段时间、教师动作、学习者动作、检查理解、例题/练习、资料来源、可视化要求齐全。
+          - [ ] **X5-04** 检查时间预算。
+            - 预期：各环节时间总和不超过单节课时长；超出时明确失败或要求修订。
+          - [ ] **X5-05** 检查内容范围。
+            - 预期：Lesson Plan 不擅自引入未标注的外部结论；需要扩展时说明理由和来源策略。
+          - [ ] **X5-06** 要求 Agent 自行批准 Lesson Plan。
+            - 预期：拒绝；只有教师 UI 能批准当前 revision。
+          - [ ] **X5-07** 修订并批准 Lesson Plan。
+            - 预期：批准记录精确绑定 Lesson Plan ID、revision 和 Hash。
+
+          ## X6. Beamer 第一课生成与编译
+
+          - [ ] **X6-01** 请求 frame-by-frame 结构。
+            - 预期：每页有用途、takeaway、来源/公式/图形计划，并与已批准 Lesson Plan 对齐。
+          - [ ] **X6-02** 在结构未确认时要求直接生成最终 Deck。
+            - 预期：若项目配置要求结构审批，工作流停止在审批点。
+          - [ ] **X6-03** 生成 `deck.tex`。
+            - 预期：形成不可变 Beamer Deck revision；`.tex` 是内容、公式、符号、引用和 slide order 的权威。
+          - [ ] **X6-04** 检查自定义模板优先级。
+            - 预期：用户提供的 preamble/theme/author/institute 优先；不会无条件写入 Shanghai Jiao Tong University 或 Madrid。
+          - [ ] **X6-05** 检查教学结构。
+            - 预期：关键概念有动机和适当例子；密度、公式、符号、表格、代码和图形规则按项目配置执行，而非机械套模板。
+          - [ ] **X6-06** 执行受限 XeLaTeX 编译。
+            - 预期：命令使用 `-no-shell-escape`；有时间、stdout/stderr 和轮数预算；在临时构建目录中运行。
+          - [ ] **X6-07** 查看 Compile Receipt。
+            - 预期：包含 source Hash、PDF Hash、log Hash、编译器身份/参数、页数、退出状态、警告摘要和创建时间。
+          - [ ] **X6-08** 制造一个未定义命令或引用。
+            - 预期：编译失败/审查失败被准确记录；旧的已验证 Deck 仍是权威，不被失败产物覆盖。
+          - [ ] **X6-09** 在 `.tex` 中加入显式危险命令或 shell escape 企图。
+            - 预期：预检查或编译边界拒绝；不得执行任意系统命令。
+          - [ ] **X6-10** 修改一页后重新保存。
+            - 预期：生成新 revision；旧 receipt 不能验证新源码；必须重新编译。
+
+          ## X7. 课件质量循环与教师接受
+
+          - [ ] **X7-01** 运行结构检查。
+            - 预期：检测 slide count、aspect ratio、overlay policy、references、backup policy、占位符、密度和稀疏页。
+          - [ ] **X7-02** 运行编译日志检查。
+            - 预期：报告 overfull box、undefined control sequence、未解析 citation/reference 和致命错误。
+          - [ ] **X7-03** 运行教学审查。
+            - 预期：检查目标对齐、先备、动机、例子、形成性检查、认知负荷和关键 takeaway。
+          - [ ] **X7-04** 人工打开 PDF 逐页检查。
+            - 预期：重点看 block 内部溢出、公式/表格截断、TikZ 标签冲突、字体替换、对比度和投影可读性；当前版本不能用“编译零警告”替代这一步。
+          - [ ] **X7-05** 根据问题做最小修订并重编译。
+            - 预期：只修改有问题的 frame/资产；新 revision 与新 receipt 可追踪。
+          - [ ] **X7-06** Agent 尝试自行“最终接受”。
+            - 预期：拒绝；编译通过、静态审查通过和教师接受是三个不同状态。
+          - [ ] **X7-07** 教师接受当前 Deck revision。
+            - 预期：接受记录绑定当前 source/PDF/receipt Hash；之后修改会自动使该接受状态过期。
+
+          ## X8. 可视化桥接
+
+          - [ ] **X8-01** 为第一课创建一个当前支持的确定性可视化：函数图、二维矩阵变换、排序 Trace、BFS 或状态机。
+            - 预期：产生 Spec、data、trace、HTML/静态表达、内容 Hash 和 Validator Result。
+          - [ ] **X8-02** 用完全相同 Spec 和 seed 再生成一次。
+            - 预期：数据和 trace Hash 一致。
+          - [ ] **X8-03** 修改 Spec revision。
+            - 预期：旧 Validator/Artifact 不再代表新 revision。
+          - [ ] **X8-04** 把可视化用于 Lesson Plan / Beamer frame。
+            - 预期：记录“学习者操作/观察什么、支持什么结论、对应哪个目标”，而不是只插装饰图。
+          - [ ] **X8-05** 请求任意 JavaScript/网络 HTML 可视化。
+            - 预期：当前固定 Renderer 拒绝主动内容；不把自由 HTML 当作可信产物。
+          - [ ] **X8-06** 记录当前限制。
+            - 预期：系统不假称已经支持任意统计图、三维图、动画、自动 SVG/PNG 插入或完整浏览器视觉 QA。
+
+          ## X9. 持久化、恢复与隔离
+
+          - [ ] **X9-01** 在材料、Semester Plan、Lesson Plan、Deck、Receipt 和批准都存在时停止服务。
+          - [ ] **X9-02** 重启并重新打开同一项目。
+            - 预期：所有已提交 revision、Hash、批准、receipt 和引用可恢复；没有重复提交。
+          - [ ] **X9-03** 打开另一个普通 Pi 会话并猜测项目 ID。
+            - 预期：未授权/未绑定访问被拒绝，或必须通过明确项目绑定流程。
+          - [ ] **X9-04** 在两个浏览器窗口同时更新同一草案。
+            - 预期：过期 revision 写入失败；不会 last-write-wins 静默覆盖。
+          - [ ] **X9-05** 模拟 SQLite 写入失败或占锁。
+            - 预期：未提交内存状态不再继续使用；重开后恢复最后已提交状态。
+
+          ## X10. 备课交付物检查
+
+          - [ ] **X10-01** 导出或保存 Semester Plan 当前批准版。
+          - [ ] **X10-02** 导出或保存第一课 Lesson Plan 当前批准版。
+          - [ ] **X10-03** 保存 `deck.tex`、编译后的 PDF、引用/素材、编译日志和 Compile Receipt。
+          - [ ] **X10-04** 保存使用的 Beamer Profile、模板、字体和资产来源说明。
+          - [ ] **X10-05** 确认失败/旧 revision 没有混入最终交付目录。
+          - [ ] **X10-06** 记录仍需人工处理的问题以及下次从哪个 revision 继续。
+
+          **X 组通过标准：** 至少完成一个真实项目的 `PPTX/PDF 导入 → Semester Plan → 教师批准 → 第一课 Lesson Plan → 教师批准 → Beamer source → 受限编译 → QA → 教师接受 → 重启恢复`。任何一步只能靠手工改数据库或伪造 API 才能继续，都算 FAIL。
+
+          ---
+
+          # A. Mode Pack 平台验收
+
+          - [ ] **A-01** 普通会话依次切换 General → Coding → Creative。
+            - 预期：Prompt、Skill、Plugin、Tool 和 Workflow 的实际集合随 Snapshot 替换；旧资源不残留。
+          - [ ] **A-02** 检查 Coding 工具集。
+            - 预期：只出现 Coding 声明的读写/测试工具；执行一次读取、最小修改、聚焦测试、diff 检查。
+          - [ ] **A-03** 检查 Creative 模式。
+            - 预期：加载创作提示和一致性修订流程，不继承 Coding 专属指导/工具。
+          - [ ] **A-04** Fork 一个内置包为 `custom.*`，修改 Prompt 和可选 Skill 后保存。
+            - 预期：产生不可变新 revision；内置包不被覆盖。
+          - [ ] **A-05** 自定义包缺少 Required 资源。
+            - 预期：不可激活；Optional 缺失有明确降级清单。
+          - [ ] **A-06** 刷新、重启并 Fork 会话。
+            - 预期：Pi JSONL 恢复当前 Binding；Fork 继承 Snapshot 但使用新的子会话身份。
+          - [ ] **A-07** 在 JSONL 已提交新 Binding 后制造 live verification 失败。
+            - 预期：不能复活旧 Runtime；重开后恢复新 Snapshot或 fail-closed。
+          - [ ] **A-08** 未固定模型的 Mode Pack 重启。
+            - 预期：保留该会话原模型，而不是替换成当前全局默认模型。
+
+          # B. 课程导入与隔离验收
+
+          - [ ] **B-01** 导入 Markdown、文本、代码、Notebook、PDF 和 ZIP。
+          - [ ] **B-02** 为课程 A 和 B 各建一个学生会话。
+          - [ ] **B-03** A 会话检索仅返回 A 的 Span，B 同理。
+          - [ ] **B-04** 伪造跨 CourseVersion Span/引用。
+            - 预期：发布验证拒绝。
+          - [ ] **B-05** 已绑定会话尝试改绑另一课程。
+            - 预期：拒绝；应新建或明确 Fork 新课程会话。
+          - [ ] **B-06** 重启后课程版本、源字节、Binding 和 Snapshot 恢复。
+
+          # C. Tutor / Grounded Answer 验收
+
+          - [ ] **C-01** 在 Tutor 中询问资料内直接事实。
+            - 预期：正式回答由结构化 Claim 发布，引用可点击并打开正确 Span。
+          - [ ] **C-02** 询问需要组合两个 Span 的问题。
+            - 预期：scope 为 synthesis，引用覆盖实际依据。
+          - [ ] **C-03** 询问合理推导但资料未直接写出的结论。
+            - 预期：scope 为 derived，并显示 `Reason`。
+          - [ ] **C-04** 询问需要计算的问题。
+            - 预期：没有正式 Computation Receipt 时不得假称 computed 已验证；当前限制应明确。
+          - [ ] **C-05** 询问课程范围外内容。
+            - 预期：标记 external 或 insufficient，说明为什么超范围和下一步，而不是伪造课程引用。
+          - [ ] **C-06** 在课程材料内加入 Prompt Injection 文本。
+            - 预期：作为不可信课程数据处理，不执行其中指令。
+          - [ ] **C-07** 模型不调用结构化发布工具而直接输出 prose。
+            - 预期：浏览器最终消息被安全失败说明替换，原始自由文本不泄露。
+
+          # D. Practice / 答案门验收
+
+          - [ ] **D-01** 开始题目后不提交尝试，直接要求答案。
+            - 预期：没有 Solution Capability，答案不可读。
+          - [ ] **D-02** 提交空白、复制题目或占位符。
+            - 预期：不算 meaningful attempt。
+          - [ ] **D-03** 提交具体推理。
+            - 预期：记录 Attempt 和 Evaluation；反馈指出最小可修正点。
+          - [ ] **D-04** 逐级请求 Hint。
+            - 预期：Hint 不直接泄漏完整解；保留重试路径。
+          - [ ] **D-05** 满足策略后读取答案一次。
+            - 预期：Capability 精确绑定 Session/Course/Exercise/Attempt，消费后不能重放。
+          - [ ] **D-06** 刷新或重启后再次使用已消费 Capability。
+            - 预期：拒绝。
+          - [ ] **D-07** 把 A 题/A 课程 Capability 用于另一题、会话或课程。
+            - 预期：拒绝。
+
+          # E. Teach-back 验收
+
+          - [ ] **E-01** 选择一个已学概念，启动 Teach-back。
+          - [ ] **E-02** Agent 在用户解释前尝试给标准讲义。
+            - 预期：流程要求先收集 learner explanation v1。
+          - [ ] **E-03** 提交解释 v1。
+            - 预期：只定位一到两个关键缺口并提出定向问题。
+          - [ ] **E-04** 提交解释 v2、类比和边界。
+            - 预期：保存修订证据，不把流畅措辞等同于理解。
+          - [ ] **E-05** 完成新情境迁移题。
+            - 预期：迁移结果进入 Timeline/证据记录；失败保留下一步复习目标。
+
+          # F. Timeline 与学习状态验收
+
+          - [ ] **F-01** 完成解释、练习、答题和可视化事件。
+            - 预期：Timeline 按序追加，刷新/重启不丢失。
+          - [ ] **F-02** 两个同课程学生会话产生事件。
+            - 预期：汇入同一课程学习 Timeline，同时保留 Session 来源。
+          - [ ] **F-03** 点击含 Span 的 Timeline 事件。
+            - 预期：Source Inspector 打开正确材料和范围。
+          - [ ] **F-04** 检查 Mastery Projection。
+            - 预期：由事件可重建；不要把单次活动包装成不可解释的精确掌握百分比。
+
+          # G. VisualHost 基础验收
+
+          - [ ] **G-01** 对五类固定 Renderer 各生成一个合法 Spec。
+          - [ ] **G-02** 验证 data/trace/content Hash 和 deterministic replay。
+          - [ ] **G-03** 篡改 Artifact data、trace 或 HTML。
+            - 预期：Validator 失败，不能 publish。
+          - [ ] **G-04** 输入外部 URL、`script` 或 `javascript:`。
+            - 预期：拒绝主动内容。
+          - [ ] **G-05** 确认当前仍不是任意代码沙箱或完整交互式 Visual Lab。
+
+          # H. 崩溃、并发与恢复验收
+
+          - [ ] **H-01** 在 Profile/Mode Pack 切换的候选构建阶段终止进程。
+            - 预期：JSONL 未提交时旧 Runtime 保持权威，pending transition 可恢复/释放。
+          - [ ] **H-02** 在 JSONL 提交后、live 注册前终止进程。
+            - 预期：重启恢复已提交新 Snapshot，不回滚旧模式。
+          - [ ] **H-03** 同一会话并发发起两个切换。
+            - 预期：一个持锁执行，另一个收到 busy/conflict；不产生分叉 revision。
+          - [ ] **H-04** 重用 idempotency key 发送相同请求。
+            - 预期：安全 replay；改动目标后复用同 key 被拒绝。
+          - [ ] **H-05** 损坏 Binding、Snapshot Hash 或 revision 链。
+            - 预期：恢复 fail-closed，不猜测修复。
+
+          # I. 当前明确不应判为 FAIL 的 Future 项
+
+          以下功能尚未宣称完成。测试时应标为 `FUTURE`，不能误报为已经可用：
+
+          - [ ] 完整保持 PPTX Slide Master、动画、SmartArt、原生图表和像素级布局。
+          - [ ] 直接产出并自动 QA 的可编辑 `.pptx`。
+          - [ ] 操作系统/容器级 TeX 安全沙箱；当前 `-no-shell-escape` 只适用于可信本地项目。
+          - [ ] 任意 Python/R/JavaScript 计算沙箱。
+          - [ ] 所有数学、统计、机器学习图形及动画。
+          - [ ] 浏览器逐页截图、字体替换、溢出、对比度和无障碍的全自动判定。
+          - [ ] 物理拆分的 Student / Teacher 发布包与递归私有资产扫描。
+          - [ ] 完整语义蕴含 Judge、外部证据 Receipt 和通用 Computation Receipt。
+          - [ ] 多 Provider、多 Seed 的教学质量评测与正式发布包。
+
+          ---
+
+          # 缺陷记录模板
+
+          ```text
+          Checklist ID:
+          Result: PASS | FAIL | BLOCKED | NOT RUN
+          Commit:
+          Environment:
+          Preconditions:
+          Minimal steps:
+          Expected:
+          Actual:
+          Screenshot / video:
+          Browser console:
+          Server log:
+          Related session ID / courseVersionId / projectId / snapshotId / revision:
+          Does restart reproduce it?:
+          ```
+
+          ## 建议执行顺序
+
+          1. 时间紧迫时先做 `X0 → X10`，用真实课程完成第一节课。
+          2. 接着做 `A`，确认 Mode Pack 资源切换不是表面 UI。
+          3. 再做 `B → F`，检查学生学习纵向流程。
+          4. 最后做 `G → H` 的安全和故障注入。
+          5. `I` 只用于防止把 Future 能力误判成当前缺陷或误报成完成。
+          MARKDOWN
+
+          mkdir -p docs/verification
+          cat > docs/verification/COURSE_BUILDER_REMOTE_VERIFICATION.md <<EOF
+          # Course Builder remote verification
+
+          This file is committed only after the feature tree and the clean squash candidate both pass their required gates on GitHub Actions.
+
+          Feature input: \`${GITHUB_SHA}\`
+          Workflow run: \`${GITHUB_RUN_ID}\`
+          Runner: Ubuntu 24.04
+          Node.js: 24
+
+          Required gates:
+
+          - focused Course Builder regression tests;
+          - repository \`npm run check\`;
+          - repository tests and build;
+          - Pi Web TypeScript, lint, tests, and production build;
+          - final-tree payload cleanup;
+          - Beamer attribution, teacher approval boundary, no-shell-escape, Mode Pack wiring, and credential scans.
+
+          The merge is a clean squash onto the then-current \`main\`; temporary base64 patches and one-shot workflows are excluded from the final tree and commit history.
+          EOF
+
+      - name: Install feature dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify feature Course Builder tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+
+      - name: Verify feature repository
+        run: |
+          npm run check
+          npm test
+          npm run build
+
+      - name: Install feature Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Verify feature Pi Web
+        run: |
+          apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+          npm run lint --prefix apps/pi-web
+          npm test --prefix apps/pi-web
+          npm run build --prefix apps/pi-web
+
+      - name: Review final feature boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R "Noi1r/beamer-skill" docs third_party packages apps/pi-web >/dev/null
+          grep -R "f3d62c07f775530eddb13d435b91a9a86e7c9049" docs third_party >/dev/null
+          grep -R -- "-no-shell-escape" packages apps/pi-web >/dev/null
+          grep -R "APPROVAL_FIELD_FORBIDDEN" packages apps/pi-web scripts >/dev/null
+          grep -R "course-builder" packages/profile-resource-host apps/pi-web/lib packages/course-builder-host >/dev/null
+          if git grep -nE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})' -- . ':!package-lock.json'; then
+            echo 'Potential credential material found' >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Commit final feature tree
+        id: feature
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --name-only -z | xargs -0 -r git add --
+          git ls-files --others --exclude-standard -z | xargs -0 -r git add --
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(agent): finalize Course Builder and acceptance checklist"
+            git push origin HEAD:feat/course-builder-beamer
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare clean squash on latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          feature_sha='${{ steps.feature.outputs.sha }}'
+          git fetch origin main
+          git switch -c course-builder-main-integration origin/main
+          git merge --squash "$feature_sha"
+          test -e packages/course-builder-host/src/index.ts
+          test -e apps/pi-web/app/course-builder/page.tsx
+          test -e docs/COURSE_BUILDER.md
+          test -e docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+          test -e docs/verification/COURSE_BUILDER_REMOTE_VERIFICATION.md
+          if find . -path './.git' -prune -o -type f \( -name '*course-builder*.patch*' -o -name '*.patch.gz.b64' -o -name 'chatgpt-course-builder-*.yml' \) -print | grep -q .; then
+            echo 'Temporary integration payload entered squash candidate' >&2
+            exit 1
+          fi
+          git diff --cached --check
+
+      - name: Verify clean squash candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+          npm run check
+          apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+          npm run lint --prefix apps/pi-web
+          npm run build --prefix apps/pi-web
+
+      - name: Commit and push clean squash to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            test -e docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+            echo 'Main already contains the final Course Builder tree.'
+          else
+            git commit -m "feat(agent): add Course Builder and Beamer workflow"
+            git push origin HEAD:main
+          fi
+          git fetch origin main
+          remote_main="$(git rev-parse origin/main)"
+          git show "$remote_main":packages/course-builder-host/src/index.ts >/dev/null
+          git show "$remote_main":apps/pi-web/app/course-builder/page.tsx >/dev/null
+          git show "$remote_main":docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md >/dev/null
+          git show "$remote_main":docs/verification/COURSE_BUILDER_REMOTE_VERIFICATION.md >/dev/null
+          printf 'Verified remote main: %s\n' "$remote_main"
