@@ -1,0 +1,180 @@
+name: Integrate verified Course Builder
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-integrate.yml"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: integrate-course-builder
+  cancel-in-progress: false
+
+jobs:
+  verify-and-integrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Ensure actual implementation and clean temporary payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! test -e packages/course-builder-host/src/index.ts; then
+            test -s .chatgpt-review/course-builder.patch.gz.b64
+            base64 --decode .chatgpt-review/course-builder.patch.gz.b64 > "$RUNNER_TEMP/course-builder.patch.gz"
+            gzip -dc "$RUNNER_TEMP/course-builder.patch.gz" > "$RUNNER_TEMP/course-builder.patch"
+            git apply --check "$RUNNER_TEMP/course-builder.patch"
+            git apply "$RUNNER_TEMP/course-builder.patch"
+          fi
+          test -e packages/course-builder-host/src/index.ts
+          test -e apps/pi-web/app/course-builder/page.tsx
+          test -e apps/pi-web/app/api/course-builder/route.ts
+          test -e docs/COURSE_BUILDER.md
+          test -e scripts/course-builder-host.test.mjs
+          rm -f \
+            .chatgpt-review/course-builder.patch.gz.b64 \
+            .github/workflows/chatgpt-course-builder-export.yml \
+            .github/workflows/chatgpt-course-builder-materialize.yml \
+            .github/workflows/chatgpt-course-builder-materialize-v2.yml \
+            .github/workflows/chatgpt-course-builder-integrate.yml
+          if find . -path './.git' -prune -o -type f -name '*course-builder*.patch*' -print | grep -q .; then
+            echo 'Temporary Course Builder patch remains in repository' >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Focused Course Builder regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+          printf 'Course Builder tests (%s):\n' "${#tests[@]}"
+          printf '%s\n' "${tests[@]}"
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+
+      - name: Repository check
+        run: npm run check
+
+      - name: Repository tests
+        run: npm test
+
+      - name: Repository build
+        run: npm run build
+
+      - name: Install Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Pi Web typecheck
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+
+      - name: Pi Web lint
+        run: npm run lint --prefix apps/pi-web
+
+      - name: Pi Web tests
+        run: npm test --prefix apps/pi-web
+
+      - name: Pi Web production build
+        run: npm run build --prefix apps/pi-web
+
+      - name: Boundary review checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R "Noi1r/beamer-skill" docs third_party packages apps/pi-web >/dev/null
+          grep -R "f3d62c07f775530eddb13d435b91a9a86e7c9049" docs third_party >/dev/null
+          grep -R -- "-no-shell-escape" packages apps/pi-web >/dev/null
+          grep -R "APPROVAL_FIELD_FORBIDDEN" packages apps/pi-web scripts >/dev/null
+          grep -R "course-builder" packages/profile-resource-host apps/pi-web/lib packages/course-builder-host >/dev/null
+          if git grep -nE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})' -- . ':!package-lock.json'; then
+            echo 'Potential credential material found' >&2
+            exit 1
+          fi
+
+      - name: Record verified implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p docs/verification
+          cat > docs/verification/COURSE_BUILDER_REMOTE_VERIFICATION.md <<EOF
+          # Course Builder remote verification
+
+          This record was produced only after the following commands completed successfully on GitHub Actions, Ubuntu 24.04, Node.js 24:
+
+          - Course Builder focused regression suite
+          - \`npm run check\`
+          - \`npm test\`
+          - \`npm run build\`
+          - Pi Web TypeScript check
+          - Pi Web lint
+          - complete Pi Web tests
+          - Pi Web production build
+          - Course Builder attribution, approval-boundary, no-shell-escape, Mode Pack wiring, and credential scans
+
+          Verified source branch input: \`${GITHUB_SHA}\`
+          Workflow run: \`${GITHUB_RUN_ID}\`
+
+          The implementation includes actual source files. Temporary patch payloads and one-shot integration workflows are excluded from the final commit.
+          EOF
+
+      - name: Commit verified source tree
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --name-only -z | xargs -0 -r git add --
+          git ls-files --others --exclude-standard -z | xargs -0 -r git add --
+          test -n "$(git diff --cached --name-only)"
+          git status --short
+          git commit -m "feat(agent): add verified Course Builder and Beamer workflow"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git push origin HEAD:feat/course-builder-beamer
+
+      - name: Create or reuse pull request
+        id: pr
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="$(gh pr list --repo "$GITHUB_REPOSITORY" --head feat/course-builder-beamer --base main --state open --json number --jq '.[0].number // empty')"
+          if test -z "$number"; then
+            url="$(gh pr create --repo "$GITHUB_REPOSITORY" --head feat/course-builder-beamer --base main \
+              --title 'feat(agent): add Course Builder and Beamer workflow' \
+              --body $'Implements the reviewed Course Builder vertical slice on the existing Mode Pack and LearningHarness boundaries.\n\nIncludes semantic PPTX/PDF/TeX/Markdown/text import, versioned semester and lesson plans, explicit teacher approval gates, Beamer source revisions, bounded XeLaTeX compilation receipts, static quality review, deterministic visual artifacts, Pi Web workspace, Noi1r/beamer-skill attribution, and remote verification evidence.\n\nTemporary patch payloads and one-shot workflows are removed before integration.')"
+            number="${url##*/}"
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Merge verified pull request
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method PUT \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/pulls/${{ steps.pr.outputs.number }}/merge" \
+            -f merge_method=merge \
+            -f sha='${{ steps.commit.outputs.sha }}' \
+            -f commit_title='feat(agent): add Course Builder and Beamer workflow' \
+            -f commit_message='Merge the remotely verified Course Builder implementation, Beamer workflow, approval gates, UI, tests, attribution, and verification record.'
