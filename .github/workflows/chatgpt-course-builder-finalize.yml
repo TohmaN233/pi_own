@@ -1,0 +1,117 @@
+name: Finalize Course Builder branch
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-finalize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/course-builder-beamer
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+
+      - name: Remove recovery-only files
+        shell: bash
+        run: |
+          set -euo pipefail
+          find .github/workflows -maxdepth 1 -type f -name 'chatgpt-course-builder-*' -delete
+
+      - name: Verify implementation shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d packages/course-builder-host/src
+          test -f packages/course-builder-host/src/index.ts
+          test -f packages/course-builder-host/src/host.ts
+          test -f packages/course-builder-host/src/types.ts
+          test -f packages/course-builder-host/src/beamer.ts
+          test -f apps/pi-web/app/course-builder/page.tsx
+          test -f docs/COURSE_BUILDER.md
+          test -f third_party/noi1r-beamer-skill/LICENSE
+          grep -R --fixed-strings 'course-builder' packages/profile-resource-host/src apps/pi-web >/dev/null
+          grep -R --fixed-strings 'APPROVAL_FIELD_FORBIDDEN' packages/course-builder-host/src >/dev/null
+          grep -R --fixed-strings -- '-no-shell-escape' packages/course-builder-host/src >/dev/null
+
+      - name: Refresh lock metadata
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: "1"
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Format and check
+        run: npm run check
+
+      - name: Run Course Builder tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name 'course-builder*.test.mjs' -print | sort)
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+
+      - name: Run Mode Pack regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name 'mode-pack*.test.mjs' -print | sort)
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+
+      - name: Run complete root tests
+        run: npm test
+
+      - name: Build root packages
+        run: npm run build
+
+      - name: Install Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Typecheck Pi Web
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+
+      - name: Lint Pi Web
+        run: npm run lint --prefix apps/pi-web
+
+      - name: Run Pi Web tests
+        run: npm test --prefix apps/pi-web
+
+      - name: Build Pi Web
+        run: npm run build --prefix apps/pi-web
+
+      - name: Verify diff hygiene
+        run: git diff --check
+
+      - name: Commit reviewed finalization
+        shell: bash
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: "1"
+        run: |
+          set -euo pipefail
+          git config user.name 'TohmaN233'
+          git config user.email 'postlewildeman113@gmail.com'
+          git add -- .github/workflows package-lock.json packages apps scripts docs third_party start-learning-harness.ps1 start-learning-harness.bat 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo 'No finalization changes to commit.'
+          else
+            git commit -m 'fix(agent): finalize reviewed Course Builder integration'
+            git push origin HEAD:feat/course-builder-beamer
+          fi
