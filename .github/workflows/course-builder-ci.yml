@@ -1,0 +1,75 @@
+name: Course Builder
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/course-builder-host/**"
+      - "packages/learning-harness/**"
+      - "packages/profile-resource-host/**"
+      - "packages/harness-contracts/**"
+      - "apps/pi-web/app/course-builder/**"
+      - "apps/pi-web/app/api/course-builder/**"
+      - "apps/pi-web/lib/course-builder*"
+      - "apps/pi-web/lib/learning-harness-extension.ts"
+      - "scripts/*course-builder*.test.mjs"
+      - "third_party/noi1r-beamer-skill/**"
+      - "docs/COURSE_BUILDER*"
+      - ".github/workflows/course-builder-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/course-builder-host/**"
+      - "packages/learning-harness/**"
+      - "packages/profile-resource-host/**"
+      - "packages/harness-contracts/**"
+      - "apps/pi-web/app/course-builder/**"
+      - "apps/pi-web/app/api/course-builder/**"
+      - "apps/pi-web/lib/course-builder*"
+      - "apps/pi-web/lib/learning-harness-extension.ts"
+      - "scripts/*course-builder*.test.mjs"
+      - "third_party/noi1r-beamer-skill/**"
+      - "docs/COURSE_BUILDER*"
+      - ".github/workflows/course-builder-ci.yml"
+
+concurrency:
+  group: course-builder-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+      - name: Focused Course Builder tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+          test "${#tests[@]}" -gt 0
+          node --experimental-strip-types --test "${tests[@]}"
+      - name: Repository check
+        run: npm run check
+      - name: Install Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+      - name: Pi Web typecheck
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+      - name: Pi Web lint
+        run: npm run lint --prefix apps/pi-web
+      - name: Pi Web focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find apps/pi-web -type f -name '*course-builder*.test.mjs' -print | sort)
+          if [ "${#tests[@]}" -gt 0 ]; then node --test "${tests[@]}"; fi
+      - name: Pi Web production build
+        run: npm run build --prefix apps/pi-web
