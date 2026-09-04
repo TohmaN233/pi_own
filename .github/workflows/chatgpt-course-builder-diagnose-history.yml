@@ -1,0 +1,110 @@
+name: Diagnose Course Builder history recovery
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-diagnose-history.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Diagnose and commit report
+        shell: bash
+        run: |
+          set +e
+          mkdir -p docs/diagnostics
+          report=docs/diagnostics/COURSE_BUILDER_HISTORY_RECOVERY.md
+          patch_path='.chatgpt-review/course-builder.patch.gz.b64'
+          {
+            echo '# Course Builder history recovery diagnostic'
+            echo
+            echo "Event SHA: \`$GITHUB_SHA\`"
+            echo
+            echo '## Commits touching payload path'
+            git rev-list --all -- "$patch_path"
+          } > "$report"
+
+          source_commit=''
+          while IFS= read -r commit; do
+            if git cat-file -e "${commit}:${patch_path}" 2>/dev/null; then
+              source_commit="$commit"
+              break
+            fi
+          done < <(git rev-list --all -- "$patch_path")
+
+          stage='NO_HISTORY_BLOB'
+          if test -n "$source_commit"; then
+            echo >> "$report"
+            echo "Source commit: \`$source_commit\`" >> "$report"
+            git show "${source_commit}:${patch_path}" > "$RUNNER_TEMP/payload.b64" 2> "$RUNNER_TEMP/show.err"
+            show_status=$?
+            echo "git show status: $show_status" >> "$report"
+            echo "payload bytes: $(wc -c < "$RUNNER_TEMP/payload.b64" 2>/dev/null || echo 0)" >> "$report"
+            if test "$show_status" -eq 0; then
+              base64 --decode "$RUNNER_TEMP/payload.b64" > "$RUNNER_TEMP/payload.gz" 2> "$RUNNER_TEMP/base64.err"
+              decode_status=$?
+              echo "base64 status: $decode_status" >> "$report"
+              echo "gzip bytes: $(wc -c < "$RUNNER_TEMP/payload.gz" 2>/dev/null || echo 0)" >> "$report"
+              if test "$decode_status" -eq 0; then
+                gzip -t "$RUNNER_TEMP/payload.gz" 2> "$RUNNER_TEMP/gzip.err"
+                gzip_status=$?
+                echo "gzip status: $gzip_status" >> "$report"
+                if test "$gzip_status" -eq 0; then
+                  gzip -dc "$RUNNER_TEMP/payload.gz" > "$RUNNER_TEMP/course-builder.patch" 2> "$RUNNER_TEMP/unpack.err"
+                  unpack_status=$?
+                  echo "unpack status: $unpack_status" >> "$report"
+                  echo "patch bytes: $(wc -c < "$RUNNER_TEMP/course-builder.patch" 2>/dev/null || echo 0)" >> "$report"
+                  if test "$unpack_status" -eq 0; then
+                    git apply --check "$RUNNER_TEMP/course-builder.patch" > "$RUNNER_TEMP/apply.out" 2> "$RUNNER_TEMP/apply.err"
+                    apply_status=$?
+                    echo "git apply --check status: $apply_status" >> "$report"
+                    if test "$apply_status" -eq 0; then
+                      stage='READY'
+                    else
+                      stage='APPLY_CHECK_FAILED'
+                    fi
+                  else
+                    stage='GZIP_UNPACK_FAILED'
+                  fi
+                else
+                  stage='GZIP_TEST_FAILED'
+                fi
+              else
+                stage='BASE64_DECODE_FAILED'
+              fi
+            else
+              stage='GIT_SHOW_FAILED'
+            fi
+          fi
+
+          echo >> "$report"
+          echo "## Result" >> "$report"
+          echo "$stage" >> "$report"
+          for file in show.err base64.err gzip.err unpack.err apply.out apply.err; do
+            if test -s "$RUNNER_TEMP/$file"; then
+              echo >> "$report"
+              echo "### $file" >> "$report"
+              echo '```text' >> "$report"
+              head -c 12000 "$RUNNER_TEMP/$file" >> "$report"
+              echo >> "$report"
+              echo '```' >> "$report"
+            fi
+          done
+
+          rm -f .github/workflows/chatgpt-course-builder-diagnose-history.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$report" .github/workflows/chatgpt-course-builder-diagnose-history.yml
+          git commit -m "docs: diagnose Course Builder history recovery"
+          git push origin HEAD:feat/course-builder-beamer
