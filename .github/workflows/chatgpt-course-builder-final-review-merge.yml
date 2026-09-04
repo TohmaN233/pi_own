@@ -1,0 +1,181 @@
+name: Final Course Builder review and merge
+
+on:
+  push:
+    branches: [feat/course-builder-beamer]
+    paths:
+      - ".github/workflows/chatgpt-course-builder-final-review-merge.yml"
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  review-finalize-merge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/course-builder-beamer
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+
+      - name: Remove recovery-only machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          find .github/workflows -maxdepth 1 -type f -name 'chatgpt-course-builder-*' -delete
+
+      - name: Source and security contract review
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f packages/course-builder-host/src/index.ts
+          test -f packages/course-builder-host/src/host.ts
+          test -f packages/course-builder-host/src/types.ts
+          test -f packages/course-builder-host/src/beamer.ts
+          test -f apps/pi-web/app/course-builder/page.tsx
+          test -f docs/COURSE_BUILDER.md
+          test -f docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+          test -f docs/reviews/COURSE_BUILDER_FINAL_REVIEW.md
+          test -f third_party/noi1r-beamer-skill/LICENSE
+          test -f third_party/noi1r-beamer-skill/NOTICE.md
+          test -f .github/workflows/course-builder.yml
+          test -z "$(find .github/workflows -maxdepth 1 -type f -name 'chatgpt-course-builder-*' -print -quit)"
+          grep -R --fixed-strings 'APPROVAL_FIELD_FORBIDDEN' packages/course-builder-host/src >/dev/null
+          grep -R --fixed-strings -- '-no-shell-escape' packages/course-builder-host/src >/dev/null
+          grep -R --fixed-strings 'course-builder' packages/profile-resource-host/src apps/pi-web >/dev/null
+          grep -R --fixed-strings 'isApiRequestAllowed' apps/pi-web/app/api/course-builder >/dev/null
+          if grep -R -E 'child_process\.(exec|execSync)|shell:[[:space:]]*true|new Function\(|eval\(' packages/course-builder-host/src apps/pi-web/lib/course-builder*; then
+            echo 'Forbidden dynamic execution pattern found in Course Builder boundary.' >&2
+            exit 1
+          fi
+
+      - name: Refresh root lock metadata
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: "1"
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Repository check and formatting
+        run: npm run check
+
+      - name: Course Builder and Mode Pack regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t course_tests < <(find scripts -maxdepth 1 -type f -name 'course-builder*.test.mjs' -print | sort)
+          mapfile -t mode_tests < <(find scripts -maxdepth 1 -type f -name 'mode-pack*.test.mjs' -print | sort)
+          test "${#course_tests[@]}" -gt 0
+          test "${#mode_tests[@]}" -gt 0
+          node --experimental-strip-types --test "${course_tests[@]}"
+          node --experimental-strip-types --test "${mode_tests[@]}"
+
+      - name: Complete root test and build
+        run: |
+          npm test
+          npm run build
+
+      - name: Install Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Pi Web product gates
+        run: |
+          apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+          npm run lint --prefix apps/pi-web
+          npm test --prefix apps/pi-web
+          npm run build --prefix apps/pi-web
+
+      - name: Diff and attribution review
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'f3d62c07f775530eddb13d435b91a9a86e7c9049' third_party/noi1r-beamer-skill/NOTICE.md docs/COURSE_BUILDER.md >/dev/null
+          grep -F 'MIT' third_party/noi1r-beamer-skill/LICENSE >/dev/null
+
+      - name: Commit final reviewed tree
+        id: freeze
+        shell: bash
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: "1"
+        run: |
+          set -euo pipefail
+          git config user.name 'TohmaN233'
+          git config user.email 'postlewildeman113@gmail.com'
+          git add -- .github/workflows package-lock.json packages apps scripts docs third_party start-learning-harness.ps1 start-learning-harness.bat 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(agent): freeze reviewed Course Builder checkpoint'
+            git push origin HEAD:feat/course-builder-beamer
+          fi
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Reviewed Course Builder head: $sha"
+
+      - name: Locate pull request
+        id: pr
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head feat/course-builder-beamer --base main --state open --json number --jq 'if length == 1 then .[0].number else error("expected exactly one open Course Builder PR") end')
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "Course Builder PR: $pr"
+
+      - name: Wait for final-head PR checks
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ steps.freeze.outputs.sha }}
+        run: |
+          set -euo pipefail
+          required='build-check-test mode-pack-p1 root pi-web'
+          for attempt in $(seq 1 120); do
+            json=$(gh api -H 'Accept: application/vnd.github+json' "/repos/$GITHUB_REPOSITORY/commits/$REVIEWED_SHA/check-runs?per_page=100")
+            pending=$(jq '[.check_runs[] | select(.status != "completed")] | length' <<<"$json")
+            failed=$(jq '[.check_runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length' <<<"$json")
+            names=$(jq -r '.check_runs[] | select(.status == "completed" and .conclusion == "success") | .name' <<<"$json")
+            if [ "$failed" -gt 0 ]; then
+              jq -r '.check_runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")) | "FAILED: \(.name) — \(.details_url)"' <<<"$json" >&2
+              exit 1
+            fi
+            missing=0
+            for name in $required; do
+              if ! grep -Fxq "$name" <<<"$names"; then missing=1; fi
+            done
+            if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ]; then
+              echo 'All required final-head checks succeeded.'
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'Timed out waiting for final-head checks.' >&2
+          exit 1
+
+      - name: Merge exact reviewed head
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ steps.freeze.outputs.sha }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$REVIEWED_SHA" \
+            --subject 'feat(agent): add reviewed Course Builder and Beamer workflow' \
+            --body "Reviewed head: $REVIEWED_SHA. Root, Mode Pack, Course Builder, Pi Web, complete tests, and builds passed on the final head."
+
+      - name: Remove temporary recovery release
+        if: ${{ success() }}
+        shell: bash
+        run: gh release delete course-builder-working-export --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
