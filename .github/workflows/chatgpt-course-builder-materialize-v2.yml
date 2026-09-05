@@ -68,6 +68,15 @@ jobs:
         run: node --experimental-strip-types --test scripts/course-builder*.test.mjs
       - name: Install locked formatter and normalize source formatting
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('packages/course-builder-host/src/host.ts')
+          text = p.read_text()
+          old = 'value.forEach((item, index) => assertNoAgentApprovalFields(item, `${path}[${index}]`));'
+          new = 'value.forEach((item, index) => { assertNoAgentApprovalFields(item, `${path}[${index}]`); });'
+          assert text.count(old) == 1
+          p.write_text(text.replace(old, new))
+          PY
           npm ci --ignore-scripts
           node_modules/.bin/biome check --write packages/course-builder-host/src packages/learning-harness/src/index.ts
       - name: Verify and commit the actual product tree
