@@ -1,55 +1,56 @@
 {
-	"version": 1,
-	"repository": "TohmaN233/pi_own",
-	"role": "learning-harness umbrella and Pi runtime fork",
-	"pi": {
-		"upstream": "earendil-works/pi",
-		"baselineCommit": "853a80d26c90a14c1886f0ebb8ffaae133ca2185",
-		"codingAgentVersion": "0.84.4",
-		"baselineFingerprints": {
-			"README.md": "e68f9385df7e2bf7e8f1e8bca1257a20260b0281",
-			"package.json": "e981d3ab5acbd0d682a84d10197ad73f0a85361b",
-			"tsconfig.base.json": "57e97d6e361d1473ceecc4ce65ea1a7ccb6d94bf",
-			"packages/coding-agent/package.json": "8aa47351db845e14d68615a4250705faaf7bdcfb"
-		}
-	},
-	"piWeb": {
-		"upstream": "agegr/pi-web",
-		"plannedBaselineCommit": "28bab3c25f5f6770c9b0b745ebbfec1c27f7b948",
-		"plannedVersion": "0.8.11",
-		"integrated": true,
-		"vendoredPath": "apps/pi-web",
-		"upstreamTree": "51cdc97801ea0f8316ee6fd19ab0adcc7a8b0204",
-		"manifest": "docs/pi-web-upstream-manifest.json",
-		"downstreamModifiedPaths": [
-			"AGENTS.md",
-			"app/api/agent/[id]/events/route.ts",
-			"app/api/agent/[id]/route.ts",
-			"app/api/agent/new/route.ts",
-			"app/page.tsx",
-			"components/AppShell.file-viewer-state.test.mjs",
-			"components/SessionSidebar.test.mjs",
-			"components/SessionSidebar.tsx",
-			"hooks/useAgentSession.test.mjs",
-			"lib/directory-browser.test.mjs",
-			"lib/model-discovery.test.mjs",
-			"lib/next-config.test.mjs",
-			"lib/pi-types.ts",
-			"lib/project-command-env.test.mjs",
-			"lib/project-trust.test.mjs",
-			"lib/rpc-manager.test.mjs",
-			"lib/rpc-manager.ts",
-			"lib/subagent-input.test.mjs",
-			"next.config.ts",
-			"package-lock.json",
-			"package.json",
-			"tsconfig.json"
-		]
-	},
-	"ynReference": {
-		"repository": "TohmaN233/YN-translation-workshop",
-		"baselineCommit": "419dc457a8a4bccd2c6ce0f0d5f29faa68668c8c",
-		"role": "architecture reference only"
-	},
-	"plan": "docs/PI_LEARNING_HARNESS_DETAILED_PLAN_V001.md"
+  "version": 1,
+  "repository": "TohmaN233/pi_own",
+  "role": "learning-harness umbrella and Pi runtime fork",
+  "pi": {
+    "upstream": "earendil-works/pi",
+    "baselineCommit": "853a80d26c90a14c1886f0ebb8ffaae133ca2185",
+    "codingAgentVersion": "0.84.4",
+    "baselineFingerprints": {
+      "README.md": "e68f9385df7e2bf7e8f1e8bca1257a20260b0281",
+      "package.json": "e981d3ab5acbd0d682a84d10197ad73f0a85361b",
+      "tsconfig.base.json": "57e97d6e361d1473ceecc4ce65ea1a7ccb6d94bf",
+      "packages/coding-agent/package.json": "8aa47351db845e14d68615a4250705faaf7bdcfb"
+    }
+  },
+  "piWeb": {
+    "upstream": "agegr/pi-web",
+    "plannedBaselineCommit": "28bab3c25f5f6770c9b0b745ebbfec1c27f7b948",
+    "plannedVersion": "0.8.11",
+    "integrated": true,
+    "vendoredPath": "apps/pi-web",
+    "upstreamTree": "51cdc97801ea0f8316ee6fd19ab0adcc7a8b0204",
+    "manifest": "docs/pi-web-upstream-manifest.json",
+    "downstreamModifiedPaths": [
+      "AGENTS.md",
+      "app/api/agent/[id]/events/route.ts",
+      "app/api/agent/[id]/route.ts",
+      "app/api/agent/new/route.ts",
+      "app/page.tsx",
+      "components/AppShell.file-viewer-state.test.mjs",
+      "components/SessionSidebar.test.mjs",
+      "components/SessionSidebar.tsx",
+      "hooks/useAgentSession.test.mjs",
+      "lib/directory-browser.test.mjs",
+      "lib/model-discovery.test.mjs",
+      "lib/next-config.test.mjs",
+      "lib/pi-types.ts",
+      "lib/project-command-env.test.mjs",
+      "lib/project-trust.test.mjs",
+      "lib/rpc-manager.test.mjs",
+      "lib/rpc-manager.ts",
+      "lib/subagent-input.test.mjs",
+      "next.config.ts",
+      "package-lock.json",
+      "package.json",
+      "tsconfig.json",
+      "app/layout.tsx"
+    ]
+  },
+  "ynReference": {
+    "repository": "TohmaN233/YN-translation-workshop",
+    "baselineCommit": "419dc457a8a4bccd2c6ce0f0d5f29faa68668c8c",
+    "role": "architecture reference only"
+  },
+  "plan": "docs/PI_LEARNING_HARNESS_DETAILED_PLAN_V001.md"
 }

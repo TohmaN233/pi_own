@@ -1,9 +1,9 @@
 import {
 	HARNESS_CONTRACT_VERSION,
-	parseModePackDefinition,
-	parseResourceSnapshot,
 	type ModePackDefinition,
 	type ModePackDraft,
+	parseModePackDefinition,
+	parseResourceSnapshot,
 	type ResourceSnapshot,
 } from "../../harness-contracts/src/index.ts";
 import { contentHash, deterministicId, stableStringify } from "../../harness-core/src/index.ts";
@@ -360,11 +360,11 @@ export function createRuntimeBuiltinModePacks(catalog: ResourceCatalog): Readonl
 		const normalized: ModePackDraft =
 			draft.role === "general" && !draft.courseRequired
 				? {
-					...draft,
-					components: draft.components.filter(
-						(component) => !(component.type === "plugin" && component.id === "learning-harness"),
-					),
-				}
+						...draft,
+						components: draft.components.filter(
+							(component) => !(component.type === "plugin" && component.id === "learning-harness"),
+						),
+					}
 				: draft;
 		return [modePackId, compileModePackDraft(normalized, catalog)] as const;
 	});
@@ -377,7 +377,9 @@ function sorted(values: readonly string[]): string[] {
 
 function compareSet(label: string, actual: readonly string[], expected: readonly string[], issues: string[]): void {
 	if (stableStringify(sorted(actual)) !== stableStringify(sorted(expected))) {
-		issues.push(`${label} mismatch: expected ${sorted(expected).join(", ") || "none"}; got ${sorted(actual).join(", ") || "none"}`);
+		issues.push(
+			`${label} mismatch: expected ${sorted(expected).join(", ") || "none"}; got ${sorted(actual).join(", ") || "none"}`,
+		);
 	}
 }
 

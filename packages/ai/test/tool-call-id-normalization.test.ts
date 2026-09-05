@@ -12,7 +12,7 @@
 
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { completeSimple, getEnvApiKey, getModel } from "../src/compat.ts";
+import { completeSimple, getEnvApiKey, getModel, getModels } from "../src/compat.ts";
 import type { AssistantMessage, Message, Tool, ToolResultMessage } from "../src/types.ts";
 import { resolveApiKey } from "./oauth.ts";
 
@@ -20,6 +20,15 @@ import { resolveApiKey } from "./oauth.ts";
 const copilotToken = await resolveApiKey("github-copilot");
 const openrouterKey = getEnvApiKey("openrouter");
 const codexToken = await resolveApiKey("openai-codex");
+
+// Issue #1022 tests the API's tool-call ID format, not a retired model ID.
+// Resolve only inside the credential-gated live tests; preserve the historical
+// model string in the exact prefilled regression message below.
+function copilotResponsesModel() {
+	const model = getModels("github-copilot").find((candidate) => candidate.api === "openai-responses");
+	if (!model) throw new Error("No GitHub Copilot Responses model is available for the live handoff test");
+	return model;
+}
 
 // Simple echo tool for testing
 const echoToolSchema = Type.Object({
@@ -35,7 +44,7 @@ const echoTool: Tool<typeof echoToolSchema> = {
 /**
  * Test 1: Live cross-provider handoff
  *
- * 1. Use github-copilot gpt-5.2-codex to generate a tool call
+ * 1. Use an available github-copilot Responses model to generate a tool call
  * 2. Switch to openrouter openai/gpt-5.2-codex and complete
  * 3. Switch to openai-codex gpt-5.5 and complete
  *
@@ -45,7 +54,7 @@ describe("Tool Call ID Normalization - Live Handoff", () => {
 	it.skipIf(!copilotToken || !openrouterKey)(
 		"github-copilot -> openrouter should normalize pipe-separated IDs",
 		async () => {
-			const copilotModel = getModel("github-copilot", "gpt-5.2-codex");
+			const copilotModel = copilotResponsesModel();
 			const openrouterModel = getModel("openrouter", "openai/gpt-5.2-codex");
 
 			// Step 1: Generate tool call with github-copilot
@@ -115,7 +124,7 @@ describe("Tool Call ID Normalization - Live Handoff", () => {
 	it.skipIf(!copilotToken || !codexToken)(
 		"github-copilot -> openai-codex should normalize pipe-separated IDs",
 		async () => {
-			const copilotModel = getModel("github-copilot", "gpt-5.2-codex");
+			const copilotModel = copilotResponsesModel();
 			const codexModel = getModel("openai-codex", "gpt-5.5");
 
 			// Step 1: Generate tool call with github-copilot

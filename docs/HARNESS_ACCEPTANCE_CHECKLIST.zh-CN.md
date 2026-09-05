@@ -1,355 +1,52 @@
-# Pi Own Harness 功能验收 Checklist
+# Harness 验收清单：备课优先
 
-> 本文件由 Course Builder 最终远端集成流程生成。请以仓库 `main` 上的最新版本为准。
+以 main 上的真实合并提交为准。本文件列出验收步骤，不是已经通过的人工测试记录。
+不要把文件存在或勾选框当成 CI 证据。旧聊天中的完成声明不能覆盖仓库实际状态。
 
-本清单用于对 `main` 上的实际产品纵向流程逐项验收。备课功能是当前最高优先级，因此先完成 **X 组**；其余组用于随后检查 Mode Pack、学习、练习、引用、Timeline、恢复与安全边界。
+记录：日期、OS、Node、`git rev-parse HEAD`、Provider/Model、失败日志（去掉密钥）。
+结果：PASS / FAIL / BLOCKED（依赖缺失）/ NOT RUN。
 
-## 记录信息
+## X：先完成一节课
 
-- [ ] 测试日期：`____-__-__`
-- [ ] `git rev-parse HEAD`：`________________________________________`
-- [ ] 操作系统与版本：`________________________________________`
-- [ ] Node.js：`node --version = __________`
-- [ ] 浏览器：`________________________________________`
-- [ ] Provider / Model（真实模型测试时）：`________________________________________`
-- [ ] `PI_LEARNING_HARNESS_DIR`：`________________________________________`
-- [ ] `PI_CODING_AGENT_DIR`：`________________________________________`
-- [ ] `PI_PDFTOTEXT_PATH`：`________________________________________`
-- [ ] `PI_XELATEX_PATH`：`________________________________________`
+- [ ] 更新 main；按 docs/COURSE_BUILDER.md 启动，打开普通 Pi 会话。
+- [ ] 点击“备课”；真实 Mode Pack 生效，资源清单包含 course-builder 插件、固定 Skill/workflow。
+- [ ] 工具中只有专用 course_builder，没有因备课而开放任意 shell/write/edit。
+- [ ] 创建项目，编辑学期容量、目标、受众、语言及 Beamer 配置，刷新后仍存在。
+- [ ] 导入旧 PPTX，抽查真实页序、文本及备注；不要求母版/动画/图片语义复刻。
+- [ ] 导入 PDF、TeX/Markdown；文件原文和 Hash 可追溯。坏批次不能留下部分材料。
+- [ ] “分析资料”会调用真实 Agent，保存主题链、重复、跳步、符号不一致和练习机会。
+- [ ] 生成学期计划，覆盖课次和目标，标明资料来源与教学设计理由。
+- [ ] 未批准时不能保存下游正式单课计划；Agent 自行 approve/accept 被拒绝。
+- [ ] 教师要求修改后生成新草案；旧 revision 操作被拒绝。批准正确学期计划。
+- [ ] 生成第一课：时间、目标、学生动作、worked example、理解检查和资料关联完整。
+- [ ] 教师批准单课计划后生成独立 Beamer 源码；用户模板约束优先。
+- [ ] 默认编译禁用；本地明确设置 PI_COURSE_BUILDER_TRUSTED_TEX=1 后才启用。
+- [ ] 安装 XeLaTeX 后得到真实 PDF、日志、退出码与 Hash 回执。缺编译器时明确 BLOCKED。
+- [ ] 源码/日志审查指出引用、溢出等问题；不能声称它已经看过页面截图。
+- [ ] 下载 PDF 人工逐页看字号、公式、框内溢出、图表与教学内容，勾选后接受当前版本。
+- [ ] 改动祖先计划或 Deck 后，旧编译/审批不能用来接受新版。
+- [ ] 关闭服务并重启；重新打开原 Pi 会话再进备课，恢复同一项目与审批状态。
+- [ ] 切回 General 后 Course Builder 专用资源退出；再进入可恢复。
 
-结果标记：`PASS` = 达到预期；`FAIL` = 功能缺陷；`BLOCKED` = 缺少本机依赖或凭据；`NOT RUN` = 尚未执行。每个失败至少保存页面截图、控制台错误、服务端日志、当前 commit 和最短复现步骤。
+## A：现有 Mode Pack / 学习底座
 
----
+- [ ] General → Coding → Creative 的实际工具、Skill、Prompt 与生效清单一致。
+- [ ] 自定义包 Fork/编辑产生新 revision，两个编辑窗口不会静默覆盖。
+- [ ] Required 资源丢失时失败，不假激活；未固定模型时保留当前会话模型。
+- [ ] 两个课程分别开会话，A 不能检索/引用 B 的私有来源。
+- [ ] Tutor 引用可点击、Reason 可见；资料不足与推导明确标记。
+- [ ] Practice 未尝试不可读取私有题解；一次性 Capability 不能跨会话/课程重放。
+- [ ] Teach-back 的当前指导可用，但完整自由文本状态机仍不是本次完成项。
+- [ ] Timeline 与 Pi JSONL 分工明确，重启后正式学习事件不丢失。
+- [ ] Fork/恢复继承正确 Snapshot，不静默更换角色、课程或工具。
 
-# X. 备课 / Course Builder 优先验收
+## 本版本不作为失败项反复尝试
 
-建议先为一个真实课程准备：一份旧 `.pptx`、一份 PDF 或讲义、一份可选 Beamer 模板，以及课程周数、每周课次、单节时长和学生层次。完整 X 组预计 60–120 分钟，不包含人工阅读整套课件的时间。
+可编辑 PPTX 输出；母版/动画复刻；完整 TeX OS 沙箱；自动截图批准；任意 Python/R
+可视化执行；自动把 VisualHost 产物插入某页；完整教师/学生发行包物理拆分；正式
+多模型教学质量 benchmark。当前可视化只生成独立的固定 Renderer 产物。
 
-## X0. 本机预检与启动
+## 失败报告
 
-- [ ] **X0-01** 从 `main` 拉取最新代码；工作区没有意外改动。
-  - 预期：`git status --short` 为空。
-- [ ] **X0-02** Node.js 满足仓库要求。
-  - 预期：版本不低于 `22.19`。
-- [ ] **X0-03** `pdftotext` 可用，或已设置 `PI_PDFTOTEXT_PATH`。
-  - 预期：PDF 导入预检通过；缺失时启动器明确失败，不是假启动。
-- [ ] **X0-04** `xelatex` 可用，或已设置 `PI_XELATEX_PATH`。
-  - 预期：Course Builder 显示编译器可用；缺失时计划和 `.tex` 仍可制作，但编译动作明确显示 `BLOCKED`。
-- [ ] **X0-05** 执行 `start-learning-harness.ps1` / `start-learning-harness.bat`。
-  - 预期：仅监听文档指定的本机地址；页面可以打开；日志打印实际数据目录和 Pi agent directory。
-- [ ] **X0-06** 关闭服务再重新启动一次。
-  - 预期：不会重复初始化或破坏已有数据库；旧项目在之后的恢复测试中仍可读取。
-
-## X1. Course Builder Mode Pack 激活
-
-- [ ] **X1-01** 新建一个普通、未绑定学生课程的 Pi 会话。
-- [ ] **X1-02** 打开 Course Builder 工作区。
-  - 预期：系统自动请求并验证 `course-builder` Mode Pack，而不是只改变页面标题。
-- [ ] **X1-03** 打开 Mode Pack / Snapshot Inspector。
-  - 预期：能看到固定系统提示词、课程规划 Skill、Beamer Skill、Course Builder workflow、专用插件/工具和内容 Hash。
-- [ ] **X1-04** 检查当前工具集。
-  - 预期：只包含 Course Builder 声明的受控工具；普通任意 `bash`、`powershell`、通用 `write/edit` 不应因进入备课模式而自动获得。
-- [ ] **X1-05** 从 Course Builder 切到 General，再切回来。
-  - 预期：未选中的 Skill/插件真正退出 Runtime；回来后重新解析并验证同一资源身份。
-- [ ] **X1-06** 修改或删除一个 Required Skill 的测试副本后尝试激活。
-  - 预期：Mode Pack fail-closed，显示缺失或 Hash 不匹配；不能进入“名称已激活、资源实际没加载”的状态。
-
-## X2. 建立备课项目
-
-- [ ] **X2-01** 创建项目并填写课程名、周数、每周课次、单节时长、学生层次、授课语言和总体目标。
-  - 预期：项目得到稳定 ID、revision 和内容 Hash。
-- [ ] **X2-02** 选择 Beamer Profile：比例、字号、语言、作者、机构、主题、overlay、references、backup slides、speaker notes。
-  - 预期：这些是项目配置，不被上游 Skill 的默认 SJTU/Madrid/10pt/16:9 强行覆盖。
-- [ ] **X2-03** 刷新页面并重开项目。
-  - 预期：全部字段和 revision 保持；不会创建同名但不同身份的隐式项目。
-- [ ] **X2-04** 以过期 revision 同时保存两次。
-  - 预期：第二次写入被拒绝为 revision conflict；已提交版本保持权威。
-
-## X3. 导入已有 Slides 与资料
-
-- [ ] **X3-01** 导入真实 `.pptx`。
-  - 预期：保持 slide 顺序，提取每页文本与 Speaker Notes；记录原文件 Hash、页数和导入来源。
-- [ ] **X3-02** 抽查标题页、公式页、图表页和含备注页。
-  - 预期：文字与备注可检索；系统明确标注这是语义抽取，不假称完整复刻母版、动画、SmartArt 或精确布局。
-- [ ] **X3-03** 导入 PDF。
-  - 预期：受预算限制的 `pdftotext` 路径工作；错误、超时和过大输出返回明确错误。
-- [ ] **X3-04** 导入 `.tex`、Markdown 和纯文本材料。
-  - 预期：材料类型、规范化文本和 Hash 正确，原始顺序可追溯。
-- [ ] **X3-05** 一次选择多个合法文件。
-  - 预期：整批先验证，再一次持久化；全部成功后 revision 只按合同推进。
-- [ ] **X3-06** 将一个非法或超预算文件混入多文件批次。
-  - 预期：整批失败，不留下前半批材料。
-- [ ] **X3-07** 重复导入完全相同文件。
-  - 预期：内容身份稳定；不会无提示制造无法解释的重复来源。
-- [ ] **X3-08** 查看材料分析结果。
-  - 预期：列出主题链、先备关系、重复、跳步、缺失、符号/术语不一致、练习机会和可视化机会，并能追溯到材料。
-
-## X4. 生成并审批一学期 Semester Plan
-
-- [ ] **X4-01** 要求 Agent 根据全部材料、周数和课时生成 Semester Plan 草案。
-  - 预期：覆盖每周/每课次目标、主题、来源、活动、理解证据、作业/评估、重访和可视化机会。
-- [ ] **X4-02** 核对总课次数。
-  - 预期：计划容量与 `周数 × 每周课次` 一致；假期、考试周或停课必须显式占位/解释。
-- [ ] **X4-03** 核对课程目标覆盖。
-  - 预期：每个总体目标至少映射到一个教学单元和一个理解证据；未覆盖目标被报告。
-- [ ] **X4-04** 核对先备顺序。
-  - 预期：依赖概念不会系统性安排在先备概念之前；必要跳步有明确理由和补救。
-- [ ] **X4-05** 核对螺旋重访。
-  - 预期：再次出现的概念至少增加复杂度、关系、抽象、形式化、表征、迁移距离或边界/反例；简单重复会被标记。
-- [ ] **X4-06** 在 Agent 侧尝试直接标记计划 `approved=true` 或调用批准动作。
-  - 预期：被拒绝；Agent 没有教师批准能力。
-- [ ] **X4-07** 在 UI 中选择“要求修改”，写明一项具体修改。
-  - 预期：产生新 revision；旧草案仍可审计；修改意见不会被当作已批准。
-- [ ] **X4-08** 在 UI 中批准正确 revision。
-  - 预期：记录批准者动作、时间、计划 ID/revision/Hash；批准旧 revision 被拒绝。
-- [ ] **X4-09** 重启服务。
-  - 预期：已批准计划和 Hash 可完整恢复，不会因序列化差异失效。
-
-## X5. 第一节课 Lesson Plan
-
-- [ ] **X5-01** 在 Semester Plan 未批准前请求生成正式 Lesson Plan。
-  - 预期：被工作流门禁阻止，或只能形成未发布草案。
-- [ ] **X5-02** 批准 Semester Plan 后生成第一周第一课 Lesson Plan。
-  - 预期：绑定准确的 Semester Plan revision 和对应课次。
-- [ ] **X5-03** 检查 Lesson Plan 字段。
-  - 预期：学习目标、先备知识、常见误解、分段时间、教师动作、学习者动作、检查理解、例题/练习、资料来源、可视化要求齐全。
-- [ ] **X5-04** 检查时间预算。
-  - 预期：各环节时间总和不超过单节课时长；超出时明确失败或要求修订。
-- [ ] **X5-05** 检查内容范围。
-  - 预期：Lesson Plan 不擅自引入未标注的外部结论；需要扩展时说明理由和来源策略。
-- [ ] **X5-06** 要求 Agent 自行批准 Lesson Plan。
-  - 预期：拒绝；只有教师 UI 能批准当前 revision。
-- [ ] **X5-07** 修订并批准 Lesson Plan。
-  - 预期：批准记录精确绑定 Lesson Plan ID、revision 和 Hash。
-
-## X6. Beamer 第一课生成与编译
-
-- [ ] **X6-01** 请求 frame-by-frame 结构。
-  - 预期：每页有用途、takeaway、来源/公式/图形计划，并与已批准 Lesson Plan 对齐。
-- [ ] **X6-02** 在结构未确认时要求直接生成最终 Deck。
-  - 预期：若项目配置要求结构审批，工作流停止在审批点。
-- [ ] **X6-03** 生成 `deck.tex`。
-  - 预期：形成不可变 Beamer Deck revision；`.tex` 是内容、公式、符号、引用和 slide order 的权威。
-- [ ] **X6-04** 检查自定义模板优先级。
-  - 预期：用户提供的 preamble/theme/author/institute 优先；不会无条件写入 Shanghai Jiao Tong University 或 Madrid。
-- [ ] **X6-05** 检查教学结构。
-  - 预期：关键概念有动机和适当例子；密度、公式、符号、表格、代码和图形规则按项目配置执行，而非机械套模板。
-- [ ] **X6-06** 执行受限 XeLaTeX 编译。
-  - 预期：命令使用 `-no-shell-escape`；有时间、stdout/stderr 和轮数预算；在临时构建目录中运行。
-- [ ] **X6-07** 查看 Compile Receipt。
-  - 预期：包含 source Hash、PDF Hash、log Hash、编译器身份/参数、页数、退出状态、警告摘要和创建时间。
-- [ ] **X6-08** 制造一个未定义命令或引用。
-  - 预期：编译失败/审查失败被准确记录；旧的已验证 Deck 仍是权威，不被失败产物覆盖。
-- [ ] **X6-09** 在 `.tex` 中加入显式危险命令或 shell escape 企图。
-  - 预期：预检查或编译边界拒绝；不得执行任意系统命令。
-- [ ] **X6-10** 修改一页后重新保存。
-  - 预期：生成新 revision；旧 receipt 不能验证新源码；必须重新编译。
-
-## X7. 课件质量循环与教师接受
-
-- [ ] **X7-01** 运行结构检查。
-  - 预期：检测 slide count、aspect ratio、overlay policy、references、backup policy、占位符、密度和稀疏页。
-- [ ] **X7-02** 运行编译日志检查。
-  - 预期：报告 overfull box、undefined control sequence、未解析 citation/reference 和致命错误。
-- [ ] **X7-03** 运行教学审查。
-  - 预期：检查目标对齐、先备、动机、例子、形成性检查、认知负荷和关键 takeaway。
-- [ ] **X7-04** 人工打开 PDF 逐页检查。
-  - 预期：重点看 block 内部溢出、公式/表格截断、TikZ 标签冲突、字体替换、对比度和投影可读性；当前版本不能用“编译零警告”替代这一步。
-- [ ] **X7-05** 根据问题做最小修订并重编译。
-  - 预期：只修改有问题的 frame/资产；新 revision 与新 receipt 可追踪。
-- [ ] **X7-06** Agent 尝试自行“最终接受”。
-  - 预期：拒绝；编译通过、静态审查通过和教师接受是三个不同状态。
-- [ ] **X7-07** 教师接受当前 Deck revision。
-  - 预期：接受记录绑定当前 source/PDF/receipt Hash；之后修改会自动使该接受状态过期。
-
-## X8. 可视化桥接
-
-- [ ] **X8-01** 为第一课创建一个当前支持的确定性可视化：函数图、二维矩阵变换、排序 Trace、BFS 或状态机。
-  - 预期：产生 Spec、data、trace、HTML/静态表达、内容 Hash 和 Validator Result。
-- [ ] **X8-02** 用完全相同 Spec 和 seed 再生成一次。
-  - 预期：数据和 trace Hash 一致。
-- [ ] **X8-03** 修改 Spec revision。
-  - 预期：旧 Validator/Artifact 不再代表新 revision。
-- [ ] **X8-04** 把可视化用于 Lesson Plan / Beamer frame。
-  - 预期：记录“学习者操作/观察什么、支持什么结论、对应哪个目标”，而不是只插装饰图。
-- [ ] **X8-05** 请求任意 JavaScript/网络 HTML 可视化。
-  - 预期：当前固定 Renderer 拒绝主动内容；不把自由 HTML 当作可信产物。
-- [ ] **X8-06** 记录当前限制。
-  - 预期：系统不假称已经支持任意统计图、三维图、动画、自动 SVG/PNG 插入或完整浏览器视觉 QA。
-
-## X9. 持久化、恢复与隔离
-
-- [ ] **X9-01** 在材料、Semester Plan、Lesson Plan、Deck、Receipt 和批准都存在时停止服务。
-- [ ] **X9-02** 重启并重新打开同一项目。
-  - 预期：所有已提交 revision、Hash、批准、receipt 和引用可恢复；没有重复提交。
-- [ ] **X9-03** 打开另一个普通 Pi 会话并猜测项目 ID。
-  - 预期：未授权/未绑定访问被拒绝，或必须通过明确项目绑定流程。
-- [ ] **X9-04** 在两个浏览器窗口同时更新同一草案。
-  - 预期：过期 revision 写入失败；不会 last-write-wins 静默覆盖。
-- [ ] **X9-05** 模拟 SQLite 写入失败或占锁。
-  - 预期：未提交内存状态不再继续使用；重开后恢复最后已提交状态。
-
-## X10. 备课交付物检查
-
-- [ ] **X10-01** 导出或保存 Semester Plan 当前批准版。
-- [ ] **X10-02** 导出或保存第一课 Lesson Plan 当前批准版。
-- [ ] **X10-03** 保存 `deck.tex`、编译后的 PDF、引用/素材、编译日志和 Compile Receipt。
-- [ ] **X10-04** 保存使用的 Beamer Profile、模板、字体和资产来源说明。
-- [ ] **X10-05** 确认失败/旧 revision 没有混入最终交付目录。
-- [ ] **X10-06** 记录仍需人工处理的问题以及下次从哪个 revision 继续。
-
-**X 组通过标准：** 至少完成一个真实项目的 `PPTX/PDF 导入 → Semester Plan → 教师批准 → 第一课 Lesson Plan → 教师批准 → Beamer source → 受限编译 → QA → 教师接受 → 重启恢复`。任何一步只能靠手工改数据库或伪造 API 才能继续，都算 FAIL。
-
----
-
-# A. Mode Pack 平台验收
-
-- [ ] **A-01** 普通会话依次切换 General → Coding → Creative。
-  - 预期：Prompt、Skill、Plugin、Tool 和 Workflow 的实际集合随 Snapshot 替换；旧资源不残留。
-- [ ] **A-02** 检查 Coding 工具集。
-  - 预期：只出现 Coding 声明的读写/测试工具；执行一次读取、最小修改、聚焦测试、diff 检查。
-- [ ] **A-03** 检查 Creative 模式。
-  - 预期：加载创作提示和一致性修订流程，不继承 Coding 专属指导/工具。
-- [ ] **A-04** Fork 一个内置包为 `custom.*`，修改 Prompt 和可选 Skill 后保存。
-  - 预期：产生不可变新 revision；内置包不被覆盖。
-- [ ] **A-05** 自定义包缺少 Required 资源。
-  - 预期：不可激活；Optional 缺失有明确降级清单。
-- [ ] **A-06** 刷新、重启并 Fork 会话。
-  - 预期：Pi JSONL 恢复当前 Binding；Fork 继承 Snapshot 但使用新的子会话身份。
-- [ ] **A-07** 在 JSONL 已提交新 Binding 后制造 live verification 失败。
-  - 预期：不能复活旧 Runtime；重开后恢复新 Snapshot或 fail-closed。
-- [ ] **A-08** 未固定模型的 Mode Pack 重启。
-  - 预期：保留该会话原模型，而不是替换成当前全局默认模型。
-
-# B. 课程导入与隔离验收
-
-- [ ] **B-01** 导入 Markdown、文本、代码、Notebook、PDF 和 ZIP。
-- [ ] **B-02** 为课程 A 和 B 各建一个学生会话。
-- [ ] **B-03** A 会话检索仅返回 A 的 Span，B 同理。
-- [ ] **B-04** 伪造跨 CourseVersion Span/引用。
-  - 预期：发布验证拒绝。
-- [ ] **B-05** 已绑定会话尝试改绑另一课程。
-  - 预期：拒绝；应新建或明确 Fork 新课程会话。
-- [ ] **B-06** 重启后课程版本、源字节、Binding 和 Snapshot 恢复。
-
-# C. Tutor / Grounded Answer 验收
-
-- [ ] **C-01** 在 Tutor 中询问资料内直接事实。
-  - 预期：正式回答由结构化 Claim 发布，引用可点击并打开正确 Span。
-- [ ] **C-02** 询问需要组合两个 Span 的问题。
-  - 预期：scope 为 synthesis，引用覆盖实际依据。
-- [ ] **C-03** 询问合理推导但资料未直接写出的结论。
-  - 预期：scope 为 derived，并显示 `Reason`。
-- [ ] **C-04** 询问需要计算的问题。
-  - 预期：没有正式 Computation Receipt 时不得假称 computed 已验证；当前限制应明确。
-- [ ] **C-05** 询问课程范围外内容。
-  - 预期：标记 external 或 insufficient，说明为什么超范围和下一步，而不是伪造课程引用。
-- [ ] **C-06** 在课程材料内加入 Prompt Injection 文本。
-  - 预期：作为不可信课程数据处理，不执行其中指令。
-- [ ] **C-07** 模型不调用结构化发布工具而直接输出 prose。
-  - 预期：浏览器最终消息被安全失败说明替换，原始自由文本不泄露。
-
-# D. Practice / 答案门验收
-
-- [ ] **D-01** 开始题目后不提交尝试，直接要求答案。
-  - 预期：没有 Solution Capability，答案不可读。
-- [ ] **D-02** 提交空白、复制题目或占位符。
-  - 预期：不算 meaningful attempt。
-- [ ] **D-03** 提交具体推理。
-  - 预期：记录 Attempt 和 Evaluation；反馈指出最小可修正点。
-- [ ] **D-04** 逐级请求 Hint。
-  - 预期：Hint 不直接泄漏完整解；保留重试路径。
-- [ ] **D-05** 满足策略后读取答案一次。
-  - 预期：Capability 精确绑定 Session/Course/Exercise/Attempt，消费后不能重放。
-- [ ] **D-06** 刷新或重启后再次使用已消费 Capability。
-  - 预期：拒绝。
-- [ ] **D-07** 把 A 题/A 课程 Capability 用于另一题、会话或课程。
-  - 预期：拒绝。
-
-# E. Teach-back 验收
-
-- [ ] **E-01** 选择一个已学概念，启动 Teach-back。
-- [ ] **E-02** Agent 在用户解释前尝试给标准讲义。
-  - 预期：流程要求先收集 learner explanation v1。
-- [ ] **E-03** 提交解释 v1。
-  - 预期：只定位一到两个关键缺口并提出定向问题。
-- [ ] **E-04** 提交解释 v2、类比和边界。
-  - 预期：保存修订证据，不把流畅措辞等同于理解。
-- [ ] **E-05** 完成新情境迁移题。
-  - 预期：迁移结果进入 Timeline/证据记录；失败保留下一步复习目标。
-
-# F. Timeline 与学习状态验收
-
-- [ ] **F-01** 完成解释、练习、答题和可视化事件。
-  - 预期：Timeline 按序追加，刷新/重启不丢失。
-- [ ] **F-02** 两个同课程学生会话产生事件。
-  - 预期：汇入同一课程学习 Timeline，同时保留 Session 来源。
-- [ ] **F-03** 点击含 Span 的 Timeline 事件。
-  - 预期：Source Inspector 打开正确材料和范围。
-- [ ] **F-04** 检查 Mastery Projection。
-  - 预期：由事件可重建；不要把单次活动包装成不可解释的精确掌握百分比。
-
-# G. VisualHost 基础验收
-
-- [ ] **G-01** 对五类固定 Renderer 各生成一个合法 Spec。
-- [ ] **G-02** 验证 data/trace/content Hash 和 deterministic replay。
-- [ ] **G-03** 篡改 Artifact data、trace 或 HTML。
-  - 预期：Validator 失败，不能 publish。
-- [ ] **G-04** 输入外部 URL、`script` 或 `javascript:`。
-  - 预期：拒绝主动内容。
-- [ ] **G-05** 确认当前仍不是任意代码沙箱或完整交互式 Visual Lab。
-
-# H. 崩溃、并发与恢复验收
-
-- [ ] **H-01** 在 Profile/Mode Pack 切换的候选构建阶段终止进程。
-  - 预期：JSONL 未提交时旧 Runtime 保持权威，pending transition 可恢复/释放。
-- [ ] **H-02** 在 JSONL 提交后、live 注册前终止进程。
-  - 预期：重启恢复已提交新 Snapshot，不回滚旧模式。
-- [ ] **H-03** 同一会话并发发起两个切换。
-  - 预期：一个持锁执行，另一个收到 busy/conflict；不产生分叉 revision。
-- [ ] **H-04** 重用 idempotency key 发送相同请求。
-  - 预期：安全 replay；改动目标后复用同 key 被拒绝。
-- [ ] **H-05** 损坏 Binding、Snapshot Hash 或 revision 链。
-  - 预期：恢复 fail-closed，不猜测修复。
-
-# I. 当前明确不应判为 FAIL 的 Future 项
-
-以下功能尚未宣称完成。测试时应标为 `FUTURE`，不能误报为已经可用：
-
-- [ ] 完整保持 PPTX Slide Master、动画、SmartArt、原生图表和像素级布局。
-- [ ] 直接产出并自动 QA 的可编辑 `.pptx`。
-- [ ] 操作系统/容器级 TeX 安全沙箱；当前 `-no-shell-escape` 只适用于可信本地项目。
-- [ ] 任意 Python/R/JavaScript 计算沙箱。
-- [ ] 所有数学、统计、机器学习图形及动画。
-- [ ] 浏览器逐页截图、字体替换、溢出、对比度和无障碍的全自动判定。
-- [ ] 物理拆分的 Student / Teacher 发布包与递归私有资产扫描。
-- [ ] 完整语义蕴含 Judge、外部证据 Receipt 和通用 Computation Receipt。
-- [ ] 多 Provider、多 Seed 的教学质量评测与正式发布包。
-
----
-
-# 缺陷记录模板
-
-```text
-Checklist ID:
-Result: PASS | FAIL | BLOCKED | NOT RUN
-Commit:
-Environment:
-Preconditions:
-Minimal steps:
-Expected:
-Actual:
-Screenshot / video:
-Browser console:
-Server log:
-Related session ID / courseVersionId / projectId / snapshotId / revision:
-Does restart reproduce it?:
-```
-
-## 建议执行顺序
-
-1. 时间紧迫时先做 `X0 → X10`，用真实课程完成第一节课。
-2. 接着做 `A`，确认 Mode Pack 资源切换不是表面 UI。
-3. 再做 `B → F`，检查学生学习纵向流程。
-4. 最后做 `G → H` 的安全和故障注入。
-5. `I` 只用于防止把 Future 能力误判成当前缺陷或误报成完成。
+测试编号；commit；预置条件；逐步操作；预期/实际；完整错误；截图；重启是否复现。
+跨课程泄漏、未授权私有答案或错误 Runtime 恢复：立即停止用真实私有资料，保留日志。

@@ -1,0 +1,54 @@
+name: Course Builder
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: course-builder-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  course-builder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - name: Install real compiler
+        run: sudo apt-get update && sudo apt-get install -y texlive-xetex texlive-latex-recommended texlive-pictures poppler-utils
+      - name: Install pinned root dependencies
+        run: npm ci --ignore-scripts
+      - name: Actual product regression including real XeLaTeX
+        env:
+          PI_TEST_XELATEX: "1"
+        run: node --experimental-strip-types --test scripts/course-builder*.test.mjs
+      - name: Build pinned repository model data and packages
+        run: npm run build
+      - name: Repository type and formatting checks
+        run: npm run check && git diff --exit-code
+      - name: Install pinned Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+      - name: Runtime plugin and importer tests
+        run: cd apps/pi-web && node --test lib/course-builder.test.mjs
+      - name: Pi Web typecheck
+        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+      - name: Pi Web lint
+        run: npm run lint --prefix apps/pi-web
+      - name: Full Pi Web regression suite
+        run: npm test --prefix apps/pi-web
+      - name: Build actual Course Builder route
+        run: npm run build --prefix apps/pi-web
+      - name: Capture formatting diff for diagnosis (never treated as a pass)
+        if: failure()
+        run: git diff > /tmp/course-builder-format.diff
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: course-builder-failure-diff
+          path: /tmp/course-builder-format.diff
+          retention-days: 3

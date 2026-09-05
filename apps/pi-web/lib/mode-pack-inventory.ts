@@ -15,6 +15,7 @@ import type {
 import { contentHash, sha256Hex, stableStringify } from "../../../packages/harness-core/src/index.ts";
 import {
   BUILTIN_MODE_RESOURCES,
+  compileModePackDraft,
   ResourceCatalog,
 } from "../../../packages/profile-resource-host/src/index.ts";
 import {
@@ -26,6 +27,7 @@ import {
   type ModePackRuntimeExpectation,
 } from "../../../packages/mode-pack-host/src/index.ts";
 import { getProjectTrustStatus } from "./project-trust";
+import { COURSE_BUILDER_DRAFT, COURSE_BUILDER_GUIDANCE } from "./course-builder-pack";
 
 const TOOL_HASH = "sha256:built-in-tool";
 const BUILTIN_EXTENSION_HASH = "sha256:learning-harness-v1";
@@ -222,7 +224,15 @@ function builtinResources(): RuntimeModeResource[] {
     scope: "platform",
     synthetic: true,
   } satisfies RuntimeModeResource));
-  return [...tools, learningHarness, ...modeResources];
+  // The app is a source-vendored local workspace. Resolve its physical extension,
+  // not a synthetic plugin: the Pi loader must genuinely register its tools.
+  const extensionPath = [resolve(process.cwd(), "lib/course-builder-extension.ts"), resolve(process.cwd(), "apps/pi-web/lib/course-builder-extension.ts")].find(existsSync);
+  const courseResources = extensionPath ? [
+    runtimeResource({kind:"extension",id:"course-builder",title:"Course Builder",paths:[extensionPath],source:"pi-own",scope:"platform"}),
+    runtimeResource({kind:"skill",id:"teacher.course-planning-beamer",title:"Course planning and Beamer",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:COURSE_BUILDER_GUIDANCE,digestPayload:COURSE_BUILDER_GUIDANCE}),
+    runtimeResource({kind:"prompt",id:"workflow:course-builder",title:"Teacher approval workflow",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:"Use the fixed Course Builder workflow. Wait for real teacher approval between plan, lesson and deck. Never self-approve.",digestPayload:"course-builder-workflow-v1"}),
+  ] : [];
+  return [...tools, learningHarness, ...modeResources, ...courseResources];
 }
 
 function pushResource(
@@ -334,7 +344,7 @@ export async function inspectModePackInventory(cwd: string): Promise<ModePackInv
     resources: resources.sort((left, right) => resourceKey(left.kind, left.id).localeCompare(resourceKey(right.kind, right.id))),
     resourcesByKey,
     diagnostics,
-    builtinPacks: createRuntimeBuiltinModePacks(catalog),
+    builtinPacks: {...createRuntimeBuiltinModePacks(catalog), ...(catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft(COURSE_BUILDER_DRAFT, catalog)} : {})},
   };
 }
 
