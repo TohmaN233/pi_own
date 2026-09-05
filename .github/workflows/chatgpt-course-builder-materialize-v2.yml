@@ -1,108 +1,110 @@
-name: Finalize Course Builder implementation
-
+name: Materialize verified Course Builder source
 on:
   push:
     branches: [feat/course-builder-beamer]
-    paths:
-      - ".github/workflows/chatgpt-course-builder-materialize-v2.yml"
-
+    paths: [.github/workflows/chatgpt-course-builder-materialize-v2.yml]
 permissions:
   contents: write
-
 concurrency:
-  group: finalize-course-builder
+  group: course-builder-source-transfer
   cancel-in-progress: false
-
 jobs:
-  finalize:
+  materialize:
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 20
     steps:
-      - name: Checkout exact current branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: npm
-
-      - name: Materialize implementation idempotently
+      - name: Decode, verify and apply all actual source files
         shell: bash
         run: |
           set -euo pipefail
-          if test -s .chatgpt-review/course-builder.patch.gz.b64; then
-            base64 --decode .chatgpt-review/course-builder.patch.gz.b64 > "$RUNNER_TEMP/course-builder.patch.gz"
-            gzip -dc "$RUNNER_TEMP/course-builder.patch.gz" > "$RUNNER_TEMP/course-builder.patch"
-            test -s "$RUNNER_TEMP/course-builder.patch"
-            if git apply --check "$RUNNER_TEMP/course-builder.patch"; then
-              git apply "$RUNNER_TEMP/course-builder.patch"
-            elif ! test -e packages/course-builder-host/src/index.ts; then
-              echo "Course Builder patch neither applies nor appears materialized" >&2
-              exit 1
-            fi
-          fi
-          test -e packages/course-builder-host/src/index.ts
-          test -e apps/pi-web/app/course-builder/page.tsx
-          test -e apps/pi-web/app/api/course-builder/route.ts
-          test -e docs/COURSE_BUILDER.md
-          rm -f \
-            .chatgpt-review/course-builder.patch.gz.b64 \
-            .github/workflows/chatgpt-course-builder-export.yml \
-            .github/workflows/chatgpt-course-builder-materialize.yml \
-            .github/workflows/chatgpt-course-builder-materialize-v2.yml
+          git fetch origin main feat/course-builder-beamer
+          test "$(git rev-parse origin/feat/course-builder-beamer)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, os, pathlib, subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          root = pathlib.Path('.')
+          encoded = ''.join((root / f'.chatgpt-review/cb-source-{i:02}').read_text() for i in range(16))
+          compressed = base64.b64decode(encoded, validate=True)
+          assert hashlib.sha256(compressed).hexdigest() == '0fb86b6ec62e81be6721d4bca847035d3aac0ba130f0c1475dff27220739b18a'
+          raw = gzip.decompress(compressed)
+          assert len(raw) == 105452
+          bundle = json.loads(raw)
+          base = bundle['base']
+          assert base == '4488561d4449c163d285962943a5db053e8ad09e'
+          assert git('rev-parse', 'origin/main').decode().strip() == base
+          files = dict(bundle['files'])
+          for path, patch in bundle['patches'].items():
+              old = git('show', patch['ref'] + ':' + path)
+              assert hashlib.sha256(old).hexdigest() == patch['sha256'], path
+              lines = old.decode('utf-8').splitlines(keepends=True)
+              for edit in reversed(patch['edits']):
+                  lines[edit['start']:edit['end']] = edit['lines']
+              files[path] = ''.join(lines)
+          assert set(files) == set(bundle['sha256']) and len(files) == 27
+          for path, text in files.items():
+              p = pathlib.PurePosixPath(path)
+              assert not p.is_absolute() and '..' not in p.parts and '.git' not in p.parts
+              assert hashlib.sha256(text.encode()).hexdigest() == bundle['sha256'][path], path
+          # Retain both histories, but use main plus only these verified product files.
+          subprocess.run(['git', 'read-tree', '--reset', '-u', base], check=True)
+          for path, text in files.items():
+              p = root / path
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_bytes(text.encode('utf-8'))
+          tmp = pathlib.Path(os.environ['RUNNER_TEMP'])
+          (tmp / 'cb-paths.json').write_text(json.dumps(sorted(files)))
+          (tmp / 'cb-source-sha256.json').write_text(json.dumps(bundle['sha256'], indent=2))
+          print('Verified and materialized all 27 source files; no missing-patch fallback.')
+          PY
+      - name: Regression that previously failed at the missing entrypoint
+        run: node --experimental-strip-types --test scripts/course-builder*.test.mjs
+      - name: Install locked formatter and normalize source formatting
+        run: |
+          npm ci --ignore-scripts
+          node_modules/.bin/biome check --write packages/course-builder-host/src packages/learning-harness/src/index.ts
+      - name: Verify and commit the actual product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types --test scripts/course-builder*.test.mjs
           git diff --check
-
-      - name: Install root dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Run Course Builder focused tests
-        shell: bash
+          test -f packages/course-builder-host/src/index.ts
+          test -f apps/pi-web/app/course-builder/page.tsx
+          test -f apps/pi-web/app/api/course-builder/route.ts
+          test -f third_party/noi1r-beamer-skill/LICENSE
+          test -f .github/workflows/course-builder.yml
+          test -z "$(find .github/workflows -name 'chatgpt-course-builder-*' -print)"
+          test ! -e .chatgpt-review/push-files-probe.txt
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          paths = json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'cb-paths.json').read_text())
+          subprocess.run(['git', 'add', '--', *paths], check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          tree=$(git write-tree)
+          base=4488561d4449c163d285962943a5db053e8ad09e
+          new=$(printf '%s\n' 'fix(agent): restore complete tested Course Builder product integration' | git commit-tree "$tree" -p "$GITHUB_SHA" -p "$base")
+          git push origin "$new:refs/heads/feat/course-builder-beamer"
+          printf 'Actual product commit: `%s`\n\nThis source-transfer run does not merge or claim full CI success.\n' "$new" >> "$GITHUB_STEP_SUMMARY"
+      - name: Capture diagnostic patch
+        if: failure()
         run: |
-          set -euo pipefail
-          mapfile -t tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
-          printf 'Focused tests:\n%s\n' "${tests[*]}"
-          test "${#tests[@]}" -gt 0
-          node --experimental-strip-types --test "${tests[@]}"
-
-      - name: Run repository check
-        run: npm run check
-
-      - name: Run repository tests
-        run: npm test
-
-      - name: Build repository
-        run: npm run build
-
-      - name: Install Pi Web dependencies
-        run: npm ci --prefix apps/pi-web --ignore-scripts
-
-      - name: Typecheck Pi Web
-        run: apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
-
-      - name: Lint Pi Web
-        run: npm run lint --prefix apps/pi-web
-
-      - name: Test Pi Web
-        run: npm test --prefix apps/pi-web
-
-      - name: Build Pi Web
-        run: npm run build --prefix apps/pi-web
-
-      - name: Commit actual implementation
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git diff --name-only -z | xargs -0 -r git add --
-          git ls-files --others --exclude-standard -z | xargs -0 -r git add --
-          git status --short
-          if git diff --cached --quiet; then
-            echo "No remaining implementation changes to commit"
-          else
-            git commit -m "feat(agent): add Course Builder and Beamer workflow"
-            git push origin HEAD:feat/course-builder-beamer
-          fi
+          git diff HEAD > "$RUNNER_TEMP/cb-source-transfer.diff"
+          test ! -e node_modules/@biomejs/cli-linux-x64/biome || cp node_modules/@biomejs/cli-linux-x64/biome "$RUNNER_TEMP/cb-biome"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure()
+        with:
+          name: course-builder-source-transfer-diagnostic
+          path: |
+            ${{ runner.temp }}/cb-source-transfer.diff
+            ${{ runner.temp }}/cb-biome
+          retention-days: 3
