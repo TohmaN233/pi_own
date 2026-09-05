@@ -5,6 +5,7 @@ import {
 	type AssessmentPublicState,
 	InMemorySolutionVault,
 } from "../../assessment-host/src/index.ts";
+import { CourseBuilderHost } from "../../course-builder-host/src/index.ts";
 import { CourseHost, type CourseHostState, type PublishCourseVersionOptions } from "../../course-host/src/index.ts";
 import {
 	type AnswerDraft,
@@ -303,6 +304,7 @@ function parseCommittedProfileTransition(value: unknown): CommittedProfileTransi
  * entries are written through the supplied PiSessionStore.
  */
 export class LearningHarness {
+	readonly courseBuilder: CourseBuilderHost;
 	readonly courseHost = new CourseHost();
 	readonly knowledgeHost = new KnowledgeHost(this.courseHost);
 	readonly learningHost = new LearningHost();
@@ -341,6 +343,7 @@ export class LearningHarness {
 				);
 			`);
 			this.restore();
+			this.courseBuilder = new CourseBuilderHost(this.database);
 		} catch (error) {
 			this.database.close();
 			throw error;

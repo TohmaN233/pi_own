@@ -13,6 +13,8 @@ The complete upstream tree is vendored under `apps/pi-web`. `docs/pi-web-upstrea
 
 ## Thin adaptations to upstream files
 
+- `app/layout.tsx` uses the existing local monospace fallback stack instead of build-time Google Fonts fetching. `app/offline-font.test.mjs` guards offline builds; no font files are bundled and the upstream manifest is unchanged.
+
 - `app/page.tsx` mounts the Learning Harness shell around the native `AppShell`.
 - Pi agent routes bind or reconcile Harness metadata before a model command and on SSE restoration; fork/clone recovery validates arbitrary copied binding ancestry and only re-adopts from an exact durable ancestor. A direct empty fork is the sole exception: the privileged adapter first verifies that its JSONL header names the supplied parent exactly.
 - `lib/rpc-manager.ts` writes the new child JSONL header during a root fork with no copied entries, then discards that temporary manager. This makes the existing Pi parent link observable to the privileged adapter; `lib/rpc-manager.test.mjs` covers the reopenable direct-fork file. It also installs a hidden per-session course-grounding extension and gates only assistant start/update/snapshot output for an active grounded run; user messages and tool execution progress remain on the native transport.

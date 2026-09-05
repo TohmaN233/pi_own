@@ -1,15 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
 
-const notoSansMono = Noto_Sans_Mono({
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-noto-mono",
-  display: "swap",
-});
+// Keep UI fonts local: restricted/offline builders must not fetch Google Fonts.
+const localFontStyle = { "--font-noto-mono": "'Noto Sans Mono'" } as React.CSSProperties;
 
 export const metadata: Metadata = {
   title: "Pi Web",
@@ -59,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
+    <html lang="en" translate="no" className="notranslate" style={localFontStyle} suppressHydrationWarning>
       <head>
         <meta name="google" content="notranslate" />
         <script

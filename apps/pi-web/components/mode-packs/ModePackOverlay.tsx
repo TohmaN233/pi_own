@@ -124,6 +124,7 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
         ))}
       </select>
       <a className={styles.link} href={`/mode-packs?sessionId=${encodeURIComponent(sessionId)}`}>Customize</a>
+      <a className={styles.link} href={`/course-builder?sessionId=${encodeURIComponent(sessionId)}`}>备课</a>
       {(error || status.diagnostic) && (
         <span className={styles.warning} title={error ?? status.diagnostic ?? undefined}>
           {error ?? status.diagnostic}

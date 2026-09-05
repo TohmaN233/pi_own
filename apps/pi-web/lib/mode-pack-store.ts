@@ -272,24 +272,32 @@ export class ModePackStore {
   forkDraft(modePackId: string, newModePackId: string): ModePackDraft {
     const definition = this.getCustom(modePackId);
     if (!definition) throw new Error("forkDraft only accepts an existing custom Mode Pack; built-ins are returned by the list API");
-    const { contentHash: _contentHash, components, ...base } = definition;
     return parseModePackDraft({
-      ...base,
-      modePackId: newModePackId,
-      revision: 1,
+      ...definitionToDraft(definition, { modePackId: newModePackId, revision: 1 }),
       title: `${definition.title} copy`,
-      components: components.map(({ version: _version, contentHash: _hash, ...component }) => component),
     });
   }
 }
 
 export function definitionToDraft(definitionValue: unknown, options?: { modePackId?: string; revision?: number }): ModePackDraft {
   const definition = parseModePackDefinition(definitionValue);
-  const { contentHash: _contentHash, components, ...base } = definition;
   return parseModePackDraft({
-    ...base,
-    ...(options?.modePackId ? { modePackId: options.modePackId } : {}),
-    ...(options?.revision ? { revision: options.revision } : {}),
-    components: components.map(({ version: _version, contentHash: _hash, ...component }) => component),
+    version: definition.version,
+    modePackId: options?.modePackId ?? definition.modePackId,
+    revision: options?.revision ?? definition.revision,
+    title: definition.title,
+    description: definition.description,
+    category: definition.category,
+    role: definition.role,
+    runtimeMode: definition.runtimeMode,
+    provider: definition.provider,
+    model: definition.model,
+    thinkingLevel: definition.thinkingLevel,
+    externalKnowledgePolicy: definition.externalKnowledgePolicy,
+    courseRequired: definition.courseRequired,
+    tools: [...definition.tools],
+    systemPrompt: definition.systemPrompt,
+    instructions: [...definition.instructions],
+    components: definition.components.map(({ type, id, required, enabled }) => ({ type, id, required, enabled })),
   });
 }
