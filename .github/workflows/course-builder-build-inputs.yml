@@ -1,0 +1,65 @@
+name: Export frozen Course Builder build inputs
+on:
+  push:
+    branches: [chatgpt/course-builder-clean-materialize]
+    paths: [.github/workflows/course-builder-build-inputs.yml]
+permissions:
+  contents: read
+jobs:
+  inputs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: f5b337cad25fb0967d31e3c5c9230d4ef34bf276
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - name: Export unchanged source, generated model data and official static fd
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --no-audit
+          npm run hydrate:model-data
+          npm run check:model-data
+          git diff --exit-code
+          mkdir -p "$RUNNER_TEMP/build-inputs"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/build-inputs/frozen-product-source.tar.gz"
+          tar -C packages/ai/src/providers -czf "$RUNNER_TEMP/build-inputs/model-data.tar.gz" data
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, tarfile, urllib.request
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'build-inputs'
+          endpoint = 'https://api.github.com/repos/sharkdp/fd/releases/tags/v10.3.0'
+          req = urllib.request.Request(endpoint, headers={'User-Agent': 'pi-own-test-dependencies'})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              release = json.load(r)
+          assets = [a for a in release['assets'] if a['name'] == 'fd-v10.3.0-x86_64-unknown-linux-musl.tar.gz']
+          assert len(assets) == 1
+          asset = assets[0]
+          archive = out / asset['name']
+          urllib.request.urlretrieve(asset['browser_download_url'], archive)
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if asset.get('digest'):
+              assert asset['digest'] == 'sha256:' + digest
+          with tarfile.open(archive) as t:
+              files = [m for m in t.getmembers() if m.isfile() and pathlib.PurePosixPath(m.name).name == 'fd']
+              assert len(files) == 1
+              stream = t.extractfile(files[0])
+              assert stream is not None
+              (out / 'fd').write_bytes(stream.read())
+          (out / 'fd').chmod(0o755)
+          (out / 'FD_ORIGIN.json').write_text(json.dumps({'release': endpoint, 'asset': asset['browser_download_url'], 'sha256': digest}, indent=2) + '\n')
+          PY
+          "$RUNNER_TEMP/build-inputs/fd" --version
+          git rev-parse HEAD > "$RUNNER_TEMP/build-inputs/SOURCE_COMMIT"
+          cd "$RUNNER_TEMP/build-inputs"
+          sha256sum frozen-product-source.tar.gz model-data.tar.gz fd > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: course-builder-frozen-build-inputs
+          path: ${{ runner.temp }}/build-inputs/
+          retention-days: 3
+          if-no-files-found: error
