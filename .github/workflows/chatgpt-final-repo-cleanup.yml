@@ -1,0 +1,111 @@
+name: Final repository cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/chatgpt-final-repo-cleanup.yml"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: final-repository-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Refuse cleanup unless Course Builder is really on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            packages/course-builder-host/src/index.ts
+            packages/course-builder-host/src/host.ts
+            packages/course-builder-host/src/types.ts
+            packages/course-builder-host/src/beamer.ts
+            apps/pi-web/app/course-builder/page.tsx
+            docs/COURSE_BUILDER.md
+            docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+            third_party/noi1r-beamer-skill/LICENSE
+            third_party/noi1r-beamer-skill/NOTICE.md
+            .github/workflows/course-builder.yml
+          )
+          for path in "${required[@]}"; do
+            test -f "$path" || { echo "Refusing cleanup: missing $path on main" >&2; exit 1; }
+          done
+          test -d apps/pi-web/app/api/course-builder
+          node --test scripts/course-builder-product-tree.test.mjs
+
+      - name: Close stale open pull requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,headRefName \
+            --jq '.[] | [.number,.headRefName] | @tsv' > "$RUNNER_TEMP/open-prs.tsv"
+          while IFS=$'\t' read -r number branch; do
+            test -n "$number" || continue
+            gh pr close "$number" --repo "$GITHUB_REPOSITORY" \
+              --comment "Closing after the tested Course Builder implementation was merged into main and the repository was consolidated to a single testable branch."
+          done < "$RUNNER_TEMP/open-prs.tsv"
+
+      - name: Delete every non-main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name' > "$RUNNER_TEMP/branches.txt"
+          while IFS= read -r branch; do
+            test -n "$branch" || continue
+            if [ "$branch" = main ]; then continue; fi
+            encoded=$(python - "$branch" <<'PY'
+          import sys
+          from urllib.parse import quote
+          print(quote(sys.argv[1], safe=""))
+          PY
+          )
+            gh api --method DELETE "/repos/$GITHUB_REPOSITORY/git/refs/heads/$encoded"
+          done < "$RUNNER_TEMP/branches.txt"
+
+      - name: Delete temporary Course Builder release and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view course-builder-working-export --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete course-builder-working-export --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          fi
+
+      - name: Verify only main remains
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name' | sort > "$RUNNER_TEMP/branches-after.txt"
+          test "$(cat "$RUNNER_TEMP/branches-after.txt")" = main
+          test -z "$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number --jq '.[].number')"
+          if gh release view course-builder-working-export --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Temporary release still exists" >&2
+            exit 1
+          fi
+
+      - name: Remove this one-shot workflow from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/chatgpt-final-repo-cleanup.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: remove one-shot repository cleanup workflow"
+          git push origin HEAD:main
