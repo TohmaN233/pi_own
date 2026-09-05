@@ -1,0 +1,377 @@
+name: Finalize, merge and clean Course Builder
+
+on:
+  push:
+    branches: [chatgpt/course-builder-clean-materialize]
+    paths:
+      - ".github/workflows/course-builder-finalize-and-merge.yml"
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: recover-clean-course-builder
+  cancel-in-progress: false
+
+jobs:
+  finalize-merge-clean:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_BRANCH: chatgpt/course-builder-clean-materialize
+      BASE_COMMIT: efb01ef248cc7f9fc8a91c2b4719cf9093ab9b9e
+    steps:
+      - name: Checkout latest clean branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chatgpt/course-builder-clean-materialize
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+
+      - name: Recover preserved implementation if the prior recovery did not commit it
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f packages/course-builder-host/src/index.ts; then
+            echo 'Complete implementation already materialized by the serialized recovery job.'
+            exit 0
+          fi
+
+          recovery="$RUNNER_TEMP/course-builder-recovery-final"
+          downloads="$recovery/downloads"
+          extracted="$recovery/extracted"
+          mkdir -p "$downloads" "$extracted"
+
+          # Prefer the two known retained source artifacts; then fall back to all
+          # retained repository artifacts and the temporary recovery release.
+          gh run download 33831449451 --repo "$GITHUB_REPOSITORY" \
+            --name pi-own-course-builder-base --dir "$downloads/base" || true
+          gh run download 33842563083 --repo "$GITHUB_REPOSITORY" \
+            --name pi-own-course-builder-source --dir "$downloads/source" || true
+          gh release download course-builder-working-export --repo "$GITHUB_REPOSITORY" \
+            --pattern 'pi-own-course-builder-source.zip' --dir "$downloads/release" || true
+          gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" > "$recovery/artifacts.json"
+          jq -r '.artifacts[] | select(.expired == false) | [.id, .name] | @tsv' "$recovery/artifacts.json" |
+          while IFS=$'\t' read -r artifact_id artifact_name; do
+            destination="$downloads/artifact-${artifact_id}-${artifact_name}.zip"
+            test -e "$destination" && continue
+            gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/$GITHUB_REPOSITORY/actions/artifacts/${artifact_id}/zip" > "$destination" || rm -f "$destination"
+          done
+
+          python <<'PY'
+          from __future__ import annotations
+          import base64, gzip, os, shutil, tarfile, zipfile
+          from pathlib import Path
+
+          recovery = Path(os.environ['RUNNER_TEMP']) / 'course-builder-recovery-final'
+          downloads = recovery / 'downloads'
+          extracted = recovery / 'extracted'
+          queue = [(p, 0) for p in downloads.rglob('*') if p.is_file()]
+          seen = set()
+          serial = 0
+          while queue:
+              archive, depth = queue.pop(0)
+              key = (str(archive.resolve()), depth)
+              if key in seen or depth > 5:
+                  continue
+              seen.add(key)
+              destination = extracted / f'{serial:05d}'
+              serial += 1
+              try:
+                  if zipfile.is_zipfile(archive):
+                      destination.mkdir(parents=True, exist_ok=True)
+                      with zipfile.ZipFile(archive) as zf:
+                          members = zf.infolist()
+                          if len(members) > 30000 or sum(x.file_size for x in members) > 800 * 1024 * 1024:
+                              raise RuntimeError('zip budget exceeded')
+                          for item in members:
+                              target = (destination / item.filename).resolve()
+                              if target != destination.resolve() and destination.resolve() not in target.parents:
+                                  raise RuntimeError('unsafe zip path')
+                          zf.extractall(destination)
+                  elif tarfile.is_tarfile(archive):
+                      destination.mkdir(parents=True, exist_ok=True)
+                      with tarfile.open(archive) as tf:
+                          members = tf.getmembers()
+                          if len(members) > 30000 or sum(max(x.size, 0) for x in members) > 800 * 1024 * 1024:
+                              raise RuntimeError('tar budget exceeded')
+                          for item in members:
+                              target = (destination / item.name).resolve()
+                              if target != destination.resolve() and destination.resolve() not in target.parents:
+                                  raise RuntimeError('unsafe tar path')
+                          tf.extractall(destination, filter='data')
+                  else:
+                      continue
+              except Exception:
+                  shutil.rmtree(destination, ignore_errors=True)
+                  continue
+              for child in destination.rglob('*'):
+                  if child.is_file() and child.suffix.lower() in {'.zip', '.gz', '.tgz', '.tar'}:
+                      queue.append((child, depth + 1))
+
+          required = (
+              b'packages/course-builder-host/src/index.ts',
+              b'apps/pi-web/app/course-builder/page.tsx',
+              b'docs/COURSE_BUILDER.md',
+          )
+          candidates = []
+          for payload in extracted.rglob('course-builder.patch.gz.b64'):
+              try:
+                  patch = gzip.decompress(base64.b64decode(payload.read_bytes(), validate=True))
+              except Exception:
+                  continue
+              score = sum(marker in patch for marker in required)
+              candidates.append((score, len(patch), payload, patch))
+          if not candidates:
+              raise SystemExit('No preserved Course Builder patch payload was found')
+          candidates.sort(reverse=True, key=lambda x: (x[0], x[1]))
+          score, size, source, patch = candidates[0]
+          if score != len(required):
+              raise SystemExit(f'Best preserved payload is incomplete: {source} score={score}/{len(required)}')
+          (recovery / 'course-builder.patch').write_bytes(patch)
+          print(f'Recovered {size} bytes from {source}')
+          PY
+
+          patch="$recovery/course-builder.patch"
+          test -s "$patch"
+          git apply --check --3way "$patch"
+          git apply --3way "$patch"
+
+      - name: Normalize product tree and reject recovery debris
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .chatgpt-review
+          rm -f .github/workflows/course-builder-recover-clean.yml
+          rm -f .github/workflows/course-builder-finalize-and-merge.yml
+          find .github/workflows -maxdepth 1 -type f -name 'chatgpt-course-builder-*' -delete
+          rm -f docs/diagnostics/COURSE_BUILDER_HISTORY_RECOVERY.md
+
+          mkdir -p third_party/noi1r-beamer-skill
+          curl --fail --silent --show-error --location \
+            'https://raw.githubusercontent.com/Noi1r/beamer-skill/f3d62c07f775530eddb13d435b91a9a86e7c9049/LICENSE' \
+            -o third_party/noi1r-beamer-skill/LICENSE
+
+          required=(
+            packages/course-builder-host/src/index.ts
+            packages/course-builder-host/src/host.ts
+            packages/course-builder-host/src/types.ts
+            packages/course-builder-host/src/beamer.ts
+            apps/pi-web/app/course-builder/page.tsx
+            apps/pi-web/app/api/course-builder/route.ts
+            docs/COURSE_BUILDER.md
+            docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+            docs/reviews/COURSE_BUILDER_FINAL_REVIEW.md
+            third_party/noi1r-beamer-skill/LICENSE
+            third_party/noi1r-beamer-skill/NOTICE.md
+            .github/workflows/course-builder.yml
+          )
+          for path in "${required[@]}"; do
+            test -f "$path" || { echo "Missing product file: $path" >&2; exit 1; }
+          done
+          test -d apps/pi-web/app/api/course-builder
+          test -d packages/course-builder-host
+          find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' | grep -q .
+          grep -R --fixed-strings 'course-builder' packages/profile-resource-host/src apps/pi-web >/dev/null
+          grep -R --fixed-strings 'APPROVAL_FIELD_FORBIDDEN' packages/course-builder-host/src >/dev/null
+          grep -R --fixed-strings -- '-no-shell-escape' packages/course-builder-host/src >/dev/null
+          grep -R --fixed-strings 'isApiRequestAllowed' apps/pi-web/app/api/course-builder >/dev/null
+          grep -F 'f3d62c07f775530eddb13d435b91a9a86e7c9049' \
+            third_party/noi1r-beamer-skill/NOTICE.md docs/COURSE_BUILDER.md >/dev/null
+          if grep -R -E 'child_process\.(exec|execSync)|shell:[[:space:]]*true|new Function\(|eval\(' \
+            packages/course-builder-host/src apps/pi-web/lib/course-builder*; then
+            echo 'Forbidden dynamic execution pattern found.' >&2
+            exit 1
+          fi
+          if find . -path './.git' -prune -o -type f \
+            \( -name '*.patch' -o -name '*.patch.gz.b64' -o -name '*push-files-probe*' \) -print | grep -q .; then
+            echo 'Recovery payload remains in final product tree.' >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Refresh lock and install root dependencies
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: '1'
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          npm ci --ignore-scripts
+
+      - name: Root review gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check
+          mapfile -t course_tests < <(find scripts -maxdepth 1 -type f -name '*course-builder*.test.mjs' -print | sort)
+          mapfile -t mode_tests < <(find scripts -maxdepth 1 -type f -name 'mode-pack*.test.mjs' -print | sort)
+          test "${#course_tests[@]}" -gt 0
+          test "${#mode_tests[@]}" -gt 0
+          node --experimental-strip-types --test "${course_tests[@]}"
+          node --experimental-strip-types --test "${mode_tests[@]}"
+          npm test
+          npm run build
+
+      - name: Pi Web review gates
+        run: |
+          npm ci --prefix apps/pi-web --ignore-scripts
+          apps/pi-web/node_modules/.bin/tsc --noEmit -p apps/pi-web/tsconfig.json
+          npm run lint --prefix apps/pi-web
+          npm test --prefix apps/pi-web
+          npm run build --prefix apps/pi-web
+
+      - name: Freeze exact reviewed head
+        id: freeze
+        shell: bash
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: '1'
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name 'TohmaN233'
+          git config user.email 'postlewildeman113@gmail.com'
+          git add -A
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'feat(agent): add reviewed Course Builder and Beamer workflow'
+          reviewed=$(git rev-parse HEAD)
+          git push origin HEAD:"$TARGET_BRANCH"
+          echo "sha=$reviewed" >> "$GITHUB_OUTPUT"
+
+      - name: Create clean pull request
+        id: pr
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ steps.freeze.outputs.sha }}
+        run: |
+          set -euo pipefail
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$TARGET_BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+          if test -n "$existing"; then
+            number="$existing"
+          else
+            number=$(gh pr create --repo "$GITHUB_REPOSITORY" \
+              --head "$TARGET_BRANCH" --base main \
+              --title 'feat(agent): add reviewed Course Builder and Beamer workflow' \
+              --body "Clean recovery of the previously authored Course Builder product tree. Reviewed head: $REVIEWED_SHA. Includes persistent project/material/semester/lesson/deck state, PPTX semantic extraction, teacher approval gates, bounded XeLaTeX receipts, Course Builder Mode Pack, Pi Web workspace, VisualHost bridge, tests, attribution and acceptance checklist. Recovery-only workflows and payloads are absent from the diff." \
+              | sed -E 's#.*/([0-9]+)$#\1#')
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for final-head pull-request checks
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          REVIEWED_SHA: ${{ steps.freeze.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 240); do
+            current=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+            test "$current" = "$REVIEWED_SHA" || { echo "PR head moved: $current" >&2; exit 1; }
+            checks=$(gh api "/repos/$GITHUB_REPOSITORY/commits/$REVIEWED_SHA/check-runs?per_page=100")
+            failed=$(jq '[.check_runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped"))] | length' <<<"$checks")
+            if test "$failed" -gt 0; then
+              jq -r '.check_runs[] | select(.status == "completed" and (.conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped")) | "FAILED \(.name): \(.details_url)"' <<<"$checks" >&2
+              exit 1
+            fi
+            pending=$(jq '[.check_runs[] | select(.status != "completed")] | length' <<<"$checks")
+            successful=$(jq '[.check_runs[] | select(.status == "completed" and .conclusion == "success")] | length' <<<"$checks")
+            if test "$pending" -eq 0 && test "$successful" -gt 0; then
+              jq -r '.check_runs[] | "\(.name): \(.status)/\(.conclusion)"' <<<"$checks"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'Timed out waiting for final-head checks.' >&2
+          exit 1
+
+      - name: Merge the exact reviewed head
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          REVIEWED_SHA: ${{ steps.freeze.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          current=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+          test "$current" = "$REVIEWED_SHA"
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --squash \
+            --match-head-commit "$REVIEWED_SHA" \
+            --subject 'feat(agent): add reviewed Course Builder and Beamer workflow' \
+            --body "Reviewed source head: $REVIEWED_SHA. Root, focused Course Builder, Mode Pack regression and Pi Web gates passed before merge."
+
+      - name: Verify merged main product tree
+        id: merged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --force
+          git checkout --detach origin/main
+          main_sha=$(git rev-parse HEAD)
+          test "$main_sha" != '4488561d4449c163d285962943a5db053e8ad09e'
+          required=(
+            packages/course-builder-host/src/index.ts
+            packages/course-builder-host/src/host.ts
+            packages/course-builder-host/src/types.ts
+            packages/course-builder-host/src/beamer.ts
+            apps/pi-web/app/course-builder/page.tsx
+            apps/pi-web/app/api/course-builder/route.ts
+            docs/COURSE_BUILDER.md
+            docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md
+            docs/reviews/COURSE_BUILDER_FINAL_REVIEW.md
+            third_party/noi1r-beamer-skill/LICENSE
+            third_party/noi1r-beamer-skill/NOTICE.md
+            .github/workflows/course-builder.yml
+          )
+          for path in "${required[@]}"; do test -f "$path"; done
+          test -z "$(find .github/workflows -maxdepth 1 -type f -name 'chatgpt-course-builder-*' -print)"
+          test ! -e .chatgpt-review
+          test ! -e docs/diagnostics/COURSE_BUILDER_HISTORY_RECOVERY.md
+          echo "sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Close obsolete Course Builder PR and delete every non-main branch
+        env:
+          CLEAN_PR: ${{ steps.pr.outputs.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh pr view 7 --repo "$GITHUB_REPOSITORY" --json state --jq .state >/dev/null 2>&1; then
+            state=$(gh pr view 7 --repo "$GITHUB_REPOSITORY" --json state --jq .state)
+            if test "$state" = OPEN; then
+              gh pr close 7 --repo "$GITHUB_REPOSITORY" \
+                --comment 'Superseded by the clean, fully tested Course Builder merge. The original recovery branch was incomplete and is being removed.'
+            fi
+          fi
+          gh release delete course-builder-working-export --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name' |
+          while IFS= read -r branch; do
+            test "$branch" = main && continue
+            encoded=$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch")
+            echo "Deleting branch $branch"
+            gh api --method DELETE "/repos/$GITHUB_REPOSITORY/git/refs/heads/$encoded"
+          done
+
+          remaining=$(gh api --paginate "/repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name')
+          test "$remaining" = main || { echo "Unexpected remaining branches: $remaining" >&2; exit 1; }
+
+      - name: Final remote assertion
+        env:
+          MAIN_SHA: ${{ steps.merged.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_main=$(gh api "/repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          test "$remote_main" = "$MAIN_SHA"
+          test "$(gh api --paginate "/repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name')" = main
+          gh api "/repos/$GITHUB_REPOSITORY/contents/packages/course-builder-host/src/index.ts?ref=main" --jq .sha >/dev/null
+          gh api "/repos/$GITHUB_REPOSITORY/contents/apps/pi-web/app/course-builder/page.tsx?ref=main" --jq .sha >/dev/null
+          gh api "/repos/$GITHUB_REPOSITORY/contents/docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md?ref=main" --jq .sha >/dev/null
+          printf 'COURSE_BUILDER_MERGED_MAIN=%s\nREMOTE_BRANCHES=main\n' "$MAIN_SHA"
