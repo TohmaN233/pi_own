@@ -1,4 +1,4 @@
-name: Prepare locked offline Course Builder dependencies
+name: Prepare exact baseline model data
 on:
   push:
     branches: [chatgpt/course-builder-clean-materialize]
@@ -6,44 +6,34 @@ on:
 permissions:
   contents: read
 jobs:
-  dependencies:
+  model-data:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 4488561d4449c163d285962943a5db053e8ad09e
-          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22.20.0
-          package-manager-cache: false
-      - name: Install exact main lockfiles without lifecycle scripts
+          cache: npm
+      - name: Hydrate the repository's generated catalog without source edits
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/cb-offline"
-          npm ci --ignore-scripts --no-audit --cache "$RUNNER_TEMP/cb-npm-cache"
-          npm ci --prefix apps/pi-web --ignore-scripts --no-audit --cache "$RUNNER_TEMP/cb-npm-cache"
-          git diff --exit-code -- package-lock.json apps/pi-web/package-lock.json
-          git archive HEAD | gzip > "$RUNNER_TEMP/cb-offline/main-source.tar.gz"
-          prefix=$(dirname "$(dirname "$(command -v node)")")
-          tar -C "$prefix" -czf "$RUNNER_TEMP/cb-offline/node-22.20.0.tar.gz" bin include lib share
-          tar -C "$RUNNER_TEMP/cb-npm-cache" -czf "$RUNNER_TEMP/cb-offline/npm-cache.tar.gz" _cacache
-          {
-            git rev-parse HEAD
-            node --version
-            npm --version
-            sha256sum package-lock.json apps/pi-web/package-lock.json
-          } > "$RUNNER_TEMP/cb-offline/IDENTITY.txt"
-          cd "$RUNNER_TEMP/cb-offline"
-          sha256sum *.tar.gz > SHA256SUMS
-          ls -lh
+          npm ci --ignore-scripts --no-audit
+          npm run hydrate:model-data
+          npm run check:model-data
+          git diff --exit-code
+          mkdir -p "$RUNNER_TEMP/model-data-export"
+          tar -C packages/ai/src/providers -czf "$RUNNER_TEMP/model-data-export/model-data.tar.gz" data
+          git rev-parse HEAD > "$RUNNER_TEMP/model-data-export/SOURCE_COMMIT"
+          cd "$RUNNER_TEMP/model-data-export"
+          sha256sum model-data.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: course-builder-locked-offline-dependencies
-          path: ${{ runner.temp }}/cb-offline/
-          compression-level: 0
+          name: course-builder-baseline-model-data
+          path: ${{ runner.temp }}/model-data-export/
           retention-days: 3
           if-no-files-found: error
