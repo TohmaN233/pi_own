@@ -2028,6 +2028,7 @@ export function AppShell() {
               )}
               {activeTopPanel === "system" && (
                 <SystemPromptPanel
+                  sessionId={selectedSession?.id ?? null}
                   loading={systemInfoLoading}
                   prompt={systemPrompt}
                   translate={translate}

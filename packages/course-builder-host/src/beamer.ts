@@ -26,6 +26,29 @@ export class BeamerWorkflowError extends Error {
 }
 
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
+
+export function beamerCommandLeaks(source: string): { line: number; command: string }[] {
+	// Mask literal TeX demonstrations and comments without changing line offsets.
+	const masked = source.replace(
+		/\\begin\{(verbatim\*?|lstlisting)\}[\s\S]*?\\end\{\1\}|\\verb\*?([^\w\s])[^\n]*?\2|(?<!\\)%[^\n]*/gu,
+		(value) => value.replace(/[^\n]/gu, " "),
+	);
+	const issues: { line: number; command: string }[] = [];
+	for (const match of masked.matchAll(/(\\+)(texttt|textbf|textit|textrm|textsf|emph|alert)\s*\{/gu)) {
+		if (match[1].length % 2 === 0)
+			issues.push({ line: masked.slice(0, match.index).split("\n").length, command: match[2] });
+	}
+	return issues;
+}
+
+export function assertBeamerPresentationSource(source: string): void {
+	const issues = beamerCommandLeaks(source);
+	if (issues.length)
+		throw new BeamerWorkflowError(
+			"TEX_COMMAND_LEAK",
+			`TEX_COMMAND_LEAK: ${issues.map((issue) => `line ${issue.line}: ${issue.command}`).join("; ")}. A line break consumed the command backslash; separate the line break from a valid formatting command. Repair all listed occurrences and retry.`,
+		);
+}
 const DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_PDF_BYTES = 64 * 1024 * 1024;
 const DANGEROUS_TEX = [
@@ -193,6 +216,20 @@ function compileDiagnostics(log: string, result: ProcessResult): CompileDiagnost
 			severity: "critical",
 			message: `XeLaTeX exited with code ${result.exitCode ?? "null"}`,
 		});
+	// XeTeX emits both file:line errors and traditional ! errors (including
+	// runaway arguments with no source line). Preserve the engine's evidence.
+	const lines = log.split(/\r?\n/u);
+	const seenErrors = new Set<string>();
+	for (let index = 0; index < lines.length; index++) {
+		if (!/^!\s|^.+\.(?:tex|sty|cls|vrb):\d+:\s/u.test(lines[index])) continue;
+		const context = lines
+			.slice(index, index + 7)
+			.join("\n")
+			.trim();
+		if (seenErrors.has(context)) continue;
+		seenErrors.add(context);
+		diagnostics.push({ code: "TEX_ERROR", severity: "critical", message: context });
+	}
 	if (/Undefined control sequence/iu.test(log))
 		diagnostics.push({
 			code: "UNDEFINED_CONTROL_SEQUENCE",
@@ -211,12 +248,12 @@ function compileDiagnostics(log: string, result: ProcessResult): CompileDiagnost
 			severity: "major",
 			message: "The log contains unresolved references",
 		});
-	for (const match of log.matchAll(/Overfull \\([hv])box \((\d+(?:\.\d+)?)pt too (?:wide|high)\)/giu)) {
+	for (const match of log.matchAll(/Overfull \\([hv])box \((\d+(?:\.\d+)?)pt too (?:wide|high)\)([^\r\n]*)/giu)) {
 		const amount = Number(match[2] ?? 0);
 		diagnostics.push({
 			code: match[1] === "v" ? "OVERFULL_VBOX" : "OVERFULL_HBOX",
 			severity: amount > 10 ? "critical" : "major",
-			message: `Overfull ${match[1]}box is ${amount}pt beyond its boundary`,
+			message: `Overfull ${match[1]}box is ${amount}pt beyond its boundary${match[3]}`,
 		});
 	}
 	return diagnostics;
@@ -246,6 +283,7 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 	log: string;
 }> {
 	assertSafeBeamerSource(options.deck.source);
+	assertBeamerPresentationSource(options.deck.source);
 	assertBeamerAssets(options.deck.source, options.assets ?? []);
 	if (options.deck.sourceHash !== `sha256:${sha256Hex(options.deck.source)}`)
 		throw new BeamerWorkflowError("SOURCE_HASH_MISMATCH", "Deck source does not match its hash");
@@ -401,6 +439,14 @@ export function reviewBeamerDeck(options: {
 	const createdAt = isoTimestamp(options.createdAt ?? new Date().toISOString(), "createdAt");
 	const issues: DeckReviewIssue[] = [];
 	const source = options.deck.source;
+	for (const issue of beamerCommandLeaks(source))
+		addIssue(
+			issues,
+			"TEX_COMMAND_LEAK",
+			"critical",
+			`Formatting command ${issue.command} will print literally; separate the line break and command backslash`,
+			`line ${issue.line}`,
+		);
 	const frames = frameSources(source);
 	const profile: BeamerProfile = options.project.beamerProfile;
 	if (frames.length === 0) addIssue(issues, "NO_FRAMES", "critical", "The Beamer deck has no frames");

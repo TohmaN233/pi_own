@@ -77,6 +77,7 @@ interface Props {
   draftKey?: string;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  sessionId?: string | null;
 }
 
 export interface ChatInputHandle {
@@ -445,10 +446,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onPromptWithStreamingBehavior,
   draftKey,
   cwd,
+  sessionId,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
+  const [attachmentError, setAttachmentError] = useState("");
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
@@ -681,6 +685,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }));
 
   const processImageFiles = useCallback(async (files: File[]) => {
+    const composerKey = draftKeyRef.current;
+    const documents = files.filter((file) => !file.type.startsWith("image/"));
+    if (documents.length) {
+      setAttachmentError(""); setAttachmentUploading(true);
+      const targetKey = draftKeyRef.current;
+      try {
+        if (!cwd) throw new Error("请先选择工作目录，再添加文件附件。");
+        const form = new FormData(); form.set("cwd", cwd); if (sessionId) form.set("sessionId", sessionId);
+        for (const file of documents) form.append("files", file);
+        const response = await fetch("/api/chat-attachments", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "附件上传失败");
+        const text = result.attachments.map((file: {id:string;name:string;path:string;textPath:string|null;extractionError:string|null}) => `[附件：${file.name.replace(/[\[\]]/g, "_")}](<${file.path.replaceAll("\\", "/")}>)${file.textPath ? ` · [文本内容](<${file.textPath.replaceAll("\\", "/")}>)` : ""}${file.extractionError ? `\n解析失败：${file.extractionError}` : ""}`).join("\n\n");
+        if (targetKey !== draftKeyRef.current) {
+          if (targetKey) { const previous = getDraft(targetKey); setDraft(targetKey, { value: [previous?.value, text].filter(Boolean).join("\n\n"), images: previous?.images ?? [] }); }
+          throw new Error("附件已保存在原对话草稿，请返回原对话发送。");
+        }
+        setValue((current) => { const next = [current, text].filter(Boolean).join("\n\n"); valueRef.current = next; return next; });
+      } catch (error) { console.error("[chat-attachments] attachment failed", error); setAttachmentError(error instanceof Error ? error.message : String(error)); }
+      finally { setAttachmentUploading(false); }
+    }
+    if (composerKey !== draftKeyRef.current) return;
     const remaining = Math.max(
       0,
       MAX_ATTACHED_IMAGES - attachedImagesRef.current.length - pendingImageCountRef.current,
@@ -697,6 +723,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           previewUrl: URL.createObjectURL(file),
         }))
       );
+      if (composerKey !== draftKeyRef.current) { newImages.forEach(revokeImagePreview); return; }
       setAttachedImages((prev) => {
         const accepted = newImages.slice(0, Math.max(0, MAX_ATTACHED_IMAGES - prev.length));
         newImages.slice(accepted.length).forEach(revokeImagePreview);
@@ -707,7 +734,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } finally {
       pendingImageCountRef.current -= imageFiles.length;
     }
-  }, []);
+  }, [cwd, sessionId]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -796,6 +823,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
+    if (attachmentUploading) return;
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
@@ -804,7 +832,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (isStreaming) return;
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock, attachmentUploading]);
 
   const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1235,7 +1263,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData?.items ?? []);
-    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    const imageItems = items.filter((item) => item.kind === "file");
     if (!imageItems.length) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
@@ -1410,7 +1438,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        aria-label="添加聊天附件"
         multiple
         style={{ display: "none" }}
         onChange={(e) => {
@@ -1420,6 +1448,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }}
       />
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
+        {attachmentUploading && <p role="status">正在准备附件，完成后随消息发送…</p>}
+        {attachmentError && <p role="alert" style={{ color: "var(--error, #ef8354)" }}>{attachmentError}</p>}
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
@@ -2072,7 +2102,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachImage")}
+              title="添加附件（文件或图片）"
+              aria-label="添加附件（文件或图片）"
+              disabled={attachmentUploading}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,

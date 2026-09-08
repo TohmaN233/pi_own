@@ -81,6 +81,13 @@ export function resolveLocalFileHref(
 ): string | null {
   if (!href) return null;
 
+  if (href.startsWith("/__pi_file__/")) {
+    const path = safeDecode(href.slice("/__pi_file__/".length));
+    // This inert href is emitted before Markdown sanitization. It is a path,
+    // never a protocol or an instruction to grant filesystem access.
+    return /^(?:[a-zA-Z]:[\\/]|\/)/.test(path) ? normalizeLocalPath(path) : null;
+  }
+
   const cleanHref = href.split("#", 1)[0].split("?", 1)[0].trim();
   if (!cleanHref) return null;
 
@@ -88,7 +95,7 @@ export function resolveLocalFileHref(
   let candidateKind: "absolute" | "relative" | null = null;
   const decodedHref = safeDecode(cleanHref);
   const isBackslashUncPath = decodedHref.startsWith("\\\\");
-  const normalizedHref = normalizeFilePathSlashes(decodedHref);
+  const normalizedHref = normalizeFilePathSlashes(decodedHref).replace(/^\/([a-zA-Z]:\/)/, "$1");
   const lowerHref = normalizedHref.toLowerCase();
 
   if (lowerHref.startsWith("/api/") || lowerHref.startsWith("/_next/")) return null;

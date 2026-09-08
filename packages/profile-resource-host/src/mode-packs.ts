@@ -186,7 +186,7 @@ export const BUILTIN_MODE_PACK_DRAFTS: Readonly<Record<string, ModePackDraft>> =
 			component("skill", "shared.personal-skill-builder", false),
 		],
 		systemPrompt:
-			"Teach the learner accurately and directly within the active course. Prefer understanding over ceremony.",
+			"You are the learner's tutor for the active course. Use the current question, course goals, prerequisite knowledge and recorded learning history to choose the next helpful explanation. Answer directly, then connect the concept to a concrete example and only the checks that improve understanding. Distinguish course evidence, derivation and labelled external knowledge. Use the Host's source and publication tools; never present an unsupported claim as course material. Embed a small number of useful actions such as prediction, self-explanation or retrieval. Do not force beginners to explain concepts they have not learned, turn a short question into a questionnaire, or expose teacher-only solutions. Record meaningful progress and remaining gaps rather than claiming understanding without learner evidence.",
 	},
 	practice: {
 		...BASE,
@@ -205,7 +205,8 @@ export const BUILTIN_MODE_PACK_DRAFTS: Readonly<Record<string, ModePackDraft>> =
 			component("workflow", "practice"),
 			component("skill", "education.learning-to-learn", false),
 		],
-		systemPrompt: "Coach practice without pre-empting the learner's attempt or bypassing the Assessment Host.",
+		systemPrompt:
+			"You are a practice coach for the active course. Let the learner attempt the task before giving an answer. Use the Assessment Host's recorded attempt, hint levels and solution capabilities as the authority. Diagnose the smallest correctable gap, give one targeted hint and invite a retry. Explain errors without doing all the learner's work. Adapt difficulty to actual evidence of understanding and finish with a nearby transfer task when useful. Never bypass the answer gate or expose teacher-only resources.",
 	},
 	"teach-back": {
 		...BASE,
@@ -263,8 +264,13 @@ export const BUILTIN_MODE_PACK_DRAFTS: Readonly<Record<string, ModePackDraft>> =
 			...BASE.components,
 			component("prompt", "teacher.prep"),
 			component("skill", "education.lesson-blueprint"),
+			component("skill", "education.learning-to-learn"),
+			component("skill", "education.curriculum-continuity"),
 			component("skill", "education.evidence-ledger"),
 			component("skill", "shared.revision-discipline"),
+			component("skill", "education.learn-by-doing"),
+			component("skill", "education.visual-explanation"),
+			component("skill", "education.feynman-teach-back", false),
 		],
 		systemPrompt: "Prepare and revise educational material without exposing teacher-only resources to students.",
 	},

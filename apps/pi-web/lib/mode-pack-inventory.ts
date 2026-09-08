@@ -5,6 +5,7 @@ import {
   DefaultPackageManager,
   getAgentDir,
   SettingsManager,
+  loadSkillsFromDir,
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent";
 import type {
@@ -17,17 +18,21 @@ import {
   BUILTIN_MODE_RESOURCES,
   compileModePackDraft,
   ResourceCatalog,
+  resolveBuiltinModeSkillPath,
+  localModeSkillsDirectory,
 } from "../../../packages/profile-resource-host/src/index.ts";
 import {
   assertGenericModePackSnapshot,
   createRuntimeBuiltinModePacks,
   assertModePackDefinitionIntegrity,
+  formatModePackResourceBlock,
   formatModePackSystemPrompt,
   type ModePackRuntimeEvidence,
   type ModePackRuntimeExpectation,
 } from "../../../packages/mode-pack-host/src/index.ts";
 import { getProjectTrustStatus } from "./project-trust";
-import { COURSE_BUILDER_DRAFT, COURSE_BUILDER_GUIDANCE } from "./course-builder-pack";
+import { COURSE_BUILDER_DRAFT } from "./course-builder-pack";
+import { resolveShellTools } from "./powershell-settings";
 
 const TOOL_HASH = "sha256:built-in-tool";
 const BUILTIN_EXTENSION_HASH = "sha256:learning-harness-v1";
@@ -76,6 +81,7 @@ export interface ModePackRuntimePlan {
   systemPrompt: string;
   resourceIdsByPath: ReadonlyMap<string, string>;
   resourceHashesByPath: ReadonlyMap<string, string>;
+  resourcePromptBlocksByKey: ReadonlyMap<string, string>;
 }
 
 interface ResourceLoaderLike {
@@ -86,6 +92,7 @@ interface ResourceLoaderLike {
 }
 
 interface RuntimeSessionLike {
+  settingsManager: { getDefaultTools(): string[] | undefined };
   getActiveToolNames(): string[];
   getAllTools(): Array<{ name: string; sourceInfo?: unknown }>;
   resourceLoader: ResourceLoaderLike;
@@ -211,26 +218,47 @@ function builtinResources(): RuntimeModeResource[] {
     scope: "platform",
     synthetic: true,
   };
-  const modeResources = BUILTIN_MODE_RESOURCES.map((entry) => ({
-    kind: entry.kind,
-    id: entry.id,
-    title: entry.id,
-    version: entry.version,
-    contentHash: entry.contentHash,
-    paths: [],
-    pathHashes: {},
-    text: entry.instructions.join("\n\n"),
-    source: "pi-own-mode-pack",
-    scope: "platform",
-    synthetic: true,
-  } satisfies RuntimeModeResource));
+  const modeResources = BUILTIN_MODE_RESOURCES.map((entry) => {
+    const text = entry.instructions.join("\n\n");
+    if (entry.kind !== "skill") {
+      return {
+        kind: entry.kind,
+        id: entry.id,
+        title: entry.id,
+        version: entry.version,
+        contentHash: entry.contentHash,
+        paths: [],
+        pathHashes: {},
+        text,
+        source: "pi-own-mode-pack",
+        scope: "platform",
+        synthetic: true,
+      } satisfies RuntimeModeResource;
+    }
+    const path = resolveBuiltinModeSkillPath(entry.id);
+    const physicalText = readText(path);
+    if (physicalText !== text) throw new Error(`Built-in Skill catalog drifted from its file: ${entry.id}`);
+    const normalizedPath = normalizePath(path);
+    return {
+      kind: entry.kind,
+      id: entry.id,
+      title: resourceTitle(path, entry.kind),
+      version: entry.version,
+      contentHash: entry.contentHash,
+      paths: [path],
+      pathHashes: { [normalizedPath]: fileDigest(path) },
+      text: physicalText,
+      source: "pi-own-mode-pack",
+      scope: "platform",
+      synthetic: false,
+    } satisfies RuntimeModeResource;
+  });
   // The app is a source-vendored local workspace. Resolve its physical extension,
   // not a synthetic plugin: the Pi loader must genuinely register its tools.
   const extensionPath = [resolve(process.cwd(), "lib/course-builder-extension.ts"), resolve(process.cwd(), "apps/pi-web/lib/course-builder-extension.ts")].find(existsSync);
   const courseResources = extensionPath ? [
     runtimeResource({kind:"extension",id:"course-builder",title:"Course Builder",paths:[extensionPath],source:"pi-own",scope:"platform"}),
-    runtimeResource({kind:"skill",id:"teacher.course-planning-beamer",title:"Course planning and Beamer",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:COURSE_BUILDER_GUIDANCE,digestPayload:COURSE_BUILDER_GUIDANCE}),
-    runtimeResource({kind:"prompt",id:"workflow:course-builder",title:"Teacher approval workflow",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:"Use the fixed Course Builder workflow. Wait for real teacher approval between plan, lesson and deck. Never self-approve.",digestPayload:"course-builder-workflow-v1"}),
+    runtimeResource({kind:"prompt",id:"workflow:course-builder",title:"Teacher approval workflow",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:"Use the fixed Course Builder workflow. For an Assignment, call assignment_state, read only through read_assignment_material with the same assignmentId, save_assignment, and wait for teacher review. Keep course, Assignment and cross-Assignment materials isolated. Wait for real teacher approval between plan, lesson and deck. Never self-approve.",digestPayload:"course-builder-workflow-v2"}),
   ] : [];
   return [...tools, learningHarness, ...modeResources, ...courseResources];
 }
@@ -312,6 +340,12 @@ export async function inspectModePackInventory(cwd: string): Promise<ModePackInv
   const resources: RuntimeModeResource[] = [];
   const resourcesByKey = new Map<string, RuntimeModeResource>();
   for (const resource of builtinResources()) pushResource(resources, resourcesByKey, resource);
+  const localSkills = loadSkillsFromDir({ dir: localModeSkillsDirectory(), source: "pi-own-local-skills" });
+  for (const diagnostic of localSkills.diagnostics) diagnostics.push({ severity: "warning", source: "pi-own-local-skills", message: diagnostic.message });
+  for (const skill of localSkills.skills) {
+    if (resources.some((resource) => resource.paths.some((path) => normalizePath(path) === normalizePath(skill.filePath)))) continue;
+    pushResource(resources, resourcesByKey, runtimeResource({ kind: "skill", id: `local.skill.${slug(skill.name)}`, title: skill.name, paths: [skill.filePath], source: "pi-own-local-skills", scope: "user", text: readText(skill.filePath) }));
+  }
 
   try {
     const resolved = await packageManager.resolve(async (source) => {
@@ -385,6 +419,7 @@ export function buildModePackRuntimePlanFromInventory(options: {
   const loadedResourceText: Array<{ id: string; text: string }> = [];
   const resourceIdsByPath = new Map<string, string>();
   const resourceHashesByPath = new Map<string, string>();
+  const resourcePromptBlocksByKey = new Map<string, string>();
 
   for (const descriptor of snapshot.resources) {
     if (!descriptor.enabled) continue;
@@ -400,7 +435,10 @@ export function buildModePackRuntimePlanFromInventory(options: {
     if (descriptor.kind === "extension" && descriptor.id === "learning-harness") {
       throw new Error("Generic Mode Packs cannot activate the course-only learning-harness extension");
     }
-    if (installed.text) loadedResourceText.push({ id: key, text: installed.text });
+    if (installed.text) {
+      loadedResourceText.push({ id: key, text: installed.text });
+      resourcePromptBlocksByKey.set(key, formatModePackResourceBlock(key, installed.text));
+    }
     if (descriptor.kind === "extension") {
       extensionPaths.push(...installed.paths);
       expectedPluginIds.push(descriptor.id);
@@ -442,6 +480,7 @@ export function buildModePackRuntimePlanFromInventory(options: {
     systemPrompt,
     resourceIdsByPath,
     resourceHashesByPath,
+    resourcePromptBlocksByKey,
   };
 }
 
@@ -488,12 +527,17 @@ function idsFromLoadedPaths(
       : syntheticKind === "prompt"
         ? plan.expected.loadedPromptIds
         : plan.expected.loadedThemeIds;
-  const physicalIds = new Set(plan.resourceIdsByPath.values());
   for (const id of expectedIds) {
+    const key = resourceKey(syntheticKind, id);
+    const expectedBlock = plan.resourcePromptBlocksByKey.get(key);
+    if (expectedBlock && !plan.systemPrompt.includes(expectedBlock)) continue;
     const paths = [...plan.resourceIdsByPath.entries()]
       .filter(([, resourceId]) => resourceId === id)
       .map(([path]) => path);
-    if (paths.length === 0) continue;
+    if (paths.length === 0) {
+      if (expectedBlock) ids.add(id);
+      continue;
+    }
     const current = paths.every((path) => {
       if (!loadedPaths.has(path)) return false;
       try {
@@ -505,19 +549,6 @@ function idsFromLoadedPaths(
     if (current) ids.add(id);
   }
 
-  const marker = /<mode-pack-resource id="([^"]+)">/gu;
-  let match: RegExpExecArray | null;
-  while ((match = marker.exec(plan.systemPrompt)) !== null) {
-    const markerId = match[1] ?? "";
-    const separator = markerId.indexOf(":");
-    if (separator < 0) continue;
-    const kind = markerId.slice(0, separator);
-    const id = markerId.slice(separator + 1);
-    // Synthetic built-in guidance has no filesystem path and is loaded by the
-    // immutable prompt marker. Physical Skills/prompts must also appear in the
-    // ResourceLoader evidence and pass a fresh content-digest check.
-    if (kind === syntheticKind && id && !physicalIds.has(id)) ids.add(id);
-  }
   return [...ids].sort();
 }
 
@@ -536,7 +567,8 @@ function selectedPluginToolNames(session: RuntimeSessionLike, plan: ModePackRunt
 }
 
 export function expectedModePackActiveTools(session: RuntimeSessionLike, plan: ModePackRuntimePlan): string[] {
-  return [...new Set([...plan.toolNames, ...selectedPluginToolNames(session, plan)])].sort();
+  const tools = resolveShellTools(plan.toolNames, session.settingsManager.getDefaultTools());
+  return [...new Set([...tools, ...selectedPluginToolNames(session, plan)])].sort();
 }
 
 export function applyModePackToolSelection(session: RuntimeSessionLike, plan: ModePackRuntimePlan): string[] {

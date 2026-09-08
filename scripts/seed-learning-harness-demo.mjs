@@ -6,12 +6,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createExercisePrivate } from "../packages/assessment-host/src/index.ts";
 import { PdftotextExtractor } from "../packages/course-host/src/index.ts";
 import { LearningHarness } from "../packages/learning-harness/src/index.ts";
-import { createS4Ci3DemoExercises } from "./fixtures/assessment-demo-seed.mjs";
+import { createDemoExercises } from "./fixtures/assessment-demo-seed.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
 const defaultDataDirectory = join(repositoryRoot, ".learning-harness-data");
-const defaultZipPath = join(dirname(repositoryRoot), "S4CI3 F2022 Lecture Notes.zip");
+const defaultZipPath = join(dirname(repositoryRoot), "example-course-materials.zip");
 const webRequire = createRequire(join(repositoryRoot, "apps", "pi-web", "package.json"));
 const { SessionManager } = await import(
   pathToFileURL(join(repositoryRoot, "apps", "pi-web", "node_modules", "@earendil-works", "pi-coding-agent", "dist", "index.js")).href,
@@ -71,7 +71,7 @@ const dataDirectory = option("--data-dir") || process.env.PI_LEARNING_HARNESS_DI
 const zipPath = option("--zip") || defaultZipPath;
 const databasePath = join(dataDirectory, "learning-harness.sqlite");
 const agentDirectory = process.env.PI_CODING_AGENT_DIR || join(dataDirectory, "pi-agent");
-const courseId = "s4ci3-f2022-demo";
+const courseId = "example-course-demo";
 if (process.argv.includes("--lookup-only")) {
   process.stdout.write(`${JSON.stringify(lookupExistingDemo(databasePath))}\n`);
 } else {
@@ -98,7 +98,7 @@ if (process.argv.includes("--lookup-only")) {
         pdfTextExtractor: new PdftotextExtractor(process.env.PI_PDFTOTEXT_PATH || "pdftotext"),
       });
     }
-    for (const exercise of createS4Ci3DemoExercises(course.courseVersionId, createExercisePrivate)) {
+    for (const exercise of createDemoExercises(course.courseVersionId, createExercisePrivate)) {
       harness.seedCourseExercise(exercise.public, exercise.private);
     }
     let session = harness.findStudentSessionForCourse(course.courseVersionId);

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/hooks/useI18n";
 
@@ -17,9 +17,9 @@ interface BrowseResponse {
   error?: string;
 }
 
-async function loadDirectories(directory?: string): Promise<BrowseResponse> {
+async function loadDirectories(directory: string | undefined, signal: AbortSignal): Promise<BrowseResponse> {
   const query = directory ? `?path=${encodeURIComponent(directory)}` : "";
-  const response = await fetch(`/api/cwd/browse${query}`);
+  const response = await fetch(`/api/cwd/browse${query}`, { signal });
   const data = await response.json() as BrowseResponse;
   if (!response.ok || data.error) throw new Error(data.error ?? `HTTP ${response.status}`);
   return data;
@@ -65,12 +65,17 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
   const [drives, setDrives] = useState<DirectoryEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const browseRequest = useRef<AbortController | null>(null);
 
   const navigateTo = useCallback(async (directory?: string) => {
+    browseRequest.current?.abort();
+    const request = new AbortController();
+    browseRequest.current = request;
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await loadDirectories(directory);
+      const data = await loadDirectories(directory, request.signal);
+      if (request.signal.aborted) return;
       const nextPath = data.path ?? directory ?? "/";
       setCurrentPath(nextPath);
       setParentDirectory(data.parentPath ?? null);
@@ -78,15 +83,18 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
       setDirectories(data.directories ?? []);
       setDrives(data.drives ?? null);
     } catch (cause) {
+      if (request.signal.aborted) return;
+      console.error("[directory-picker] browse failed", { directory: directory ?? "drives", error: cause });
       setLoadError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setLoading(false);
+      if (!request.signal.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     setPortalTarget(document.body);
     void navigateTo(initialPath || undefined);
+    return () => browseRequest.current?.abort();
   }, [initialPath, navigateTo]);
 
   const handlePathSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -95,7 +103,7 @@ export function DirectoryPicker({ onCancel, onSelect, initialPath, busy = false,
     if (candidate) void navigateTo(candidate);
   };
   const hasUncommittedPath = pathInput.trim() !== currentPath;
-  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy;
+  const canSelect = Boolean(currentPath) && !hasUncommittedPath && !busy && !loading && !loadError;
   const canNavigateUp = Boolean(parentDirectory) || isWindowsDriveRoot(currentPath);
 
   if (!portalTarget) return null;

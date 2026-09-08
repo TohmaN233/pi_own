@@ -7,6 +7,7 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView } from "./MessageView";
+import { CourseReviewShortcut } from "./course-builder/CourseReviewShortcut";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
@@ -559,6 +560,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
+      sessionId={session?.id ?? sessionIdRef.current}
       onSend={handleSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
@@ -962,6 +964,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       </div>
 
       <div className="relative">
+        {session && <CourseReviewShortcut key={session.id} sessionId={session.id} messages={messages}/>}
         {chatInputElement}
         <ExtensionStatusBar statuses={extensionStatuses} widgets={extensionWidgets} />
       </div>

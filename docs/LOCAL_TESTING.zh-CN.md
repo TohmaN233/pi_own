@@ -25,7 +25,7 @@ PDF 提取器按以下顺序解析：
 .\start-learning-harness.ps1 -NoOpen
 ```
 
-若要直接导入/复用 `G:\Baiduyun\S4CI3 F2022 Lecture Notes.zip`、播种两道本地练习并打开一个已绑定会话，双击 `start-learning-harness-demo.bat`。它只在根目录 `scripts/fixtures` 读取私有答案；Pi Web 和普通 HTTP API 不导入这些内容。也可执行：
+若要直接导入/复用 `C:\path\to\example-course-materials.zip`、播种两道本地练习并打开一个已绑定会话，双击 `start-learning-harness-demo.bat`。它只在根目录 `scripts/fixtures` 读取私有答案；Pi Web 和普通 HTTP API 不导入这些内容。也可执行：
 
 ```powershell
 .\start-learning-harness.ps1 -Demo
@@ -38,8 +38,8 @@ PDF 提取器按以下顺序解析：
 ## 手工验证路径
 
 1. 双击 `start-learning-harness.bat`，浏览器打开 `http://127.0.0.1:30141`。
-2. 在 **Import** 中导入 `G:\Baiduyun\S4CI3 F2022 Lecture Notes.zip`。
-3. Course ID 建议填写 `s4ci3-f2022`，完成导入。
+2. 在 **Import** 中导入 `C:\path\to\example-course-materials.zip`。
+3. Course ID 建议填写 `example-course`，完成导入。
 4. 新建一个 Pi 会话并选择该课程。课程选择只作用于**之后新建**的会话；已有会话不会被重新绑定。
 5. 在 **Sources** 中输入课程内的术语检索，打开结果并点击引用，确认来源内容和课程范围正确。
 6. 点击 **Practice**，选择练习，提交至少三字符的具体推理，再按需逐级显示 Hint。满足门槛后可以点击一次 **Reveal solution once**；关闭面板或刷新页面会丢弃浏览器内存中的答案，服务端 Capability 也已经消费。

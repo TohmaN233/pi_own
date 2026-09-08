@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "council-mode": {
+      "source": "nicobailon/pi-subagents",
+      "sourceType": "github",
+      "skillPath": "skills/council-mode/SKILL.md",
+      "computedHash": "da4d0605391b5137c150caadc49bfb0e2030816aa40a888ad41d0eeb54e28e19"
+    },
+    "pi-subagents": {
+      "source": "nicobailon/pi-subagents",
+      "sourceType": "github",
+      "skillPath": "skills/pi-subagents/SKILL.md",
+      "computedHash": "9b4120d845e4bc9227ac7fcd6b2c96d7d18b149b647c540f9f12f7a3f2c516ae"
+    },
+    "chrome-devtools": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/chrome-devtools/SKILL.md",
+      "computedHash": "85d9c4ef94e00ddfc937d50aab72a307e80b98bc7e6744ec6e239ef68819c2d7"
+    },
+    "gpt-image-2": {
+      "source": "prime-skills/runcomfy-agent-skills",
+      "sourceType": "github",
+      "skillPath": "gpt-image-2/SKILL.md",
+      "computedHash": "e1647bdf96f4c5e26e485366967a2ed4389c73930a2fe7737abc7f52eab8d22a"
+    }
+  }
+}

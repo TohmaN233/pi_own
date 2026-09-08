@@ -40,9 +40,12 @@ import {
 	compileModePackDraft,
 	createBuiltinModePacks,
 	createDefaultResourceCatalog,
+	hasSessionSettings,
 	inspectModePackAvailability,
 	resolveModePackSnapshot,
+	reviseModePackSettings,
 } from "../../profile-resource-host/src/index.ts";
+import { ProjectWorkspaceHost } from "./project-workspaces.ts";
 
 const STORE_VERSION = 1;
 const STATE_KEYS = ["course-host", "knowledge-host", "learning-host", "assessment-host", "sessions"] as const;
@@ -111,6 +114,7 @@ export interface PrepareProfileTransitionOptions {
 	idempotencyKey: string;
 	createdAt?: string;
 	modePackDraft?: unknown;
+	settingsPatch?: unknown;
 }
 
 export interface OpenStudentSessionOptions {
@@ -305,6 +309,7 @@ function parseCommittedProfileTransition(value: unknown): CommittedProfileTransi
  */
 export class LearningHarness {
 	readonly courseBuilder: CourseBuilderHost;
+	readonly projectWorkspaces: ProjectWorkspaceHost;
 	readonly courseHost = new CourseHost();
 	readonly knowledgeHost = new KnowledgeHost(this.courseHost);
 	readonly learningHost = new LearningHost();
@@ -344,6 +349,7 @@ export class LearningHarness {
 			`);
 			this.restore();
 			this.courseBuilder = new CourseBuilderHost(this.database);
+			this.projectWorkspaces = new ProjectWorkspaceHost(this.database);
 		} catch (error) {
 			this.database.close();
 			throw error;
@@ -719,6 +725,18 @@ export class LearningHarness {
 		const builtins = createBuiltinModePacks(catalog);
 		let requestedPack: ModePackDefinition | null = null;
 		let requestedSnapshot: ResourceSnapshot | null = null;
+		if (options.settingsPatch !== undefined) {
+			if (options.modePackDraft !== undefined || options.targetProfileId !== session.snapshot.profileId)
+				throw new Error("Settings must target the current mode without a replacement draft");
+			const previousRequest = session.profileTransitionHistory.find(
+				(item) => item.idempotencyKey === options.idempotencyKey,
+			);
+			const source = previousRequest
+				? session.snapshotHistory.find((item) => item.resourceSnapshotId === previousRequest.previousSnapshotId)
+				: session.snapshot;
+			if (!source) throw new Error("Previous settings snapshot is missing");
+			requestedSnapshot = reviseModePackSettings(source, options.settingsPatch, catalog, options.createdAt);
+		}
 		if (options.modePackDraft !== undefined) {
 			requestedPack = compileModePackDraft(options.modePackDraft, catalog);
 			if (requestedPack.modePackId !== options.targetProfileId) {
@@ -829,14 +847,19 @@ export class LearningHarness {
 		requireTimestamp(preparedAt);
 		const targetProfileId = options.targetProfileId;
 		let snapshot: ResourceSnapshot;
-		if (requestedPack) {
+		if (requestedSnapshot) {
 			if (!requestedSnapshot) {
 				throw new LearningHarnessError("CORRUPT_STATE", "Custom Mode Pack did not produce a resource snapshot.");
 			}
 			snapshot = requestedSnapshot;
 		} else {
 			const builtin = builtins[targetProfileId];
-			if (builtin) {
+			const savedSettings = [...session.snapshotHistory]
+				.reverse()
+				.find((item) => item.profileId === targetProfileId && hasSessionSettings(item));
+			if (savedSettings) {
+				snapshot = savedSettings;
+			} else if (builtin) {
 				snapshot = resolveModePackSnapshot({
 					pack: builtin,
 					courseVersionId: session.binding.courseVersionId,

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
 import { sendAgentCommand } from "@/lib/agent-client";
+import { notifySessionConfiguration } from "@/lib/session-configuration-events";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
@@ -93,6 +94,7 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
       setShellSettings(data);
       if (sessionId) {
         await sendAgentCommand(sessionId, { type: "reload" });
+        notifySessionConfiguration(sessionId);
         onSessionReloaded();
       }
     } catch (cause) {
@@ -272,7 +274,7 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} />)}
           {sectionHost("models", <ModelsConfig embedded onClose={onClose} />)}
-          {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} onClose={onClose} />)}
+          {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} />)}
           {cwd && sectionHost("plugins", <PluginsConfig embedded key={cwd} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} />)}
         </main>
       </div>

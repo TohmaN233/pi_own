@@ -13,6 +13,10 @@ try {
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: join(configDir, "../.."),
+  outputFileTracingIncludes: {
+    "/*": ["../../skills/**"],
+    "/api/pdfjs/*": ["./node_modules/pdfjs-dist/build/*.min.mjs", "./node_modules/pdfjs-dist/cmaps/**", "./node_modules/pdfjs-dist/standard_fonts/**", "./node_modules/pdfjs-dist/wasm/**", "./node_modules/pdfjs-dist/iccs/**"],
+  },
   turbopack: {
     root: join(configDir, "../.."),
   },

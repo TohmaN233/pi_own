@@ -5,6 +5,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { rehypeLocalFileLinks } from "./markdown-file-links.ts";
 
 const markdownSanitizeSchema = {
   ...defaultSchema,
@@ -353,12 +354,14 @@ export const markdownPreviewRemarkPlugins: ReactMarkdownOptions["remarkPlugins"]
 
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  rehypeLocalFileLinks,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];
 
 export const markdownPreviewRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
+  rehypeLocalFileLinks,
   [rehypeSanitize, markdownSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ];

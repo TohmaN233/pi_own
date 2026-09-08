@@ -22,6 +22,8 @@ The complete upstream tree is vendored under `apps/pi-web`. `docs/pi-web-upstrea
 - `components/AppShell.file-viewer-state.test.mjs` and `hooks/useAgentSession.test.mjs` normalize vendored CRLF source text before inspecting source-level invariants. `lib/project-command-env.test.mjs` uses the explicitly simulated platform delimiter. `lib/directory-browser.test.mjs` and `lib/subagent-input.test.mjs` keep their non-link assertions unconditional, while only their separate symbolic-link cases skip when Windows itself refuses link creation. `lib/model-discovery.test.mjs` isolates the SDK auth directory for its credential-resolution test.
 - `next.config.ts`, its tracing contract test, and `tsconfig.json` allow the vendored app to consume typed Harness source packages from the repository root.
 - `package.json` declares `jszip` directly for course archive import.
+- `lib/directory-browser.ts` and `lib/file-access.ts` resolve the host home directory through `lib/runtime-home.ts` at runtime. Static file tracing previously traversed the Windows user's unrelated files and exhausted the build heap; `lib/runtime-home.test.mjs` runs the actual Next file tracer against a private-home fixture to guard the boundary.
+- `app/api/sessions/[id]/export/route.ts` leaves the SDK's absolute exporter URL as a native runtime import with `webpackIgnore`, preserving the CLI fallback without generating an unresolved Webpack dependency context.
 
 ## Downstream additions
 

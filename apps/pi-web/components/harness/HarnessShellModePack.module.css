@@ -4,11 +4,13 @@
   overflow: hidden;
 }
 
-/* The generic Mode Pack bar replaces, rather than overlays, the course-only bar. */
+/* The generic Mode Pack bar uses the course bar's reserved layout row. */
 .generic > :nth-child(2) {
   --harness-bar-height: 44px;
 }
 
 .generic > :nth-child(2) > header {
-  display: none;
+  /* Keep the shared 44px bar row in flow; the fixed Mode Pack bar occupies it.
+     Removing the row puts Pi's original New/session toolbar beneath the overlay. */
+  visibility: hidden;
 }

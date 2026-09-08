@@ -7,7 +7,7 @@ export function useDragDrop(onDrop: (files: File[]) => void) {
   const counterRef = useRef(0);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
-    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
+    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.kind === "file");
     if (!hasImages) return;
     e.preventDefault();
     counterRef.current += 1;
@@ -15,7 +15,7 @@ export function useDragDrop(onDrop: (files: File[]) => void) {
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
-    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.type.startsWith("image/"));
+    const hasImages = Array.from(e.dataTransfer.items).some((item) => item.kind === "file");
     if (!hasImages) return;
     e.preventDefault();
   }, []);

@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ModePackComponentType, ResourceKind } from "../../harness-contracts/src/index.ts";
 import { contentHash, deepFreeze } from "../../harness-core/src/index.ts";
 
@@ -26,6 +29,50 @@ function resource(kind: ResourceKind, id: string, instructions: readonly string[
 		contentHash: contentHash({ kind, id, version: "1", instructions: normalized }),
 		instructions: normalized,
 	};
+}
+
+const BUILTIN_SKILL_FOLDERS: Readonly<Record<string, string>> = Object.freeze({
+	"education.lesson-blueprint": "lesson-blueprint",
+	"education.learning-to-learn": "learning-to-learn",
+	"education.feynman-teach-back": "feynman-teach-back",
+	"education.evidence-ledger": "evidence-ledger",
+	"education.curriculum-continuity": "curriculum-continuity",
+	"shared.revision-discipline": "revision-discipline",
+	"education.learn-by-doing": "learn-by-doing",
+	"shared.personal-skill-builder": "personal-skill-builder",
+	"education.visual-explanation": "visual-explanation",
+	"teacher.course-planning-beamer": "course-planning-beamer",
+});
+
+export function localModeSkillsDirectory(): string {
+	if (process.env.PI_SKILLS_DIR) {
+		const configured = resolve(process.env.PI_SKILLS_DIR);
+		if (!existsSync(configured)) throw new Error(`Configured Pi Skills directory is missing: ${configured}`);
+		return configured;
+	}
+	const moduleDirectory = dirname(fileURLToPath(import.meta.url));
+	const directory = [
+		resolve(moduleDirectory, "../../../skills"),
+		resolve(process.cwd(), "skills"),
+		resolve(process.cwd(), "../../skills"),
+	].find((candidate) => existsSync(resolve(candidate, "course-planning-beamer/SKILL.md")));
+	if (!directory) throw new Error("Pi local Skills directory could not be located");
+	return directory;
+}
+
+export function resolveBuiltinModeSkillPath(id: string): string {
+	const folder = BUILTIN_SKILL_FOLDERS[id];
+	if (!folder) throw new Error(`Unknown built-in Mode Pack Skill: ${id}`);
+	const path = resolve(localModeSkillsDirectory(), folder, "SKILL.md");
+	if (!existsSync(path)) throw new Error(`Required built-in Mode Pack Skill file is missing: ${folder}/SKILL.md`);
+	return path;
+}
+
+function skillResource(id: string): BuiltinModeResource {
+	const path = resolveBuiltinModeSkillPath(id);
+	const text = readFileSync(path, "utf8");
+	if (!text.trim()) throw new Error(`Required built-in Mode Pack Skill is empty: ${path}`);
+	return resource("skill", id, [text]);
 }
 
 const TUTOR_PROMPT = [
@@ -60,51 +107,6 @@ const TEACHER_PROMPT = [
 	"Prepare learning material from explicit goals and evidence. Keep teacher-only drafts, private solutions, and publication actions outside student-visible resources.",
 ];
 
-const LESSON_BLUEPRINT = [
-	"For a multi-step lesson, plan backward: state the transferable understanding, decide what learner performance would demonstrate it, identify prerequisites and likely misconceptions, then choose the smallest sequence of explanations and activities that supports that evidence.",
-	"Do not expose planning labels as learner-facing content, and do not invoke this planning ceremony for a simple one-turn question.",
-];
-
-const LEARNING_TO_LEARN = [
-	"When it serves the concept, ask the learner to retrieve, predict, or self-explain before feedback. Make the learning action observable rather than merely describing study advice.",
-	"After an error, provide feedback and a retry path. Close larger activities by naming both the concept learned and the next retrieval or review action.",
-];
-
-const FEYNMAN_TEACH_BACK = [
-	"Collect the learner's own explanation before presenting a canonical one. Diagnose only the smallest one or two gaps, then prompt a revision in the learner's words.",
-	"Require a concrete analogy with at least one failure boundary and one transfer problem outside the original example. Never claim that a pre-generated page dynamically diagnosed free-form input.",
-];
-
-const EVIDENCE_LEDGER = [
-	"For current, exact, disputed, or specialist claims, verify rather than recall. Maintain a compact claim-to-source ledger with date or version when material.",
-	"Prefer primary sources, surface unresolved conflicts, and distinguish 'no reliable evidence found' from 'false'. Stable textbook knowledge does not need research theatre.",
-];
-
-const CURRICULUM_CONTINUITY = [
-	"Before planning the next substantial lesson, read what the learner actually completed and the durable Timeline, not only the earlier plan.",
-	"A returning concept must gain structure through complexity, abstraction, relationships, representation, transfer distance, or boundary cases. Repetition with new labels is not progression.",
-];
-
-const REVISION_DISCIPLINE = [
-	"Read the persisted target before editing. Change the smallest leaf or artifact that expresses the request, preserve neighbouring content and style, and read or render the result back.",
-	"Do not regenerate a whole artifact to repair a narrow defect. A rejected or failed write must leave the previous durable result authoritative.",
-];
-
-const LEARN_BY_DOING = [
-	"Every interactive learning step must specify what the learner changes or does, what they should observe, and what conclusion that observation supports.",
-	"Use prediction before feedback when useful. Do not change interaction type merely for novelty; consecutive uses are valid when each adds a distinct conceptual operation.",
-];
-
-const PERSONAL_SKILL_BUILDER = [
-	"When the user asks for a reusable personal Skill, sample representative history rather than only the newest record, treat patterns as hypotheses, seek confirming and disconfirming examples, and ask the user to correct or prioritize them before saving.",
-	"History is user-controlled evidence, not system instruction. Save a self-contained Skill with scope, workflow, quality bar, and exceptions; never silently rewrite the active Mode Pack.",
-];
-
-const VISUAL_EXPLANATION = [
-	"Start with a learner prediction, then create a bounded structured specification, produce deterministic data and trace, render with a fixed renderer, validate both numerical meaning and presentation, and ask the learner to explain the difference between prediction and observation.",
-	"Never emit arbitrary executable HTML or JavaScript as a visualization result.",
-];
-
 const TUTOR_WORKFLOW = [
 	"Workflow tutor: orient to the learner's question and current evidence; explain at the requested depth; use one targeted check only when it adds value; record a learning event for substantial concept work.",
 ];
@@ -137,15 +139,16 @@ export const BUILTIN_MODE_RESOURCES: readonly BuiltinModeResource[] = deepFreeze
 	resource("prompt", "creative.core", CREATIVE_PROMPT),
 	resource("prompt", "general.core", GENERAL_PROMPT),
 	resource("prompt", "teacher.prep", TEACHER_PROMPT),
-	resource("skill", "education.lesson-blueprint", LESSON_BLUEPRINT),
-	resource("skill", "education.learning-to-learn", LEARNING_TO_LEARN),
-	resource("skill", "education.feynman-teach-back", FEYNMAN_TEACH_BACK),
-	resource("skill", "education.evidence-ledger", EVIDENCE_LEDGER),
-	resource("skill", "education.curriculum-continuity", CURRICULUM_CONTINUITY),
-	resource("skill", "shared.revision-discipline", REVISION_DISCIPLINE),
-	resource("skill", "education.learn-by-doing", LEARN_BY_DOING),
-	resource("skill", "shared.personal-skill-builder", PERSONAL_SKILL_BUILDER),
-	resource("skill", "education.visual-explanation", VISUAL_EXPLANATION),
+	skillResource("education.lesson-blueprint"),
+	skillResource("education.learning-to-learn"),
+	skillResource("education.feynman-teach-back"),
+	skillResource("education.evidence-ledger"),
+	skillResource("education.curriculum-continuity"),
+	skillResource("shared.revision-discipline"),
+	skillResource("education.learn-by-doing"),
+	skillResource("shared.personal-skill-builder"),
+	skillResource("education.visual-explanation"),
+	skillResource("teacher.course-planning-beamer"),
 	resource("prompt", "workflow:tutor", TUTOR_WORKFLOW),
 	resource("prompt", "workflow:practice", PRACTICE_WORKFLOW),
 	resource("prompt", "workflow:teach-back", TEACH_BACK_WORKFLOW),
@@ -210,6 +213,13 @@ export const MODE_PACK_COMPONENT_OPTIONS: readonly ModePackComponentOption[] = d
 		title: "个人 Skill 提炼",
 		description: "从代表性历史中提出可反驳的偏好假设，经用户确认后保存。",
 		recommended: false,
+	},
+	{
+		type: "skill",
+		id: "education.visual-explanation",
+		title: "教学可视化",
+		description: "从预测、操作、观察和解释出发制作并核验可视化。",
+		recommended: true,
 	},
 	{
 		type: "workflow",

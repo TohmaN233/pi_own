@@ -37,9 +37,10 @@ test("runtime inventory compiles built-in coding resources without the learning-
   const allTools = snapshot.tools.map((name) => ({ name, sourceInfo: { path: `<builtin:${name}>` } }));
   const active = [];
   const fake = {
+    settingsManager: { getDefaultTools: () => undefined },
     resourceLoader: {
       getExtensions: () => ({ extensions: [] }),
-      getSkills: () => ({ skills: [] }),
+      getSkills: () => ({ skills: plan.skillPaths.map((filePath) => ({ filePath })) }),
       getPrompts: () => ({ prompts: [] }),
       getThemes: () => ({ themes: [] }),
     },
@@ -50,7 +51,8 @@ test("runtime inventory compiles built-in coding resources without the learning-
   };
   applyModePackToolSelection(fake, plan);
   const evidence = collectModePackRuntimeEvidence(fake, plan);
-  assert.equal(verifyModePackRuntime(snapshot, evidence, plan.expected).verified, true);
+  const verification = verifyModePackRuntime(snapshot, evidence, { ...plan.expected, activeTools: expectedModePackActiveTools(fake, plan) });
+  assert.equal(verification.verified, true, verification.issues.join("; "));
 });
 
 // PR #3 CI exposed the AgentSessionLike boundary: sourceInfo is unknown.
@@ -64,7 +66,7 @@ test("plugin tool selection rejects malformed metadata and accepts only selected
     { name: "unselected", sourceInfo: { path: other } },
     { name: "selected", sourceInfo: { path: selected } },
   );
-  const session = { getAllTools: () => tools };
+  const session = { getAllTools: () => tools, settingsManager: { getDefaultTools: () => undefined } };
   const plan = { toolNames: ["read"], extensionPaths: [selected] };
   assert.deepEqual(expectedModePackActiveTools(session, plan), ["read", "selected"]);
   assert.deepEqual(expectedModePackActiveTools(session, { ...plan, extensionPaths: [] }), ["read"]);

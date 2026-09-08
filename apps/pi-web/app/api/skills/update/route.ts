@@ -4,10 +4,14 @@ import type { SkillInstallScope } from "@/lib/api-types";
 import { buildSkillUpdateArgs } from "@/lib/skill-updates";
 import { loadSkillsWithInstallInfo } from "@/lib/skills-service";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
+import { installLocalSkills } from "@/lib/local-skill-install";
+import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  if (!isApiRequestAllowed(req)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  if (!hasJsonContentType(req)) return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
   try {
     const body = await req.json() as {
       cwd?: unknown;
@@ -38,6 +42,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "This skill cannot be updated automatically" }, { status: 400 });
     }
 
+    if (skill.install.directory) {
+      const result = await installLocalSkills(pkg, { update: true, args: buildSkillUpdateArgs(skill.install) });
+      const refreshed = await loadSkillsWithInstallInfo(cwd);
+      return NextResponse.json({ ...result, skill: refreshed.skills.find((item) => item.install?.package === pkg && item.install.directory) });
+    }
     const { stdout, stderr } = await runNpx(buildSkillUpdateArgs(skill.install), {
       timeout: 60_000,
       cwd: scope === "project" ? cwd : undefined,

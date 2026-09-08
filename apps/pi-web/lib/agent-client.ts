@@ -7,6 +7,8 @@
 // Call sites previously repeated the same 5-line fetch block 13× in
 // hooks/useAgentSession.ts. This helper collapses that down to one line.
 
+import { notifySessionConfiguration } from "./session-configuration-events";
+
 export class AgentCommandError extends Error {
   constructor(
     message: string,
@@ -49,5 +51,6 @@ export async function sendAgentCommand<T = unknown>(
       body.accepted,
     );
   }
+  if (["set_model", "set_thinking_level", "set_tools", "reload"].includes(String(command.type))) notifySessionConfiguration(sessionId);
   return body.data as T;
 }

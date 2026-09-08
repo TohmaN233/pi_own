@@ -1,15 +1,19 @@
+import { ModeSettingsPanel } from "./mode-packs/ModeSettingsPanel";
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
 interface Props {
   loading: boolean;
   prompt: string | null;
   translate: Translate;
+  sessionId?: string | null;
 }
 
-export function SystemPromptPanel({ loading, prompt, translate }: Props) {
+export function SystemPromptPanel({ loading, prompt, translate, sessionId }: Props) {
   return (
     <section className="system-prompt-panel" aria-label={translate("system.prompt")}>
       <div className="system-prompt-scroll">
+        {sessionId && <ModeSettingsPanel key={sessionId} sessionId={sessionId} section="prompt"/>}
+        <details open={!sessionId}><summary>完整运行时提示词（含 Skill 与工具规则）</summary>
         {prompt ? (
           <div className="system-prompt-text">{prompt}</div>
         ) : (
@@ -21,6 +25,7 @@ export function SystemPromptPanel({ loading, prompt, translate }: Props) {
                 : translate("system.load")}
           </div>
         )}
+        </details>
       </div>
 
       <style>{`

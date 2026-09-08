@@ -1,15 +1,21 @@
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative, sep } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { type JsonValue, parseVisualizationSpec } from "../../harness-contracts/src/index.ts";
 import { contentHash, deterministicId, sha256Hex, stableStringify } from "../../harness-core/src/index.ts";
 import { VisualHost } from "../../visual-host/src/index.ts";
-import { assertSafeBeamerSource } from "./beamer.ts";
+import { assertBeamerPresentationSource, assertSafeBeamerSource } from "./beamer.ts";
+import { CourseCoverageLedger } from "./coverage.ts";
+import { coursePlanningSettings, semesterPlanningIssue } from "./planning.ts";
 import type {
+	AssignmentDraft,
 	BeamerAsset,
 	BeamerCompiledArtifact,
 	BeamerCompileReceipt,
 	BeamerDeck,
 	BeamerDeckDraft,
 	BeamerProfile,
+	CourseBuilderAssignment,
 	CourseBuilderMaterial,
 	CourseBuilderMaterialInput,
 	CourseBuilderProject,
@@ -376,6 +382,7 @@ export function parseBeamerDeckDraft(value: unknown): BeamerDeckDraft {
 	exactKeys(input, ["lessonPlanId", "title", "source", "frameOutline", "assetMaterialIds"], "beamerDeck");
 	const source = stringValue(input.source, "beamerDeck.source", 2_000_000);
 	assertSafeBeamerSource(source);
+	assertBeamerPresentationSource(source);
 	return {
 		lessonPlanId: stringValue(input.lessonPlanId, "beamerDeck.lessonPlanId", 256),
 		title: stringValue(input.title, "beamerDeck.title", 512),
@@ -417,6 +424,23 @@ export function parseMaterialAnalysis(
 	};
 }
 
+export function parseAssignmentDraft(value: unknown): AssignmentDraft {
+	assertNoAgentApprovalFields(value, "assignmentDraft");
+	const input = requireRecord(value, "assignmentDraft");
+	exactKeys(input, ["overview", "tasks", "deliverables", "rubric", "solutionNotes", "materialIds"], "assignmentDraft");
+	return {
+		overview: stringValue(input.overview, "assignmentDraft.overview", 50_000),
+		tasks: stringArray(input.tasks, "assignmentDraft.tasks", 200),
+		deliverables: stringArray(input.deliverables, "assignmentDraft.deliverables", 100),
+		rubric: stringArray(input.rubric, "assignmentDraft.rubric", 200),
+		solutionNotes: stringArray(input.solutionNotes, "assignmentDraft.solutionNotes", 200),
+		materialIds: unique(
+			stringArray(input.materialIds, "assignmentDraft.materialIds", 200),
+			"assignmentDraft.materialIds",
+		),
+	};
+}
+
 function withoutHash<T extends { contentHash: string }>(value: T): Omit<T, "contentHash"> {
 	const { contentHash: _hash, ...payload } = value;
 	return payload;
@@ -431,13 +455,46 @@ function currentByRevision<T extends { revision: number }>(items: readonly T[]):
 	return [...items].sort((left, right) => right.revision - left.revision)[0] ?? null;
 }
 
+function localMaterialSource(
+	material: CourseBuilderMaterial,
+): { root: string; path: string; size: number; modifiedAtMs: number } | null {
+	const metadata = material.metadata;
+	if (metadata.storage !== "local-link") return null;
+	if (
+		typeof metadata.sourceRoot !== "string" ||
+		typeof metadata.sourcePath !== "string" ||
+		typeof metadata.sourceSize !== "number" ||
+		typeof metadata.modifiedAtMs !== "number"
+	)
+		throw new CourseBuilderError("CORRUPT_STATE", `Material ${material.materialId} has invalid local-link metadata`);
+	return {
+		root: metadata.sourceRoot,
+		path: metadata.sourcePath,
+		size: metadata.sourceSize,
+		modifiedAtMs: metadata.modifiedAtMs,
+	};
+}
+
+function pathIsInside(root: string, candidate: string): boolean {
+	const value = relative(root, candidate);
+	return value === "" || (value !== ".." && !value.startsWith(`..${sep}`) && !isAbsolute(value));
+}
+
+function assignmentScopeId(material: CourseBuilderMaterial): string | null {
+	return material.metadata.materialScope === "assignment" && typeof material.metadata.assignmentId === "string"
+		? material.metadata.assignmentId
+		: null;
+}
+
 export class CourseBuilderHost {
 	private readonly database: DatabaseSync;
+	private readonly coverage: CourseCoverageLedger;
 	private persistedState: string | null = null;
 	private readonly visualHost = new VisualHost();
 	private projects = new Map<string, CourseBuilderProject>();
 	private bindings = new Map<string, SessionProjectBinding>();
 	private materials = new Map<string, CourseBuilderMaterial>();
+	private assignments = new Map<string, CourseBuilderAssignment>();
 	private materialAnalyses = new Map<string, MaterialAnalysis>();
 	private semesterPlans = new Map<string, SemesterPlan[]>();
 	private lessonPlans = new Map<string, LessonPlan[]>();
@@ -468,6 +525,20 @@ export class CourseBuilderHost {
 			);
 		`);
 		this.restore();
+		this.coverage = new CourseCoverageLedger(database);
+	}
+
+	listCoverageCheckpoints(sessionId: string) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		return snapshot ? this.coverage.list(snapshot) : [];
+	}
+
+	saveCoverageCheckpoint(sessionId: string, draft: unknown, expectedRevision: number) {
+		return this.coverage.save(() => this.getSnapshotForSession(sessionId), draft, expectedRevision);
+	}
+
+	confirmCoverageCheckpoint(sessionId: string, lessonId: string, expectedRevision: number) {
+		return this.coverage.confirm(() => this.getSnapshotForSession(sessionId), lessonId, expectedRevision);
 	}
 
 	createProject(value: unknown, createdAt = new Date().toISOString()): CourseBuilderProject {
@@ -482,6 +553,7 @@ export class CourseBuilderHost {
 			...input,
 			projectId,
 			revision: 1,
+			planningRevision: 1,
 			createdAt,
 			updatedAt: createdAt,
 		};
@@ -511,6 +583,11 @@ export class CourseBuilderHost {
 			...input,
 			projectId,
 			revision: current.revision + 1,
+			planningRevision:
+				(current.planningRevision ?? 0) +
+				(stableStringify(coursePlanningSettings(input)) !== stableStringify(coursePlanningSettings(current))
+					? 1
+					: 0),
 			createdAt: current.createdAt,
 			updatedAt,
 		};
@@ -533,9 +610,29 @@ export class CourseBuilderHost {
 				);
 			return clone(current);
 		}
-		const binding: SessionProjectBinding = { sessionId: id, projectId, boundAt };
+		const binding: SessionProjectBinding = { sessionId: id, projectId, agentAssignmentId: null, boundAt };
 		this.mutate(() => this.bindings.set(id, binding));
 		return clone(binding);
+	}
+
+	setAgentAssignmentScope(sessionId: string, assignmentId: string | null): SessionProjectBinding {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		if (assignmentId !== null) {
+			const assignment = this.assignments.get(assignmentId);
+			if (!assignment || assignment.projectId !== project.projectId)
+				throw new CourseBuilderError("ASSIGNMENT_NOT_FOUND", "Assignment is not available in this course project");
+		}
+		const current = this.bindings.get(sessionId)!;
+		const next: SessionProjectBinding = { ...current, agentAssignmentId: assignmentId };
+		this.mutate(() => this.bindings.set(sessionId, next));
+		return clone(next);
+	}
+
+	getAgentAssignmentScope(sessionId: string): string | null {
+		this.refresh();
+		this.requireProjectForSession(sessionId);
+		return this.bindings.get(sessionId)!.agentAssignmentId;
 	}
 
 	listProjects(): CourseBuilderProject[] {
@@ -556,6 +653,108 @@ export class CourseBuilderHost {
 		return binding ? clone(this.requireProject(binding.projectId)) : null;
 	}
 
+	createAssignment(sessionId: string, value: unknown, createdAt = new Date().toISOString()): CourseBuilderAssignment {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const input = requireRecord(value, "assignment");
+		exactKeys(input, ["title", "brief"], "assignment");
+		timestamp(createdAt, "createdAt");
+		const title = stringValue(input.title, "assignment.title", 512);
+		const brief = stringValue(input.brief, "assignment.brief", 20_000);
+		const assignmentId = deterministicId("course-assignment", { projectId: project.projectId, title, createdAt }, 40);
+		const base: Omit<CourseBuilderAssignment, "contentHash"> = {
+			assignmentId,
+			projectId: project.projectId,
+			title,
+			brief,
+			revision: 1,
+			status: "collecting",
+			materialIds: [],
+			draft: null,
+			review: null,
+			createdAt,
+			updatedAt: createdAt,
+		};
+		const assignment: CourseBuilderAssignment = { ...base, contentHash: contentHash(base) };
+		this.mutate(() => this.assignments.set(assignmentId, assignment));
+		return clone(assignment);
+	}
+
+	getAssignment(sessionId: string, assignmentId: string): CourseBuilderAssignment {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const assignment = this.assignments.get(assignmentId);
+		if (!assignment || assignment.projectId !== project.projectId)
+			throw new CourseBuilderError("ASSIGNMENT_NOT_FOUND", "Assignment is not available in this course project");
+		return clone(assignment);
+	}
+
+	saveAssignmentDraft(
+		sessionId: string,
+		assignmentId: string,
+		value: unknown,
+		expectedRevision: number,
+		updatedAt = new Date().toISOString(),
+	): CourseBuilderAssignment {
+		const current = this.getAssignment(sessionId, assignmentId);
+		if (current.revision !== expectedRevision)
+			throw new CourseBuilderError(
+				"REVISION_CONFLICT",
+				`Expected Assignment revision ${expectedRevision}, actual ${current.revision}`,
+			);
+		const draft = parseAssignmentDraft(value);
+		this.assertAssignmentMaterials(current.projectId, current.assignmentId, draft.materialIds);
+		if (draft.materialIds.some((materialId) => !current.materialIds.includes(materialId)))
+			throw new CourseBuilderError(
+				"MATERIAL_SCOPE_MISMATCH",
+				"Assignment draft referenced material outside its own folder",
+			);
+		timestamp(updatedAt, "updatedAt");
+		const base: Omit<CourseBuilderAssignment, "contentHash"> = {
+			...withoutHash(current),
+			revision: current.revision + 1,
+			status: "draft",
+			draft,
+			review: null,
+			updatedAt,
+		};
+		const next: CourseBuilderAssignment = { ...base, contentHash: contentHash(base) };
+		this.mutate(() => this.assignments.set(assignmentId, next));
+		return clone(next);
+	}
+
+	reviewAssignment(
+		sessionId: string,
+		assignmentId: string,
+		expectedRevision: number,
+		decision: ReviewDecision,
+		note: string,
+		reviewedAt = new Date().toISOString(),
+	): CourseBuilderAssignment {
+		const current = this.getAssignment(sessionId, assignmentId);
+		if (!current.draft || current.status !== "draft")
+			throw new CourseBuilderError(
+				"ASSIGNMENT_DRAFT_REQUIRED",
+				"Generate a new Assignment draft before teacher review",
+			);
+		if (current.revision !== expectedRevision)
+			throw new CourseBuilderError(
+				"REVISION_CONFLICT",
+				`Expected Assignment revision ${expectedRevision}, actual ${current.revision}`,
+			);
+		const review = this.teacherReview(decision, note, expectedRevision, current.contentHash, reviewedAt);
+		const base: Omit<CourseBuilderAssignment, "contentHash"> = {
+			...withoutHash(current),
+			revision: current.revision + 1,
+			status: decision === "approve" ? "approved" : "changes-requested",
+			review,
+			updatedAt: reviewedAt,
+		};
+		const next: CourseBuilderAssignment = { ...base, contentHash: contentHash(base) };
+		this.mutate(() => this.assignments.set(assignmentId, next));
+		return clone(next);
+	}
+
 	importMaterials(
 		sessionId: string,
 		values: readonly CourseBuilderMaterialInput[],
@@ -570,9 +769,12 @@ export class CourseBuilderHost {
 				`Expected project revision ${expectedProjectRevision}, actual ${project.revision}`,
 			);
 		timestamp(createdAt, "createdAt");
-		if (!Array.isArray(values) || values.length === 0 || values.length > 100)
-			throw new CourseBuilderError("INVALID_INPUT", "Material batch must contain 1..100 files");
-		const existing = this.projectMaterials(project.projectId);
+		if (!Array.isArray(values) || values.length === 0 || values.length > MAX_MATERIALS_PER_PROJECT)
+			throw new CourseBuilderError(
+				"INVALID_INPUT",
+				`Material batch must contain 1..${MAX_MATERIALS_PER_PROJECT} files`,
+			);
+		const existing = this.courseMaterials(project.projectId);
 		if (existing.length + values.length > MAX_MATERIALS_PER_PROJECT)
 			throw new CourseBuilderError(
 				"MATERIAL_LIMIT",
@@ -602,6 +804,12 @@ export class CourseBuilderHost {
 			const sourceHash = `sha256:${sha256Hex(value.sourceBytes)}`;
 			const extractedText = value.extractedText.normalize("NFC").replace(/\r\n?/gu, "\n");
 			const textHash = `sha256:${sha256Hex(extractedText)}`;
+			const metadata = jsonRecord(value.metadata, `materials[${index}].metadata`);
+			if (metadata.materialScope === "assignment" || metadata.assignmentId !== undefined)
+				throw new CourseBuilderError(
+					"MATERIAL_SCOPE_MISMATCH",
+					"Course imports cannot create Assignment-scoped materials",
+				);
 			const identity = { projectId: project.projectId, name, sourceHash, textHash };
 			return {
 				materialId: deterministicId("course-builder-material", identity, 40),
@@ -611,7 +819,7 @@ export class CourseBuilderHost {
 				sourceHash,
 				textHash,
 				extractedText,
-				metadata: jsonRecord(value.metadata, `materials[${index}].metadata`),
+				metadata,
 				createdAt,
 			} satisfies CourseBuilderMaterial;
 		});
@@ -633,12 +841,201 @@ export class CourseBuilderHost {
 		return prepared.map(clone);
 	}
 
+	syncLocalMaterials(
+		sessionId: string,
+		sourceRoot: string,
+		values: readonly CourseBuilderMaterialInput[],
+		expectedProjectRevision: number,
+		createdAt = new Date().toISOString(),
+	): CourseBuilderMaterial[] {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		if (project.revision !== expectedProjectRevision)
+			throw new CourseBuilderError(
+				"REVISION_CONFLICT",
+				`Expected project revision ${expectedProjectRevision}, actual ${project.revision}`,
+			);
+		const root = stringValue(sourceRoot, "sourceRoot", 32_768);
+		const existing = this.courseMaterials(project.projectId);
+		const replaced = existing.filter(
+			(material) => material.metadata.storage === "local-link" && material.metadata.sourceRoot === root,
+		);
+		if (replaced.length === 0) return this.importMaterials(sessionId, values, expectedProjectRevision, createdAt);
+		timestamp(createdAt, "createdAt");
+		if (!Array.isArray(values) || values.length === 0 || values.length > MAX_MATERIALS_PER_PROJECT)
+			throw new CourseBuilderError(
+				"INVALID_INPUT",
+				`Material batch must contain 1..${MAX_MATERIALS_PER_PROJECT} files`,
+			);
+		const remaining = existing.filter((material) => !replaced.includes(material));
+		const incomingNames = new Set(values.map((value) => value.name));
+		const retainedMissing = replaced.filter((material) => !incomingNames.has(material.name));
+		if (remaining.length + retainedMissing.length + values.length > MAX_MATERIALS_PER_PROJECT)
+			throw new CourseBuilderError(
+				"MATERIAL_LIMIT",
+				`Project supports at most ${MAX_MATERIALS_PER_PROJECT} materials`,
+			);
+		const remainingNames = new Set(remaining.map((material) => material.name));
+		const replacedByName = new Map(replaced.map((material) => [material.name, material]));
+		const batchNames = new Set<string>();
+		const prepared = values.map((value, index) => {
+			const name = stringValue(value.name, `materials[${index}].name`, 512);
+			if (!new Set(["pptx", "pdf", "tex", "markdown", "text", "asset"]).has(value.kind))
+				throw new CourseBuilderError("INVALID_INPUT", `materials[${index}].kind is invalid`);
+			if (!(value.sourceBytes instanceof Uint8Array))
+				throw new CourseBuilderError("INVALID_INPUT", `materials[${index}].sourceBytes must be Uint8Array`);
+			if (value.sourceBytes.byteLength > MAX_MATERIAL_INPUT_BYTES)
+				throw new CourseBuilderError("MATERIAL_TOO_LARGE", `${name} exceeds ${MAX_MATERIAL_INPUT_BYTES} bytes`);
+			if (value.extractedText !== "")
+				throw new CourseBuilderError("INVALID_INPUT", `Linked material ${name} must be read on demand`);
+			if (remainingNames.has(name) || batchNames.has(name))
+				throw new CourseBuilderError(
+					"DUPLICATE_MATERIAL",
+					`Material ${name} already exists in the project or batch`,
+				);
+			batchNames.add(name);
+			const metadata = jsonRecord(value.metadata, `materials[${index}].metadata`);
+			if (
+				metadata.storage !== "local-link" ||
+				metadata.sourceRoot !== root ||
+				metadata.materialScope === "assignment" ||
+				metadata.assignmentId !== undefined
+			)
+				throw new CourseBuilderError(
+					"INVALID_INPUT",
+					`materials[${index}] does not belong to the selected local root`,
+				);
+			const sourceHash = `sha256:${sha256Hex(value.sourceBytes)}`;
+			const textHash = `sha256:${sha256Hex("")}`;
+			const previous = replacedByName.get(name);
+			const identity = { projectId: project.projectId, name, sourceHash, textHash };
+			return {
+				materialId: previous?.materialId ?? deterministicId("course-builder-material", identity, 40),
+				projectId: project.projectId,
+				name,
+				kind: value.kind,
+				sourceHash,
+				textHash,
+				extractedText: "",
+				metadata,
+				createdAt: previous?.createdAt ?? createdAt,
+			} satisfies CourseBuilderMaterial;
+		});
+		const { contentHash: _oldHash, ...currentPayload } = project;
+		const updatedPayload: Omit<CourseBuilderProject, "contentHash"> = {
+			...currentPayload,
+			revision: project.revision + 1,
+			updatedAt: createdAt,
+		};
+		const updatedProject: CourseBuilderProject = { ...updatedPayload, contentHash: contentHash(updatedPayload) };
+		this.mutate(
+			() => {
+				for (const material of replaced) this.materials.delete(material.materialId);
+				for (const material of retainedMissing) this.materials.set(material.materialId, material);
+				for (const material of prepared) this.materials.set(material.materialId, material);
+				this.projects.set(project.projectId, updatedProject);
+			},
+			undefined,
+			prepared.map((material, index) => ({ materialId: material.materialId, bytes: values[index].sourceBytes })),
+		);
+		return prepared.map(clone);
+	}
+
+	syncAssignmentMaterials(
+		sessionId: string,
+		assignmentId: string,
+		sourceRoot: string,
+		values: readonly CourseBuilderMaterialInput[],
+		expectedAssignmentRevision: number,
+		updatedAt = new Date().toISOString(),
+	): CourseBuilderMaterial[] {
+		const assignment = this.getAssignment(sessionId, assignmentId);
+		if (assignment.revision !== expectedAssignmentRevision)
+			throw new CourseBuilderError(
+				"REVISION_CONFLICT",
+				`Expected Assignment revision ${expectedAssignmentRevision}, actual ${assignment.revision}`,
+			);
+		const root = stringValue(sourceRoot, "sourceRoot", 32_768);
+		timestamp(updatedAt, "updatedAt");
+		if (!Array.isArray(values) || values.length === 0 || values.length > MAX_MATERIALS_PER_PROJECT)
+			throw new CourseBuilderError(
+				"INVALID_INPUT",
+				`Assignment material batch must contain 1..${MAX_MATERIALS_PER_PROJECT} files`,
+			);
+		const existing = assignment.materialIds.map((materialId) => this.materials.get(materialId)!).filter(Boolean);
+		const existingByName = new Map(existing.map((material) => [material.name, material]));
+		const batchNames = new Set<string>();
+		const prepared = values.map((value, index) => {
+			const name = stringValue(value.name, `materials[${index}].name`, 512);
+			if (!new Set(["pptx", "pdf", "tex", "markdown", "text", "asset"]).has(value.kind))
+				throw new CourseBuilderError("INVALID_INPUT", `materials[${index}].kind is invalid`);
+			if (!(value.sourceBytes instanceof Uint8Array))
+				throw new CourseBuilderError("INVALID_INPUT", `materials[${index}].sourceBytes must be Uint8Array`);
+			if (value.sourceBytes.byteLength > MAX_MATERIAL_INPUT_BYTES)
+				throw new CourseBuilderError("MATERIAL_TOO_LARGE", `${name} exceeds ${MAX_MATERIAL_INPUT_BYTES} bytes`);
+			if (value.extractedText !== "")
+				throw new CourseBuilderError("INVALID_INPUT", `Linked Assignment material ${name} must be read on demand`);
+			if (batchNames.has(name))
+				throw new CourseBuilderError(
+					"DUPLICATE_MATERIAL",
+					`Assignment material ${name} is duplicated in the folder`,
+				);
+			batchNames.add(name);
+			const metadata = jsonRecord(value.metadata, `materials[${index}].metadata`);
+			if (
+				metadata.storage !== "local-link" ||
+				metadata.sourceRoot !== root ||
+				metadata.materialScope !== "assignment" ||
+				metadata.assignmentId !== assignmentId
+			)
+				throw new CourseBuilderError(
+					"MATERIAL_SCOPE_MISMATCH",
+					`materials[${index}] is outside this Assignment scope`,
+				);
+			const sourceHash = `sha256:${sha256Hex(value.sourceBytes)}`;
+			const textHash = `sha256:${sha256Hex("")}`;
+			const previous = existingByName.get(name);
+			const identity = { projectId: assignment.projectId, assignmentId, name, sourceHash, textHash };
+			return {
+				materialId: previous?.materialId ?? deterministicId("course-builder-material", identity, 40),
+				projectId: assignment.projectId,
+				name,
+				kind: value.kind,
+				sourceHash,
+				textHash,
+				extractedText: "",
+				metadata,
+				createdAt: previous?.createdAt ?? updatedAt,
+			} satisfies CourseBuilderMaterial;
+		});
+		const base: Omit<CourseBuilderAssignment, "contentHash"> = {
+			...withoutHash(assignment),
+			revision: assignment.revision + 1,
+			status: "collecting",
+			materialIds: prepared.map((material) => material.materialId),
+			draft: null,
+			review: null,
+			updatedAt,
+		};
+		const next: CourseBuilderAssignment = { ...base, contentHash: contentHash(base) };
+		this.mutate(
+			() => {
+				for (const material of existing) this.materials.delete(material.materialId);
+				for (const material of prepared) this.materials.set(material.materialId, material);
+				this.assignments.set(assignmentId, next);
+			},
+			undefined,
+			prepared.map((material, index) => ({ materialId: material.materialId, bytes: values[index].sourceBytes })),
+		);
+		return prepared.map(clone);
+	}
+
 	saveMaterialAnalysis(sessionId: string, value: unknown, createdAt = new Date().toISOString()): MaterialAnalysis {
 		this.refresh();
 		const project = this.requireProjectForSession(sessionId);
 		const parsed = parseMaterialAnalysis(value);
 		timestamp(createdAt, "createdAt");
-		const materialIds = this.projectMaterials(project.projectId)
+		const materialIds = this.courseMaterials(project.projectId)
 			.map((item) => item.materialId)
 			.sort();
 		if (materialIds.length === 0)
@@ -668,6 +1065,7 @@ export class CourseBuilderHost {
 			...draft,
 			semesterPlanId: deterministicId("semester-plan", { projectId: project.projectId }, 40),
 			projectRevision: project.revision,
+			projectPlanningRevision: project.planningRevision ?? 0,
 			projectId: project.projectId,
 			revision: (current?.revision ?? 0) + 1,
 			status: "draft",
@@ -699,8 +1097,8 @@ export class CourseBuilderHost {
 				"REVISION_CONFLICT",
 				`Expected Semester Plan revision ${expectedRevision}, actual ${current.revision}`,
 			);
-		if (current.projectRevision !== project.revision)
-			throw new CourseBuilderError("STALE_SEMESTER", "Project or materials changed; revise the Semester Plan");
+		const planningIssue = semesterPlanningIssue(project, current);
+		if (planningIssue) throw new CourseBuilderError("STALE_SEMESTER", planningIssue);
 		const review = this.teacherReview(decision, note, expectedRevision, current.contentHash, reviewedAt);
 		const base: Omit<SemesterPlan, "contentHash"> = {
 			...withoutHash(current),
@@ -733,7 +1131,7 @@ export class CourseBuilderHost {
 				"SEMESTER_APPROVAL_REQUIRED",
 				"Approve the current Semester Plan before creating Lesson Plans",
 			);
-		if (semester.projectRevision !== project.revision || semester.revision !== parentRevision)
+		if (semesterPlanningIssue(project, semester) || semester.revision !== parentRevision)
 			throw new CourseBuilderError("STALE_SEMESTER", "Semester Plan changed; reload before planning the lesson");
 		const draft = parseLessonPlanDraft(value);
 		timestamp(createdAt, "createdAt");
@@ -749,7 +1147,7 @@ export class CourseBuilderHost {
 				"LESSON_TIME_EXCEEDED",
 				`Lesson segments total ${minutes} minutes, exceeding ${project.minutesPerSession}`,
 			);
-		this.assertMaterials(project.projectId, draft.materialIds);
+		this.assertCourseMaterials(project.projectId, draft.materialIds);
 		const lessonId = deterministicId(
 			"lesson-plan",
 			{ projectId: project.projectId, week: draft.week, session: draft.session },
@@ -831,7 +1229,7 @@ export class CourseBuilderHost {
 		this.assertCurrentLesson(project, lesson);
 		if (lesson.revision !== parentRevision)
 			throw new CourseBuilderError("STALE_LESSON", "Lesson Plan changed before deck submission");
-		this.assertMaterials(project.projectId, draft.assetMaterialIds);
+		this.assertCourseMaterials(project.projectId, draft.assetMaterialIds);
 		timestamp(createdAt, "createdAt");
 		const deckId = deterministicId(
 			"beamer-deck",
@@ -972,6 +1370,7 @@ export class CourseBuilderHost {
 				`Expected Deck revision ${expectedRevision}, actual ${deck.revision}`,
 			);
 		const receipt = this.compileReceipts.get(compileReceiptId);
+		assertBeamerPresentationSource(deck.source);
 		const review = this.deckReviews.get(reviewId);
 		if (
 			!receipt ||
@@ -1004,6 +1403,39 @@ export class CourseBuilderHost {
 			this.decks.set(deckId, [...history.filter((item) => item.revision !== deck.revision), accepted]),
 		);
 		return clone(accepted);
+	}
+
+	revokeDeckAcceptance(
+		sessionId: string,
+		deckId: string,
+		expectedRevision: number,
+		updatedAt = new Date().toISOString(),
+	): BeamerDeck {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const deck = this.currentDeck(deckId);
+		if (!deck || deck.projectId !== project.projectId)
+			throw new CourseBuilderError("DECK_NOT_FOUND", "Deck was not found");
+		if (deck.revision !== expectedRevision)
+			throw new CourseBuilderError("REVISION_CONFLICT", "Deck changed; reload before cancelling acceptance");
+		if (deck.status !== "accepted")
+			throw new CourseBuilderError("DECK_NOT_ACCEPTED", "Deck is not currently accepted");
+		timestamp(updatedAt, "updatedAt");
+		const base = {
+			...withoutHash(deck),
+			status: "draft" as const,
+			acceptedAt: null,
+			acceptedReceiptId: null,
+			updatedAt,
+		};
+		const next: BeamerDeck = { ...base, contentHash: contentHash(base) };
+		this.mutate(() =>
+			this.decks.set(
+				deckId,
+				(this.decks.get(deckId) ?? []).map((item) => (item.revision === deck.revision ? next : item)),
+			),
+		);
+		return clone(next);
 	}
 
 	createVisual(
@@ -1083,6 +1515,41 @@ export class CourseBuilderHost {
 
 	getMaterialBytes(sessionId: string, materialId: string): Uint8Array {
 		const material = this.getMaterial(sessionId, materialId);
+		const linked = localMaterialSource(material);
+		if (linked) {
+			let root: string, filePath: string;
+			try {
+				root = realpathSync(linked.root);
+				filePath = realpathSync(linked.path);
+			} catch (error) {
+				throw new CourseBuilderError(
+					"MATERIAL_SOURCE_UNAVAILABLE",
+					`Linked material is unavailable: ${material.name}: ${String(error)}`,
+				);
+			}
+			if (!pathIsInside(root, filePath))
+				throw new CourseBuilderError(
+					"MATERIAL_PATH_ESCAPE",
+					`Linked material escaped its selected folder: ${material.name}`,
+				);
+			const current = statSync(filePath);
+			if (!current.isFile())
+				throw new CourseBuilderError(
+					"MATERIAL_SOURCE_UNAVAILABLE",
+					`Linked material is not a file: ${material.name}`,
+				);
+			if (current.size !== linked.size || Math.trunc(current.mtimeMs) !== linked.modifiedAtMs)
+				throw new CourseBuilderError(
+					"MATERIAL_SOURCE_CHANGED",
+					`Linked material changed on disk; relink the folder before using it: ${material.name}`,
+				);
+			if (current.size > MAX_MATERIAL_INPUT_BYTES)
+				throw new CourseBuilderError(
+					"MATERIAL_TOO_LARGE",
+					`${material.name} exceeds the 64 MiB on-demand read budget`,
+				);
+			return new Uint8Array(readFileSync(filePath));
+		}
 		const row = this.database
 			.prepare("SELECT bytes FROM course_builder_source WHERE material_id = ?")
 			.get(materialId) as { bytes: Uint8Array } | undefined;
@@ -1134,7 +1601,7 @@ export class CourseBuilderHost {
 		if (
 			!semester ||
 			semester.status !== "approved" ||
-			semester.projectRevision !== project.revision ||
+			semesterPlanningIssue(project, semester) !== null ||
 			semester.revision !== lesson.semesterPlanRevision
 		)
 			throw new CourseBuilderError("STALE_SEMESTER", "Lesson is not based on the current approved Semester Plan");
@@ -1160,6 +1627,12 @@ export class CourseBuilderHost {
 				.map(clone),
 			materials: [...this.materials.values()]
 				.sort((left, right) => left.materialId.localeCompare(right.materialId))
+				.map(clone),
+			assignments: [...this.assignments.values()]
+				.sort(
+					(left, right) =>
+						left.createdAt.localeCompare(right.createdAt) || left.assignmentId.localeCompare(right.assignmentId),
+				)
 				.map(clone),
 			materialAnalyses: [...this.materialAnalyses.values()]
 				.sort((left, right) => left.projectId.localeCompare(right.projectId))
@@ -1208,7 +1681,7 @@ export class CourseBuilderHost {
 			const slot = `${session.week}:${session.session}`;
 			if (slots.has(slot)) throw new CourseBuilderError("DUPLICATE_SEMESTER_SLOT", `Semester Plan repeats ${slot}`);
 			slots.add(slot);
-			this.assertMaterials(project.projectId, session.materialIds);
+			this.assertCourseMaterials(project.projectId, session.materialIds);
 			for (const goal of session.courseGoalsCovered) goals.add(goal);
 		}
 		for (const goal of project.goals)
@@ -1247,6 +1720,13 @@ export class CourseBuilderHost {
 		return {
 			project: clone(project),
 			materials: this.projectMaterials(projectId).map(clone),
+			assignments: [...this.assignments.values()]
+				.filter((item) => item.projectId === projectId)
+				.sort(
+					(left, right) =>
+						left.createdAt.localeCompare(right.createdAt) || left.assignmentId.localeCompare(right.assignmentId),
+				)
+				.map(clone),
 			materialAnalysis: clone(this.materialAnalyses.get(projectId) ?? null),
 			semesterPlan: clone(semesterPlan),
 			lessonPlans: lessons.sort((left, right) => left.week - right.week || left.session - right.session).map(clone),
@@ -1270,6 +1750,28 @@ export class CourseBuilderHost {
 		return [...this.materials.values()]
 			.filter((item) => item.projectId === projectId)
 			.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.name.localeCompare(right.name));
+	}
+
+	private courseMaterials(projectId: string): CourseBuilderMaterial[] {
+		return this.projectMaterials(projectId).filter((material) => assignmentScopeId(material) === null);
+	}
+
+	private assertCourseMaterials(projectId: string, materialIds: readonly string[]): void {
+		this.assertMaterials(projectId, materialIds);
+		if (materialIds.some((materialId) => assignmentScopeId(this.materials.get(materialId)!) !== null))
+			throw new CourseBuilderError(
+				"MATERIAL_SCOPE_MISMATCH",
+				"Assignment materials cannot be used in the course planning chain",
+			);
+	}
+
+	private assertAssignmentMaterials(projectId: string, assignmentId: string, materialIds: readonly string[]): void {
+		this.assertMaterials(projectId, materialIds);
+		if (materialIds.some((materialId) => assignmentScopeId(this.materials.get(materialId)!) !== assignmentId))
+			throw new CourseBuilderError(
+				"MATERIAL_SCOPE_MISMATCH",
+				"An Assignment can reference only materials from its own linked folder",
+			);
 	}
 
 	private assertMaterials(projectId: string, materialIds: readonly string[]): void {
@@ -1345,7 +1847,9 @@ export class CourseBuilderHost {
 				throw new CourseBuilderError("REVISION_CONFLICT", "Concurrent Course Builder writer detected; reload");
 			for (const source of sources)
 				this.database
-					.prepare("INSERT INTO course_builder_source(material_id, bytes) VALUES(?, ?)")
+					.prepare(
+						"INSERT INTO course_builder_source(material_id, bytes) VALUES(?, ?) ON CONFLICT(material_id) DO UPDATE SET bytes = excluded.bytes",
+					)
 					.run(source.materialId, source.bytes);
 			if (compileLog)
 				this.database
@@ -1413,10 +1917,17 @@ export class CourseBuilderHost {
 		const state = requireRecord(value, "courseBuilderState");
 		if (state.version !== 1)
 			throw new CourseBuilderError("CORRUPT_STATE", "Course Builder state version is unsupported");
+		// Version 1 installations created before Assignment workflows have no such collection.
+		if (state.assignments === undefined) state.assignments = [];
+		if (Array.isArray(state.bindings))
+			for (const binding of state.bindings)
+				if (binding && typeof binding === "object" && !("agentAssignmentId" in binding))
+					(binding as Record<string, unknown>).agentAssignmentId = null;
 		for (const key of [
 			"projects",
 			"bindings",
 			"materials",
+			"assignments",
 			"materialAnalyses",
 			"semesterPlans",
 			"lessonPlans",
@@ -1436,6 +1947,10 @@ export class CourseBuilderHost {
 		for (const material of result.materials) {
 			if (`sha256:${sha256Hex(material.extractedText)}` !== material.textHash)
 				throw new CourseBuilderError("CORRUPT_STATE", `Material ${material.materialId} has invalid text hash`);
+		}
+		for (const assignment of result.assignments) {
+			const { contentHash: _hash, ...payload } = assignment;
+			assertHash(assignment, payload, `Assignment ${assignment.assignmentId}`);
 		}
 		for (const analysis of result.materialAnalyses) {
 			const { contentHash: _hash, ...payload } = analysis;
@@ -1472,16 +1987,57 @@ export class CourseBuilderHost {
 		const materialMap = new Map(result.materials.map((m) => [m.materialId, m]));
 		if (materialMap.size !== result.materials.length)
 			throw new CourseBuilderError("CORRUPT_STATE", "Duplicate material IDs");
+		const assignmentMap = new Map(result.assignments.map((assignment) => [assignment.assignmentId, assignment]));
+		if (assignmentMap.size !== result.assignments.length)
+			throw new CourseBuilderError("CORRUPT_STATE", "Duplicate Assignment IDs");
+		for (const assignment of result.assignments) {
+			if (
+				!projects.has(assignment.projectId) ||
+				new Set(assignment.materialIds).size !== assignment.materialIds.length
+			)
+				throw new CourseBuilderError(
+					"CORRUPT_STATE",
+					"Invalid Assignment ownership or duplicate material reference",
+				);
+			if (
+				assignment.materialIds.some((materialId) => {
+					const material = materialMap.get(materialId);
+					return (
+						material?.projectId !== assignment.projectId ||
+						assignmentScopeId(material) !== assignment.assignmentId
+					);
+				})
+			)
+				throw new CourseBuilderError("CORRUPT_STATE", "Assignment material scope is invalid");
+			if (
+				assignment.draft?.materialIds.some(
+					(materialId) =>
+						!assignment.materialIds.includes(materialId) ||
+						assignmentScopeId(materialMap.get(materialId)!) !== assignment.assignmentId,
+				)
+			)
+				throw new CourseBuilderError("CORRUPT_STATE", "Assignment draft crossed its material scope");
+		}
 		for (const m of result.materials) {
 			const row = this.database
 				.prepare("SELECT bytes FROM course_builder_source WHERE material_id = ?")
 				.get(m.materialId) as { bytes: Uint8Array } | undefined;
 			if (!projects.has(m.projectId) || !row || `sha256:${sha256Hex(row.bytes)}` !== m.sourceHash)
 				throw new CourseBuilderError("CORRUPT_STATE", "Material ownership or source bytes invalid");
+			const scopedAssignmentId = assignmentScopeId(m);
+			if (scopedAssignmentId !== null) {
+				const assignment = assignmentMap.get(scopedAssignmentId);
+				if (!assignment || assignment.projectId !== m.projectId || !assignment.materialIds.includes(m.materialId))
+					throw new CourseBuilderError("CORRUPT_STATE", "Orphaned Assignment material");
+			}
 		}
 		const sessions = new Set<string>();
 		for (const b of result.bindings) {
-			if (sessions.has(b.sessionId) || !projects.has(b.projectId))
+			if (
+				sessions.has(b.sessionId) ||
+				!projects.has(b.projectId) ||
+				(b.agentAssignmentId !== null && assignmentMap.get(b.agentAssignmentId)?.projectId !== b.projectId)
+			)
 				throw new CourseBuilderError("CORRUPT_STATE", "Invalid project binding");
 			sessions.add(b.sessionId);
 		}
@@ -1502,8 +2058,13 @@ export class CourseBuilderHost {
 						: "materialIds" in item
 							? item.materialIds
 							: item.sessions.flatMap((slot) => slot.materialIds);
-				if (materialIds.some((id) => materialMap.get(id)?.projectId !== item.projectId))
-					throw new CourseBuilderError("CORRUPT_STATE", "Cross-project material reference");
+				if (
+					materialIds.some((id) => {
+						const material = materialMap.get(id);
+						return material?.projectId !== item.projectId || assignmentScopeId(material) !== null;
+					})
+				)
+					throw new CourseBuilderError("CORRUPT_STATE", "Course planning history crossed a material scope");
 			}
 			for (const history of revisions.values())
 				if (history.sort((a, b) => a - b).some((n, i) => n !== i + 1))
@@ -1557,6 +2118,7 @@ export class CourseBuilderHost {
 		this.projects = new Map(state.projects.map((item) => [item.projectId, clone(item)]));
 		this.bindings = new Map(state.bindings.map((item) => [item.sessionId, clone(item)]));
 		this.materials = new Map(state.materials.map((item) => [item.materialId, clone(item)]));
+		this.assignments = new Map(state.assignments.map((item) => [item.assignmentId, clone(item)]));
 		this.materialAnalyses = new Map(state.materialAnalyses.map((item) => [item.projectId, clone(item)]));
 		this.semesterPlans = new Map();
 		for (const item of state.semesterPlans)

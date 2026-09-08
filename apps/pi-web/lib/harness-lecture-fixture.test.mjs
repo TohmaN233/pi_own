@@ -11,7 +11,7 @@ const { expandCourseUploads } = await jiti.import("./harness-course-import.ts");
 const { LearningHarness } = await jiti.import("../../../packages/learning-harness/src/index.ts");
 const { PdftotextExtractor } = await jiti.import("../../../packages/course-host/src/index.ts");
 
-test("supplied S4CI3 lecture archive imports as a searchable durable course", { skip: !fixturePath }, async (t) => {
+test("user-supplied lecture archive imports as a searchable durable course", { skip: !fixturePath }, async (t) => {
   const root = mkdtempSync(join(tmpdir(), "pi-learning-lecture-fixture-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const materials = await expandCourseUploads([
@@ -21,7 +21,7 @@ test("supplied S4CI3 lecture archive imports as a searchable durable course", { 
   assert.ok(materials.every((material) => material.kind === "pdf"));
 
   const harness = new LearningHarness({ databasePath: join(root, "harness.sqlite") });
-  const version = await harness.publishCourseVersion("s4ci3-f2022", materials, {
+  const version = await harness.publishCourseVersion("example-course", materials, {
     pdfTextExtractor: new PdftotextExtractor(process.env.PI_PDFTOTEXT_PATH || "pdftotext"),
   });
   assert.equal(version.materials.length, 9);

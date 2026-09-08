@@ -1,8 +1,8 @@
-export function createS4Ci3DemoExercises(courseVersionId, createExercisePrivate) {
+export function createDemoExercises(courseVersionId, createExercisePrivate) {
   return [
     {
       public: {
-        exerciseId: "s4ci3-demo-meaning",
+        exerciseId: "example-demo-meaning",
         courseVersionId,
         conceptIds: ["mathematical-modeling"],
         prompt: "Write one sentence explaining why a mathematical model needs clearly stated assumptions.",
@@ -11,7 +11,7 @@ export function createS4Ci3DemoExercises(courseVersionId, createExercisePrivate)
         revision: 1,
       },
       private: createExercisePrivate(
-        "s4ci3-demo-meaning",
+        "example-demo-meaning",
         "A mathematical model needs clearly stated assumptions because they define the conditions under which its conclusions apply.",
         ["assumptions define conditions"],
         "Look for a concrete connection between assumptions and the scope of a model's conclusion.",
@@ -19,7 +19,7 @@ export function createS4Ci3DemoExercises(courseVersionId, createExercisePrivate)
     },
     {
       public: {
-        exerciseId: "s4ci3-demo-reasoning",
+        exerciseId: "example-demo-reasoning",
         courseVersionId,
         conceptIds: ["mathematical-reasoning"],
         prompt: "Give a short reason why checking units can catch an error in a calculation.",
@@ -28,7 +28,7 @@ export function createS4Ci3DemoExercises(courseVersionId, createExercisePrivate)
         revision: 1,
       },
       private: createExercisePrivate(
-        "s4ci3-demo-reasoning",
+        "example-demo-reasoning",
         "Checking units can catch an error because a valid calculation must produce units consistent with the quantity being computed.",
         ["units must be consistent"],
         "Look for consistency between the result's units and the intended physical or mathematical quantity.",

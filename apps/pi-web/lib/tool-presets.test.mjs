@@ -35,6 +35,7 @@ test("recognizes presets while ignoring active custom tools", () => {
   const customNames = ["web_search", "delegate"];
 
   assert.equal(getPresetFromTools(toolEntries([], customNames)), "none");
+  assert.equal(getPresetFromTools(toolEntries(["course_builder"], ["course_builder"])), "none", "a workflow extension must not make disabled built-in tools look enabled");
   assert.equal(
     getPresetFromTools(toolEntries([...PRESET_READ_ONLY, ...customNames], customNames)),
     "read-only",

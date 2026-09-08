@@ -8,6 +8,7 @@ import {
   type ModePackStatusResponse,
 } from "@/lib/mode-pack-client";
 import styles from "./ModePackOverlay.module.css";
+import { subscribeSessionConfiguration } from "@/lib/session-configuration-events";
 
 export type ModePackStatusKind = ModePackStatusResponse["kind"] | null;
 
@@ -54,8 +55,9 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
 
   useEffect(() => {
     void refresh();
-    return () => { refreshRequest.current?.abort(); };
-  }, [refresh]);
+    const unsubscribe = subscribeSessionConfiguration(sessionId, () => { void refresh(); });
+    return () => { unsubscribe(); refreshRequest.current?.abort(); };
+  }, [refresh, sessionId]);
 
   useEffect(() => () => { activationRequest.current?.abort(); }, []);
 
@@ -95,11 +97,13 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
     }
   };
 
-  if (!sessionId || !status || status.sessionId !== sessionId || status.kind !== "generic") return null;
-  const canSwitch = status.live && !status.busy && !busy && (status.currentSnapshotId === null || status.verified);
+  if (!sessionId || !status || status.sessionId !== sessionId) return <div className={styles.overlay}><a className={styles.link} href="/projects">项目与对话</a><a className={styles.workspaceLink} href="/course-builder">备课 · 继续已有课程</a></div>;
+  if (status.kind !== "generic") return null;
+  const canSwitch = !status.busy && !busy;
   return (
     <div className={styles.overlay} aria-label="Active Mode Pack">
       <strong className={styles.brand}>Pi Own</strong>
+      <a className={styles.link} href="/projects">项目与对话</a>
       <select
         className={styles.select}
         aria-label="Active Mode Pack"
@@ -124,7 +128,14 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
         ))}
       </select>
       <a className={styles.link} href={`/mode-packs?sessionId=${encodeURIComponent(sessionId)}`}>Customize</a>
-      <a className={styles.link} href={`/course-builder?sessionId=${encodeURIComponent(sessionId)}`}>备课</a>
+      <a
+        className={`${styles.link} ${styles.workspaceLink}`}
+        href={`/course-builder?sessionId=${encodeURIComponent(sessionId)}`}
+        aria-label="打开备课工作区"
+        title={status.live ? "打开教师备课工作区" : "恢复当前会话并打开教师备课工作区"}
+      >
+        打开备课工作区
+      </a>
       {(error || status.diagnostic) && (
         <span className={styles.warning} title={error ?? status.diagnostic ?? undefined}>
           {error ?? status.diagnostic}

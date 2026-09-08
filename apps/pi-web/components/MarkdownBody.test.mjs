@@ -37,6 +37,15 @@ test("keeps local file markdown links in the app", () => {
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
 });
 
+test("Windows and file-URL output links survive Markdown sanitization", () => {
+  for (const href of ["G:/lessons/plan.md", "file:///G:/lessons/plan.md", "/G:/lessons/plan.md"]) {
+    const html = renderMarkdown(`[打开教案](${href})`);
+    assert.doesNotMatch(html, /href=""|target="_blank"/);
+    assert.match(html, /href="[^"]+"[^>]*>打开教案<\/a>/);
+  }
+  assert.doesNotMatch(renderMarkdown("[bad](javascript:alert%281%29)"), /href="javascript:/i);
+});
+
 test("keeps single-tilde CJK numeric ranges literal instead of striking them", () => {
   const html = renderMarkdown("5~7U 保证金 × 100~200倍杠杆");
 

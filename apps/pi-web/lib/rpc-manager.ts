@@ -8,6 +8,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "crypto";
+import { hasSessionSettings, modeSystemPrompt, reviseModePackSettings, parseModePackSettingsPatch, type ModePackSettingsPatch } from "../../../packages/profile-resource-host/src/index.ts";
 import { existsSync, writeFileSync } from "fs";
 import type { ModePackDefinition, ResourceSnapshot } from "../../../packages/harness-contracts/src/index.ts";
 import {
@@ -43,6 +44,7 @@ import {
 } from "./session-reader";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import { notifySessionComplete } from "./web-push";
+import { persistCommittedRuntimeSettings } from "./session-runtime-settings";
 
 export * from "./rpc-manager-base";
 
@@ -72,8 +74,22 @@ class ModePackAgentSessionWrapper extends Base.AgentSessionWrapper {
 
   override async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type;
-    if (type === "set_tools" || type === "set_model" || type === "set_thinking_level" || type === "reload") {
-      throw new Error("This session is controlled by an immutable Mode Pack; switch or revise the Mode Pack instead.");
+    if (type === "set_model" || type === "set_thinking_level") {
+      const patch = type === "set_model" ? { provider: command.provider, model: command.modelId } : { thinkingLevel: command.level };
+      await activateGenericModePack({ sessionId: this.sessionId, modePackId: this.modePackSnapshot.profileId,
+        expectedSnapshotId: this.modePackSnapshot.resourceSnapshotId, idempotencyKey: randomUUID(), settingsPatch: patch });
+      const model = Base.getRpcSession(this.sessionId)?.inner.model;
+      return type === "set_model" && model ? { id: model.id, provider: model.provider } : null;
+    }
+    if (type === "set_tools") {
+      const changed = await setRpcSessionTools(this.sessionId, this.sessionFile, command.toolNames);
+      return { sessionId: changed.sessionId, recreated: changed.recreated };
+    }
+    if (type === "reload") {
+      await activateGenericModePack({ sessionId: this.sessionId, modePackId: this.modePackSnapshot.profileId,
+        expectedSnapshotId: this.modePackSnapshot.resourceSnapshotId, idempotencyKey: randomUUID(),
+        settingsPatch: { tools: [...this.modePackSnapshot.tools] } });
+      return null;
     }
     if (type === "bash" && !this.modePackSnapshot.tools.some((tool) => tool === "bash" || tool === "powershell")) {
       throw new Error("The active Mode Pack does not allow direct shell commands.");
@@ -118,6 +134,7 @@ export interface ActivateGenericModePackOptions {
   expectedSnapshotId: string | null;
   idempotencyKey: string;
   createdAt?: string;
+  settingsPatch?: unknown;
 }
 
 export interface ActivateGenericModePackResult {
@@ -200,6 +217,34 @@ function persistUnflushedSession(sessionManager: SessionManager): void {
   writeFileSync(sessionFile, content, { encoding: "utf8", flag: "wx" });
   (sessionManager as unknown as { flushed: boolean }).flushed = true;
   cacheSessionPath(sessionManager.getSessionId(), sessionFile);
+}
+
+/** A durable product binding must never reference an in-memory-only Pi identity. */
+export function createPersistedGenericSession(cwd: string, name: string, snapshot?: ResourceSnapshot): string {
+  const manager = SessionManager.create(cwd);
+  manager.appendSessionInfo(name);
+  if (snapshot) {
+    const prepared = prepareModePackSessionBinding({ sessionId: manager.getSessionId(), targetSnapshot: snapshot, history: [], inherited: null, idempotencyKey: randomUUID() });
+    manager.appendCustomEntry(MODE_PACK_BINDING_CUSTOM_TYPE, prepared.binding);
+    if (snapshot.provider && snapshot.model) manager.appendModelChange(snapshot.provider, snapshot.model);
+    manager.appendThinkingLevelChange(snapshot.thinkingLevel);
+  }
+  persistUnflushedSession(manager);
+  invalidateSessionListCache();
+  return manager.getSessionId();
+}
+
+export async function persistGenericSession(sessionId: string): Promise<void> {
+  assertNoCourseBinding(sessionId);
+  const live = Base.getRpcSession(sessionId);
+  if (live?.isAlive()) {
+    persistUnflushedSession(live.inner.sessionManager);
+    const file = live.inner.sessionManager.getSessionFile();
+    if (!file || !existsSync(file)) throw new Error("Cannot bind a course without a persisted Pi session");
+    invalidateSessionListCache();
+  } else if (!await resolveSessionPath(sessionId)) {
+    throw new Error(`Pi session not found: ${sessionId}`);
+  }
 }
 
 function appendModePackBinding(sessionManager: SessionManager, binding: ModePackSessionBinding): void {
@@ -345,6 +390,7 @@ async function startPersistedModePackSession(
     if (candidate.wrapper.sessionId !== sessionId) {
       throw new Error("Recovered Mode Pack runtime changed the Pi session identity");
     }
+    persistCommittedRuntimeSettings(candidate.wrapper.inner);
     registerPreparedWrapper(candidate.wrapper);
     return { session: candidate.wrapper, realSessionId: sessionId };
   } catch (error) {
@@ -405,7 +451,20 @@ export async function setRpcSessionTools(
   if (manager) {
     const recovery = modePackRecovery(manager);
     if (recovery.current || recovery.inherited) {
-      throw new Error("Mode Pack sessions own their tool selection; switch Mode Packs instead of using set_tools.");
+      // Restore a fork's inherited binding before revising its own settings.
+      if (!recovery.current) {
+        if (!sessionFile) throw new Error("Session file is required to restore inherited mode settings");
+        await startRpcSession(sessionId, sessionFile, undefined);
+        return setRpcSessionTools(sessionId, sessionFile, requestedToolNames);
+      }
+      const snapshot = recovery.current.snapshot;
+      if (requestedToolNames === undefined) throw new Error("toolNames is required");
+      await activateGenericModePack({ sessionId, modePackId: snapshot.profileId,
+        expectedSnapshotId: snapshot.resourceSnapshotId, idempotencyKey: randomUUID(),
+        settingsPatch: { tools: requestedToolNames } });
+      const session = Base.getRpcSession(sessionId);
+      if (!session?.isAlive()) throw new Error("Tool settings committed but the runtime is unavailable; reopen this session");
+      return { session, sessionId, recreated: true };
     }
   }
   return Base.setRpcSessionTools(sessionId, sessionFile, requestedToolNames);
@@ -519,15 +578,46 @@ export async function getGenericModePackStatus(sessionId: string): Promise<Gener
   };
 }
 
+export async function resolveSavedModeSettings(snapshot: ResourceSnapshot, patch: ModePackSettingsPatch | undefined, cwd: string, createdAt?: string) {
+  const store = modePackStore();
+  const { inventory } = await store.list(cwd);
+  const changed = snapshot.resources.filter((resource) => {
+    if (!resource.enabled) return false;
+    const installed = inventory.catalog.get(resource.kind, resource.id);
+    return !installed || installed.version !== resource.version || installed.contentHash !== resource.contentHash;
+  });
+  if (!changed.length) return { inventory, definition: undefined, snapshot: patch ? reviseModePackSettings(snapshot, patch, inventory.catalog, createdAt) : snapshot };
+
+  // Rebuild from current mode instructions and resource identities, then reapply
+  // the user's settings. Reusing the old snapshot would also retain old Skill text.
+  const fresh = await store.resolve(snapshot.profileId, cwd, createdAt);
+  if (fresh.snapshot.role !== snapshot.role || fresh.snapshot.mode !== snapshot.mode) throw new Error("Mode role changed; select the updated mode explicitly");
+  const skills = new Map(fresh.snapshot.resources.filter((resource) => resource.kind === "skill" && !resource.required).map((resource) => [resource.id, { id: resource.id, enabled: false }]));
+  // Snapshots contain effective resources only: an absent optional Skill was off.
+  for (const resource of snapshot.resources) {
+    if (resource.kind === "skill" && !fresh.snapshot.resources.some((current) => current.kind === "skill" && current.id === resource.id && current.required)) skills.set(resource.id, { id: resource.id, enabled: resource.enabled });
+  }
+  let refreshed = reviseModePackSettings(fresh.snapshot, {
+    ...(snapshot.provider && snapshot.model ? { provider: snapshot.provider, model: snapshot.model } : {}),
+    thinkingLevel: snapshot.thinkingLevel,
+    systemPrompt: modeSystemPrompt(snapshot),
+    tools: [...snapshot.tools],
+    skills: [...skills.values()],
+  }, fresh.inventory.catalog, createdAt);
+  if (patch) refreshed = reviseModePackSettings(refreshed, patch, fresh.inventory.catalog, createdAt);
+  console.info("[mode-pack] refreshed saved settings against installed resources", { modePackId: snapshot.profileId, previousSnapshotId: snapshot.resourceSnapshotId, snapshotId: refreshed.resourceSnapshotId, resources: changed.map((resource) => `${resource.kind}:${resource.id}`) });
+  return { inventory: fresh.inventory, definition: undefined, snapshot: refreshed };
+}
+
 export async function activateGenericModePack(
   options: ActivateGenericModePackOptions,
 ): Promise<ActivateGenericModePackResult> {
   if (!options.idempotencyKey.trim()) throw new Error("Mode Pack activation requires an idempotency key");
-  const existing = Base.getRpcSession(options.sessionId);
-  if (!existing?.isAlive()) throw new Error("Mode Pack activation requires a live Pi session");
+  const registered = Base.getRpcSession(options.sessionId);
+  const existing = registered?.isAlive() ? registered : undefined;
   assertNoCourseBinding(options.sessionId);
   const releaseGlobal = acquireModePackActivation(options.sessionId);
-  if (!existing.tryAcquireProfileTransition()) {
+  if (existing && !existing.tryAcquireProfileTransition()) {
     releaseGlobal();
     throw new Error("Wait for the current Pi command to finish before switching Mode Packs.");
   }
@@ -535,7 +625,14 @@ export async function activateGenericModePack(
   let journalCommitted = false;
   let persistedSessionFile: string | null = null;
   try {
-    const recovery = modePackRecovery(existing.inner.sessionManager);
+    // Resolve and validate the NEW snapshot directly for an explicit activation.
+    // Restoring the old runtime first would make stale required resources impossible to upgrade.
+    const dormantPath = existing ? null : await resolveSessionPath(options.sessionId);
+    if (!existing && !dormantPath) throw new Error(`Pi session not found: ${options.sessionId}`);
+    const manager = existing?.inner.sessionManager ?? SessionManager.open(dormantPath!, undefined);
+    if (manager.getSessionId() !== options.sessionId) throw new Error("Pi session identity mismatch");
+    const recovery = modePackRecovery(manager);
+    const settingsPatch = options.settingsPatch === undefined ? undefined : parseModePackSettingsPatch(options.settingsPatch);
     const prior = recovery.history.find((item) => item.idempotencyKey === options.idempotencyKey);
     if (prior) {
       if (prior.snapshot.profileId !== options.modePackId || prior.previousSnapshotId !== options.expectedSnapshotId) {
@@ -544,6 +641,14 @@ export async function activateGenericModePack(
       if (recovery.current?.requestHash !== prior.requestHash) {
         throw new Error("The original idempotent activation is no longer the active Mode Pack.");
       }
+      if (settingsPatch) {
+        const previous = recovery.history.find((item) => item.snapshot.resourceSnapshotId === options.expectedSnapshotId);
+        if (!previous) throw new Error("Cannot validate settings retry without its previous snapshot");
+        const retried = await resolveSavedModeSettings(previous.snapshot, settingsPatch, manager.getCwd(), prior.snapshot.createdAt);
+        if (retried.snapshot.contentHash !== prior.snapshot.contentHash) {
+          throw new Error("Mode Pack settings idempotency key was reused for another request.");
+        }
+      }
       const status = await getGenericModePackStatus(options.sessionId);
       return { sessionId: options.sessionId, binding: prior, runtime: status.runtime, replay: true };
     }
@@ -551,7 +656,12 @@ export async function activateGenericModePack(
     if (currentSnapshotId !== options.expectedSnapshotId) {
       throw new Error("The active Mode Pack snapshot changed before this activation.");
     }
-    const resolved = await modePackStore().resolve(options.modePackId, existing.cwd, options.createdAt);
+    const savedSettings = [...recovery.history].reverse().find((item) => item.snapshot.profileId === options.modePackId && hasSessionSettings(item.snapshot));
+    const source = settingsPatch ? recovery.current : savedSettings;
+    if (settingsPatch && source?.snapshot.profileId !== options.modePackId) throw new Error("Settings must target the current mode");
+    const resolved = source
+      ? await resolveSavedModeSettings(source.snapshot, settingsPatch, manager.getCwd(), options.createdAt)
+      : await modePackStore().resolve(options.modePackId, manager.getCwd(), options.createdAt);
     const prepared = prepareModePackSessionBinding({
       sessionId: options.sessionId,
       targetSnapshot: resolved.snapshot,
@@ -562,8 +672,8 @@ export async function activateGenericModePack(
     });
     // Materialize a transient ordinary session before replacing its runtime.
     // This gives every pre-commit failure a persisted old runtime to reopen.
-    persistUnflushedSession(existing.inner.sessionManager);
-    const sessionFile = existing.inner.sessionManager.getSessionFile() ?? existing.sessionFile;
+    persistUnflushedSession(manager);
+    const sessionFile = manager.getSessionFile();
     if (!sessionFile || !existsSync(sessionFile)) {
       throw new Error("Mode Pack activation could not persist the current Pi session before replacement");
     }
@@ -579,7 +689,7 @@ export async function activateGenericModePack(
       snapshot: resolved.snapshot,
       definition: resolved.definition,
       plan,
-      preservedModel: existing.inner.model
+      preservedModel: existing?.inner.model
         ? { provider: existing.inner.model.provider, id: existing.inner.model.id }
         : undefined,
     });
@@ -588,15 +698,17 @@ export async function activateGenericModePack(
     if (candidate.sessionId !== options.sessionId) {
       throw new Error("Prepared Mode Pack runtime changed the Pi session identity");
     }
-    await existing.shutdown();
+    if (existing) await existing.shutdown();
     appendModePackBinding(candidate.inner.sessionManager, prepared.binding);
     journalCommitted = true;
+    persistCommittedRuntimeSettings(candidate.inner);
     registerPreparedWrapper(candidate);
     const status = await getGenericModePackStatus(options.sessionId);
     if (!status.runtime.verified) {
       throw new Error(status.runtime.diagnostic ?? "Committed Mode Pack runtime failed verification");
     }
     candidate.releaseProfileTransition();
+    console.info("[mode-pack] activated", { sessionId: options.sessionId, modePackId: options.modePackId, revision: prepared.binding.revision, snapshotId: resolved.snapshot.resourceSnapshotId, settings: settingsPatch ? Object.keys(settingsPatch) : [] });
     return {
       sessionId: options.sessionId,
       binding: prepared.binding,
@@ -613,7 +725,7 @@ export async function activateGenericModePack(
         `Mode Pack activation committed to the Pi transcript but the live runtime could not be verified. Reopen the session to recover the committed snapshot. Cause: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    if (!Base.getRpcSession(options.sessionId)?.isAlive() && persistedSessionFile && existsSync(persistedSessionFile)) {
+    if (existing && !Base.getRpcSession(options.sessionId)?.isAlive() && persistedSessionFile && existsSync(persistedSessionFile)) {
       releaseGlobal();
       await startRpcSession(options.sessionId, persistedSessionFile, undefined).catch((restoreError) => {
         console.error("[mode-pack] failed to restore previous Pi runtime", restoreError);
@@ -622,7 +734,7 @@ export async function activateGenericModePack(
     throw error;
   } finally {
     candidate?.releaseProfileTransition();
-    existing.releaseProfileTransition();
+    existing?.releaseProfileTransition();
     releaseGlobal();
   }
 }

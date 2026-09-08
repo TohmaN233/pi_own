@@ -22,6 +22,7 @@ interface GlobalLockPathOptions {
 }
 
 interface AnnotateSkillOptions {
+  localSkillsDirectory?: string;
   cwd: string;
   agentDir: string;
   globalLockPath?: string;
@@ -125,17 +126,21 @@ export function annotateSkillsWithInstallInfo(
     agentDir,
     globalLockPath = getGlobalSkillsLockPath(),
     projectLockPath = join(cwd, "skills-lock.json"),
+    localSkillsDirectory,
   }: AnnotateSkillOptions,
 ): SkillInfo[] {
   const globalEntries = readSkillLock(globalLockPath);
   const projectEntries = readSkillLock(projectLockPath);
+  const localEntries = localSkillsDirectory ? readSkillLock(join(localSkillsDirectory, ".skills-lock.json")) : {};
   const globalSkillsRoot = join(agentDir, "skills");
   const projectSkillsRoot = join(cwd, ".pi", "skills");
 
   return skills.map((skill) => {
     if (!existsSync(skill.filePath)) return skill;
 
-    const install = isWithin(skill.filePath, globalSkillsRoot)
+    const localInstall = localSkillsDirectory && isWithin(skill.filePath, localSkillsDirectory)
+      ? getInstallInfo(localEntries, skill.name, "project") : undefined;
+    const install = localInstall ? { ...localInstall, directory: localSkillsDirectory } : isWithin(skill.filePath, globalSkillsRoot)
       ? getInstallInfo(globalEntries, skill.name, "global")
       : isWithin(skill.filePath, projectSkillsRoot)
         ? getInstallInfo(projectEntries, skill.name, "project")

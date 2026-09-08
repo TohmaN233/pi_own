@@ -22,6 +22,18 @@ Lint: `npm run lint`
 
 ## Architecture
 
+`course-builder-delivery.ts` persists a per-request product/requirements contract in native Pi JSONL. The Course Builder extension routes direct chat and workspace production alike, queues native follow-ups on premature `agent_end`, and closes work only through evidence-checked `delivery_finish`. Tool `draft` and `spec` accept structured objects; keep legacy JSON strings compatible without requiring them. Workspace delivery progress exposes unfinished requirements and blocked state. A successful save alone must not complete a teacher revision task.
+
+Course Builder's module navigation stays inside the teacher scroll pane, above its content. Measure its height for anchor offsets and preserve hash links after async workspace loading; jumps must also move keyboard focus. Deck acceptance shows the specific missing prerequisite and current review issues. Match compile/review evidence by deck revision, source hash and receipt identity; a new receipt invalidates the browser's visual confirmation. Never bypass the Host's teacher acceptance checks. Browser regression: `node scripts/course-workspace-navigation-smoke.mjs` (all API traffic intercepted).
+
+`CoverageCheckpoints` edits one file entry per lesson/materialId (summary, optional position, nextLesson), not read ranges. Keep the revision captured when editing opens; polling must not overwrite unsaved file records or hide conflicts. The selector disables already-selected files and Host validation rejects duplicates. Old range history normalizes by file without losing original rows. Confirmation describes preparation coverage, not learner mastery. ChatInput's attachment picker/paste/drop accepts files as well as images; document links survive draft recovery and upload completion must not leak into a newly selected conversation.
+
+Product projects: `/projects` is the shared folder/conversation directory, separate from native cwd/worktree grouping. `lib/project-workspaces-service.ts` composes Course Builder ownership and `LearningHarness.projectWorkspaces`; `ProjectConversations` exposes course-local switching and creation. Creation writes a fresh named Pi JSONL and a verified-structure default snapshot without instantiating an Agent or copying any chat. Project defaults are explicitly saved from a member conversation; existing conversations retain their own settings. `/api/projects` uses request security and creation idempotency. TeX editing is teacher-only, preserves deck ownership, and creates a new draft; PDF exports default to inline with explicit download support.
+
+TeX source is fetched on demand via `/api/course-builder/deck`, together with its revision; the course overview omits source. `PdfPreview` embeds `public/pdf-viewer.html`, which renders PDF bytes using pinned local `pdfjs-dist` assets served by the allowlisted `/api/pdfjs` route. It must work without a native browser PDF plugin and must never navigate the iframe directly to PDF bytes. No CDN or external document service is used.
+
+The browser receives PDF preview data only as JSON/base64 from `/api/pdf-content`; that route reuses existing authorized readers in-process. Raw PDF fetches are also intercepted by native download managers here (HTTP 204 plus an automatic download), so changing Content-Disposition alone or fetching a PDF blob is not a solution. Binary exports remain explicit download actions.
+
 ```
 Browser                Next.js Server              AgentSession (in-process)
   │                        │                               │
@@ -157,6 +169,7 @@ Tool names are passed at session creation (`POST /api/agent/new` -> `toolNames[]
 The last preset explicitly selected by the user is stored in browser `localStorage` and initializes fresh-session composers only. Existing sessions never trust that preference; they use their live `get_tools` state or pi's default when no wrapper exists.
 
 ### Model defaults for new sessions
+- Rebuilding an existing SDK session with a model/thinking override does **not** append its change entries. Mode Pack and learner transitions must call `persistCommittedRuntimeSettings` only after binding commit; startup also reconciles committed settings before registration. Verify the runtime, session GET response, disk JSONL and next SDK turn together. Never journal a candidate's settings before verification/commit.
 `GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions. Explicit browser model/thinking selections are applied atomically during AgentSession construction, then `lib/startup-preferences.ts` persists their effective values without replaying `set_model`/`set_thinking_level`; implicit `enabledModels` fallbacks and thinking pins are not persisted.
 
 ### `enabledModels` scoping
@@ -183,14 +196,20 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - git prints POSIX-style absolute paths even on Windows, so every path read out of git goes through `toNativePath()` (`lib/paths.ts`) before it is compared or returned. Compare paths with `samePath()`, never `===` — raw equality made `isTopLevel` permanently false on Windows and hid the worktree switcher entirely. Branch names are not paths and must keep their forward slashes. Browser code cannot apply Node path rules, so `/api/worktrees` resolves `currentWorktreePath` server-side; the sidebar must use that identity for highlighting and removal fallback.
 
 ### File access allow-list
+- Course Builder review links use `#semester-plan` / `#review`; targets arrive after the workspace API, so reveal the requested section after loading and on hash changes. Semester plans render their real structured fields for teacher review, with raw JSON as optional diagnostics. Approval remains an explicit, revision-bound teacher action.
+- A `request-changes` review also dispatches a native Pi prompt, with a request ID and the reviewed target/revision. `course-builder-revisions.ts` journals task states in `pi-web:course-revision` entries, scopes Assignment work before dispatch, and completes only after a successful save of that target at a newer revision. Prompt acceptance/agent termination alone is not completion. Preserve failed requests for retry; never auto-approve the resulting draft. The chat review shortcut is dismissible per saved plan version, independently of the permanent workspace navigation.
+- Message Markdown normalizes Windows/file URLs before sanitization without allowing executable URL schemes. Both AppShell and the teacher ChatWindow must supply `onOpenFile`; Course Builder previews local paths through FileViewer with `sourceSessionId` and previews Host exports through their existing session-scoped export route. Never turn a preview click into a new session or add its contents to model context.
 - `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 - Allowed roots are stored slash-normalized, but that is a Set-key convention, not a correctness requirement: `isPathWithinRoots()` (`lib/path-security.ts`, the single implementation behind `isFilePathAllowed()`) re-resolves and case-folds both sides, so either path form authorizes correctly. Keep that one implementation — it is the security boundary.
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
-- `/api/skills` uses `DefaultResourceLoader` so settings paths, package skills, and project `.agents/skills` are listed the same way the runtime sees them.
+- `/api/skills` includes the configured Pi-local `skills/` library as well as SDK-discovered paths. With a selected session, SkillsConfig uses `/api/mode-packs/settings`, displaying that session's active selections and actual complete loading evidence. Required Skills cannot be disabled; optional selections and prompt edits create a new snapshot without changing the shared Skill files.
 - Skill toggling edits only the `disable-model-invocation` frontmatter key on the target `SKILL.md`; keep that surgical so user formatting survives.
+- `resolveSavedModeSettings` rebases stale personal settings onto freshly resolved mode resources during activation, including Course Builder startup. Snapshots contain effective resources only, so optional Skills absent from the saved snapshot remain off. Fresh mode instructions replace old resource text; user prompt/model/tool choices survive. The normal candidate verification, identity journal and idempotency checks still apply.
+- Course Builder task availability uses the Host's shared planning-only revision policy; source import/reindexing must not invalidate an approved outline. Task button `additionalRequirements` are appended by the server, while standalone sends remain unchanged. The independent `/course-builder/lesson` review page renders persisted content, keeps local unsaved drafts keyed by session/lesson/base revision, and saves via the teacher-only `edit_lesson` action without starting a model. Never discard concurrent lesson revisions or carry approval into a newly edited draft.
+- Keep native library add/market/check/update controls alongside the current-mode tab, including the teacher pane. `/api/skills` returns `installDirectory`. `local-skill-install.ts` stages native `skills add --agent pi --copy`, validates full directories and metadata, then publishes to the configured library with rollback on failure. New installs cannot redirect to a caller's cwd or global scope; managed updates use the same library and `.skills-lock.json`. Installing refreshes mode inventory without automatically enabling the new Skill.
 - `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
 
 ### Built-in subagents
@@ -201,6 +220,10 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - See `docs/adr/0003-built-in-subagent-toggle.md` for the precedence and persistence rationale.
 
 ### Auth and model config
+
+- Pi Web's four direct Pi dependencies are pinned together at 0.85.1, which includes GPT-6 Astra for OpenAI and Codex subscriptions. The Codex provider uses the SDK's packaged catalog; refreshing the browser does not install new SDK versions. Dynamic provider refresh and local model configuration are separate from dependency upgrades.
+- Model and thinking selectors in Mode Pack sessions use the same immutable activation transaction as prompt/Skill changes. `session-configuration-events.ts` invalidates model/tool/prompt views across components and tabs. The Course Builder page mounts the existing ChatWindow alongside independently scrollable course controls and activates the original teacher session on entry.
+- Generic/teacher tool presets and reload also use that transaction. Empty builtin selection preserves the selected mode's workflow extensions/Skills; its toolbar must not misreport `default`. Resolve logical shell tools against SettingsManager and the host platform for both application and verification. Failed tool changes must remain visible and must not update the selected preset. `POST /api/sessions/[id]/new` creates an ordinary blank JSONL in the same cwd, independent of any source course/mode or selected-course cookie; it does not start a model. Course Builder's `lesson_task` uses authoritative current semester/lesson state and explicit week/session, shared with the frontend through `course-builder-lesson-tasks.ts`.
 - `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.
 - Provider listing is capability-driven, never id-driven: `lib/provider-listing.ts` decides membership from `auth.apiKey.login` / `auth.oauth` plus the stored credential type, so dual-auth providers (anthropic and github-copilot today — which providers declare both changes between SDK releases, so never assume it from an id) appear exactly once and never fall through both lists (#309). `lib/provider-listing-runtime.ts` adapts `ModelRuntime` to those pure helpers.
 - auth.json holds **one** credential per provider and `ModelRuntime.logout()` deletes whichever it is. The delete routes therefore use `removeStoredCredentialIfType()` to compare and delete under the same file lock used by pi's auth storage. `ModelsConfig` also refreshes *both* provider lists after any auth change — refreshing one leaves a dual-auth provider rendered twice.
@@ -241,3 +264,13 @@ Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

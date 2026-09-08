@@ -21,6 +21,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
+import { notifySessionConfiguration, subscribeSessionConfiguration } from "@/lib/session-configuration-events";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
   CHAT_SCROLL_REATTACH_TOLERANCE,
@@ -1607,6 +1608,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         case "reload": {
           if (!sid) return complete({ handled: true, error: "No active session to reload" });
           await sendAgentCommand(sid, { type: "reload" });
+          notifySessionConfiguration(sid);
           await Promise.all([
             loadSession(sid, false, true),
             loadTools(sid),
@@ -1767,10 +1769,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
     const toolNames = getToolNamesForPreset(preset);
-    setPreferredToolPreset(preset);
-    setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-    if (!sid) return;
+    if (!sid) {
+      setPreferredToolPreset(preset);
+      setToolPresetState(preset);
+      return;
+    }
     try {
       const result = await sendAgentCommand<{ sessionId?: string; recreated?: boolean }>(sid, { type: "set_tools", toolNames });
       const activeSessionId = result?.sessionId ?? sid;
@@ -1789,10 +1793,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (sessionHookMountedRef.current && sessionIdRef.current === activeSessionId) {
         setSystemPrompt(state.systemPrompt ?? "");
       }
+      setPreferredToolPreset(preset);
+      notifySessionConfiguration(activeSessionId);
     } catch (e) {
       console.error("Failed to set tools:", e);
+      addNotice({ type: "error", message: `Failed to change tools: ${e instanceof Error ? e.message : String(e)}` });
     }
-  }, [cancelEventStreamGrace, closeEvents, loadTools, setToolPresetState]);
+  }, [addNotice, cancelEventStreamGrace, closeEvents, loadTools, setToolPresetState]);
 
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1837,6 +1844,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [scrollToBottom]);
+
+  // Mode/workspace changes rebuild the server wrapper. Reload all derived controls
+  // and reconnect streaming to that replacement, even when the URL is unchanged.
+  useEffect(() => {
+    if (!session?.id) return;
+    return subscribeSessionConfiguration(session.id, () => {
+      const sid = session.id;
+      void (async () => {
+        const state = await loadSession(sid, false, true);
+        if (!sessionHookMountedRef.current || sessionIdRef.current !== sid) return;
+        await Promise.all([loadTools(sid), loadModels(), loadSlashCommands()]);
+        if (state?.state?.isStreaming || state?.state?.isPromptRunning) {
+          sdkAgentActiveRef.current = Boolean(state.state.isStreaming);
+          rpcPromptPendingRef.current = Boolean(state.state.isPromptRunning);
+          agentRunningRef.current = true;
+          setAgentRunning(true);
+          dispatch({ type: "start" });
+          void maintainEventsConnected(sid);
+        }
+      })().catch((cause) => { console.error("[session-configuration] refresh failed", cause); addNotice({ type: "error", message: `无法刷新会话配置：${String(cause)}` }); });
+    });
+  }, [session?.id, loadSession, loadTools, loadModels, loadSlashCommands, maintainEventsConnected, addNotice]);
 
   // Load session on mount
   useEffect(() => {

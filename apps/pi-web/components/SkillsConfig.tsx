@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { ModeSettingsPanel } from "./mode-packs/ModeSettingsPanel";
+import { orderSkillsByDormancy } from "@/lib/skill-display";
+import { notifySessionConfiguration } from "@/lib/session-configuration-events";
 import type {
   SkillInfo as Skill,
   SkillInstallScope,
@@ -42,20 +45,12 @@ function shortenPath(p: string): string {
 }
 
 function sourceLabel(skill: Skill): string {
+  if (skill.sourceInfo?.source === "pi-own-local-skills") return "project";
   const src = skill.sourceInfo?.source;
   const scope = skill.sourceInfo?.scope;
   if (scope === "user" || src === "user") return "global";
   if (scope === "project" || src === "project") return "project";
   return "path";
-}
-
-export function orderSkillsByDormancy<
-  T extends Pick<Skill, "disableModelInvocation">,
->(skills: T[]): T[] {
-  return [
-    ...skills.filter((skill) => !skill.disableModelInvocation),
-    ...skills.filter((skill) => skill.disableModelInvocation),
-  ];
 }
 
 function updateKey(skill: Skill): string | null {
@@ -121,6 +116,7 @@ function SkillDetail({
           <ConfigDetailActions>
             <ConfigSwitch
               checked={enabled}
+              disabled={skill.sourceInfo?.source === "pi-own-local-skills"}
               loading={toggling}
               label={enabled ? t("i18n.visibleInPrompt") : t("i18n.hiddenFromPrompt")}
               onChange={() => onToggle(skill)}
@@ -128,6 +124,7 @@ function SkillDetail({
           </ConfigDetailActions>
         </ConfigDetailHeader>
         <div className="skill-detail-status-row">
+          {skill.sourceInfo?.source === "pi-own-local-skills" && <span>项目技能库。打开会话后，在「当前模式组合」中选择启用；这里的安装状态不代表模型已加载。</span>}
           {!enabled && (
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
               {t("i18n.hiddenButInvocable")}
@@ -232,12 +229,12 @@ function SkillDetail({
 function AddSkillPanel({
   cwd,
   installedPackages,
-  projectResourcesLoaded,
+  installDirectory,
   onInstalled,
 }: {
   cwd: string;
   installedPackages: Record<SkillInstallScope, ReadonlySet<string>>;
-  projectResourcesLoaded: boolean;
+  installDirectory: string;
   onInstalled: () => void;
 }) {
   const { t } = useI18n();
@@ -247,10 +244,12 @@ function AddSkillPanel({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [installNotice, setInstallNotice] = useState<string | null>(null);
   const [newlyInstalledPkgs, setNewlyInstalledPkgs] = useState<Set<string>>(
     new Set(),
   );
-  const [scope, setScope] = useState<"global" | "project">("global");
+  const scope = "project" as const;
+  const [source, setSource] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -289,20 +288,22 @@ function AddSkillPanel({
     async (pkg: string) => {
       setInstalling(pkg);
       setInstallError(null);
+      setInstallNotice(null);
       try {
         const res = await fetch("/api/skills/install", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ package: pkg, scope, cwd }),
         });
-        const d = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || d.error) {
+        const d = (await res.json()) as { success?: boolean; directory?: string; skills?: string[]; error?: string };
+        if (!res.ok || d.error || !d.success) {
           setInstallError(d.error ?? `HTTP ${res.status}`);
           return;
         }
         setNewlyInstalledPkgs((prev) =>
           new Set(prev).add(`${scope}:${pkg}`),
         );
+        setInstallNotice(`已安装：${d.skills?.join("、") || pkg}。保存于 ${d.directory || installDirectory}；可在「当前模式组合」中启用。`);
         onInstalled();
       } catch (e) {
         setInstallError(String(e));
@@ -310,13 +311,8 @@ function AddSkillPanel({
         setInstalling(null);
       }
     },
-    [onInstalled, scope, cwd],
+    [onInstalled, scope, cwd, installDirectory],
   );
-
-  const installPath =
-    scope === "global"
-      ? "~/.pi/agent/skills/"
-      : `${shortenPath(cwd)}/.pi/skills/`;
 
   return (
     <ConfigDetailStack className="is-full-height">
@@ -335,6 +331,7 @@ function AddSkillPanel({
         <div style={{ display: "flex", gap: 8 }}>
           <input
             ref={inputRef}
+            aria-label="搜索技能市场"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -361,57 +358,13 @@ function AddSkillPanel({
           </ConfigButton>
         </div>
 
-        {/* Scope + install path row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              display: "flex",
-              borderRadius: 5,
-              border: "1px solid var(--border)",
-              overflow: "hidden",
-              fontSize: 12,
-              flexShrink: 0,
-            }}
-          >
-            {(["global", "project"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => {
-                  if (s === "global" || projectResourcesLoaded) setScope(s);
-                }}
-                disabled={s === "project" && !projectResourcesLoaded}
-                title={s === "project" && !projectResourcesLoaded ? t("trust.projectScopeUnavailable") : undefined}
-                style={{
-                  padding: "3px 10px",
-                  border: "none",
-                  cursor: s === "project" && !projectResourcesLoaded ? "not-allowed" : "pointer",
-                  background: scope === s ? "var(--bg-selected)" : "none",
-                  color: scope === s ? "var(--text)" : "var(--text-dim)",
-                  fontWeight: scope === s ? 600 : 400,
-                  opacity: s === "project" && !projectResourcesLoaded ? 0.45 : 1,
-                  borderRight:
-                    s === "global" ? "1px solid var(--border)" : "none",
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          <span
-            style={{
-              fontSize: 12,
-              color: "var(--text-dim)",
-              fontFamily: "var(--font-mono)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            → {installPath}
-          </span>
-        </div>
-
+        <p style={{ fontSize: 12, overflowWrap: "anywhere", color: "var(--text-muted)" }}>安装目录：<code>{installDirectory || "正在读取项目技能目录…"}</code></p>
+        <label style={{ fontSize: 12 }}>仓库地址或技能标识
+          <input aria-label="仓库地址或技能标识" value={source} onChange={(event) => setSource(event.target.value)} placeholder="owner/repo@skill 或仓库 URL" style={{ display: "block", width: "100%", marginTop: 6, padding: 8, background: "var(--bg-panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 6 }}/>
+        </label>
+        <ConfigButton onClick={() => void install(source.trim())} disabled={!source.trim() || !installDirectory || installing !== null}>从地址添加</ConfigButton>
         {/* Errors */}
+        {installNotice && <div role="status" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{installNotice}</div>}
         {searchError && (
           <div style={{ fontSize: 12, color: "#f87171" }}>{searchError}</div>
         )}
@@ -507,7 +460,7 @@ function AddSkillPanel({
                   onClick={() =>
                     !isInstalled && !isInstalling && install(r.package)
                   }
-                  disabled={isInstalled || isInstalling || installing !== null}
+                  disabled={isInstalled || isInstalling || installing !== null || !installDirectory}
                   style={{
                     flexShrink: 0,
                     background: isInstalled ? "rgba(34,197,94,0.1)" : "none",
@@ -552,13 +505,31 @@ function AddSkillPanel({
 }
 
 export function SkillsConfig({
+  sessionId,
+  section = "skills",
+  ...props
+}: { sessionId?: string | null; cwd: string; onClose: () => void; embedded?: boolean; section?: "skills" | "all" }) {
+  const [tab, setTab] = useState<"mode" | "library">("mode");
+  if (!sessionId) return <SkillLibraryConfig {...props}/>;
+  return <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div role="tablist" aria-label="技能管理" style={{ display: "flex", gap: 8, padding: 12, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+      {(["mode", "library"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} style={{ padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: tab === value ? "var(--bg-selected)" : "var(--bg-panel)", color: "var(--text)", cursor: "pointer" }}>{value === "mode" ? "当前模式组合" : "技能库 · 添加与市场"}</button>)}
+    </div>
+    <div style={{ display: tab === "mode" ? "block" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}><ModeSettingsPanel key={sessionId} sessionId={sessionId} section={section}/></div>
+    {tab === "library" && <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}><SkillLibraryConfig {...props} onInstalled={() => notifySessionConfiguration(sessionId)}/></div>}
+  </div>;
+}
+
+function SkillLibraryConfig({
   cwd,
   onClose,
   embedded = false,
+  onInstalled,
 }: {
   cwd: string;
   onClose: () => void;
   embedded?: boolean;
+  onInstalled?: () => void;
 }) {
   const { t } = useI18n();
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -574,6 +545,7 @@ export function SkillsConfig({
   const [updatingSkill, setUpdatingSkill] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projectResourcesLoaded, setProjectResourcesLoaded] = useState(true);
+  const [installDirectory, setInstallDirectory] = useState("");
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -585,6 +557,7 @@ export function SkillsConfig({
       const list = d.skills ?? [];
       setSkills(list);
       setProjectResourcesLoaded(d.projectResourcesLoaded ?? true);
+      setInstallDirectory(d.installDirectory ?? "");
       setSelected((current) => {
         if (current && list.some((skill) => skill.filePath === current)) return current;
         const initialSkill = list.find((skill) => !skill.disableModelInvocation) ?? list[0];
@@ -679,6 +652,7 @@ export function SkillsConfig({
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
       await loadSkills();
+      onInstalled?.();
       const versionHash = data.skill?.install?.versionHash;
       setUpdateStatuses((current) => ({
         ...current,
@@ -695,7 +669,7 @@ export function SkillsConfig({
     } finally {
       setUpdatingSkill(null);
     }
-  }, [cwd, loadSkills]);
+  }, [cwd, loadSkills, onInstalled]);
 
   const toggle = useCallback(async (skill: Skill) => {
     const next = !skill.disableModelInvocation;
@@ -864,7 +838,7 @@ export function SkillsConfig({
               {addMode ? (
               <AddSkillPanel
                 cwd={cwd}
-                projectResourcesLoaded={projectResourcesLoaded}
+                installDirectory={installDirectory}
                 installedPackages={{
                   global: new Set(
                     skills
@@ -873,12 +847,13 @@ export function SkillsConfig({
                   ),
                   project: new Set(
                     skills
-                      .filter((skill) => skill.install?.scope === "project")
+                      .filter((skill) => skill.install?.scope === "project" && skill.install.directory === installDirectory)
                       .map((skill) => skill.install!.package),
                   ),
                 }}
                 onInstalled={() => {
                   void loadSkills();
+                  onInstalled?.();
                 }}
               />
             ) : loading ? null : selectedSkill ? (

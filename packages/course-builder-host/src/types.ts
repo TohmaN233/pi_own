@@ -31,6 +31,7 @@ export interface CourseBuilderProjectInput {
 }
 
 export interface CourseBuilderProject extends CourseBuilderProjectInput {
+	planningRevision?: number;
 	projectId: string;
 	revision: number;
 	createdAt: string;
@@ -104,6 +105,7 @@ export interface TeacherReview {
 }
 
 export interface SemesterPlan extends SemesterPlanDraft {
+	projectPlanningRevision?: number;
 	projectRevision: number;
 	semesterPlanId: string;
 	projectId: string;
@@ -232,7 +234,32 @@ export interface CourseBuilderVisual {
 export interface SessionProjectBinding {
 	sessionId: string;
 	projectId: string;
+	agentAssignmentId: string | null;
 	boundAt: string;
+}
+
+export interface AssignmentDraft {
+	overview: string;
+	tasks: string[];
+	deliverables: string[];
+	rubric: string[];
+	solutionNotes: string[];
+	materialIds: string[];
+}
+
+export interface CourseBuilderAssignment {
+	assignmentId: string;
+	projectId: string;
+	title: string;
+	brief: string;
+	revision: number;
+	status: "collecting" | DraftStatus;
+	materialIds: string[];
+	draft: AssignmentDraft | null;
+	review: TeacherReview | null;
+	createdAt: string;
+	updatedAt: string;
+	contentHash: string;
 }
 
 export interface CourseBuilderState {
@@ -240,6 +267,7 @@ export interface CourseBuilderState {
 	projects: CourseBuilderProject[];
 	bindings: SessionProjectBinding[];
 	materials: CourseBuilderMaterial[];
+	assignments: CourseBuilderAssignment[];
 	materialAnalyses: MaterialAnalysis[];
 	semesterPlans: SemesterPlan[];
 	lessonPlans: LessonPlan[];
@@ -253,6 +281,7 @@ export interface CourseBuilderSnapshot {
 	materialAnalysis: MaterialAnalysis | null;
 	project: CourseBuilderProject;
 	materials: CourseBuilderMaterial[];
+	assignments: CourseBuilderAssignment[];
 	semesterPlan: SemesterPlan | null;
 	lessonPlans: LessonPlan[];
 	decks: BeamerDeck[];

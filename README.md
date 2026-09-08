@@ -1,114 +1,56 @@
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+# pi-own
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+**开发中。目前主要用于备课。**
 
-# Pi Agent Harness
+pi-own 基于 Pi 与 Pi Web，探索一个在本地保存资料、课程资产和对话的个人 Agent 工作台。当前开发重点是教师备课：从资料与学期安排，到单课教案、Assignment、可视化和 Beamer 课件的生成、修改与审阅。
 
-This is the home of the Pi agent harness project including our self extensible coding agent.
+项目仍在迭代，功能和数据结构可能变化；尚不承诺稳定版本或生成内容完全正确。
 
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
+## 当前能力
 
-To learn more about Pi:
+- 以课程／项目组织多个对话，共享默认模型、提示词和 Skills，并允许会话单独调整。
+- 链接本地资料文件夹、按需读取资料；支持聊天附件，课程和 Assignment 资料分开管理。
+- 编写和审阅学期计划、单课教案、作业及课件；已有资产按版本继续修改。
+- 编辑 TeX、预览 PDF、执行编译和确定性检查，以及人工验收与取消验收。
+- 为生产请求保存交付要求，未完成时自动续跑，并明确显示阻碍；不会将保存或编译成功等同于内容完整。
+- 在项目的 `skills/` 中管理技能，由模式组合启用，用户可调整。
 
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
+## 本地运行与文档
 
-## All Packages
+环境需要 Node.js 和 npm；PDF 文本提取需要 `pdftotext`，Beamer 编译需要可用的 XeLaTeX。模型凭据由使用者在本机配置。
 
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+- [Windows 本地运行](docs/LOCAL_TESTING.zh-CN.md)
+- [备课工作流](docs/COURSE_BUILDER.md)
+- [功能测试清单](docs/HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md)
+- [技能参考与适配记录](docs/SKILL_PARITY_AUDIT_2026-09-05.zh-CN.md)
 
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
+仓库不提供个人凭据、聊天记录、课程资料或生成课件。运行数据与附件保存在本地，不应提交到 Git。
 
-## Permissions & Containerization
+## Credits · 基础项目与参考
 
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
+- [Pi / earendil-works/pi](https://github.com/earendil-works/pi)：Agent runtime、工具调用、多模型接入及会话基础。本仓库保留相关源码与许可证。
+- [agegr/pi-web](https://github.com/agegr/pi-web)：Web 对话界面基础。当前集成基线为 v0.8.11；[来源清单](docs/pi-web-upstream-manifest.json)记录了上游版本。
+- [THU-MAIC/OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)：教学技能、显式加载技能、目标与评估对齐、复述诊断、来源审查及教学交互设计的重要参考。这里是面向 Pi Own 工具和工作流的适配，并非完整移植。见[署名与许可证](third_party/openmaic-skills/NOTICE.md)。
+- [Noi1r/beamer-skill](https://github.com/Noi1r/beamer-skill)：参考其 Beamer 创建、编译、审查与修订流程。见[署名与许可证](third_party/noi1r-beamer-skill/NOTICE.md)。
+- [Mozilla PDF.js](https://github.com/mozilla/pdf.js)：浏览器中的 PDF 预览。
 
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
+## Credits · Skills
 
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
+教学模式使用的本地适配技能位于 [`skills/`](skills/)：
 
-## Contributing
+| 本地技能 | 用途与主要参考 |
+| --- | --- |
+| `course-planning-beamer` | 备课和课件工作流；参考 OpenMAIC 与 beamer-skill |
+| `lesson-blueprint` | 目标、理解证据与活动对齐；参考 `understanding-by-design` |
+| `feynman-teach-back` | 解释、定位缺口和迁移检查；参考 `feynman-learning` |
+| `learning-to-learn` | 主动回忆、预测和自我解释 |
+| `curriculum-continuity` | 跨课衔接；参考 `curriculum-planner`、`spiral-curriculum` |
+| `evidence-ledger` | 来源与事实核查；参考 `fact-check`、`deep-research` |
+| `revision-discipline` | 在已有资产上最小修改并验证；参考 `pro-editing` |
+| `learn-by-doing` | 操作、观察与反馈；参考 `deep-interactive`、`workshop-style` |
+| `visual-explanation` | 服务于理解的可视化；参考交互与 `slide-craft` 方法 |
+| `personal-skill-builder` | 可审阅的个人偏好技能；参考 `build-personal-skill` |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
+另收录可选技能：`pi-subagents`、`council-mode` 来自 [nicobailon/pi-subagents](https://github.com/nicobailon/pi-subagents)；`chrome-devtools` 来自 [github/awesome-copilot](https://github.com/github/awesome-copilot)；`gpt-image-2` 来自 [prime-skills/runcomfy-agent-skills](https://github.com/prime-skills/runcomfy-agent-skills)。收录不代表默认启用或已配置对应外部服务，来源记录保存在 `skills/.skills-lock.json`。
 
-## Development
-
-```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
-```
-
-## Building standalone binaries from release source
-
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
-
-```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
-```
-
-The source archive includes the generated provider model data used for the release. `--offline-model-data` builds with that snapshot instead of refreshing it from live provider catalogs. The script still installs dependencies, builds the monorepo, compiles the Bun executable, and stages its runtime assets. Package maintainers who provide dependencies separately can pass `--skip-install --skip-deps`.
-
-## Supply-chain hardening
-
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
-
-## Share your OSS coding agent sessions
-
-If you use Pi or other coding agents for open source work, please share your sessions.
-
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
-
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
-
-## License
-
-MIT
-
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+各第三方组件和技能遵循其各自许可证；本项目许可证见 [LICENSE](LICENSE)。

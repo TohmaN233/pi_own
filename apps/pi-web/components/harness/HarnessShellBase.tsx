@@ -2,6 +2,7 @@
 
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { notifySessionConfiguration, subscribeSessionConfiguration } from "@/lib/session-configuration-events";
 import {
   getHarnessStatus,
   getHarnessTimeline,
@@ -42,7 +43,8 @@ export function HarnessShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    return subscribeSessionConfiguration(sessionId ?? "", () => { void refresh(); });
+  }, [refresh, sessionId]);
 
   const selectCourse = async (courseVersionId: string) => {
     try {
@@ -133,6 +135,7 @@ export function HarnessShell({ children }: { children: ReactNode }) {
 		setNotice(null);
 		try {
 			await switchHarnessProfile(sessionId, targetProfileId, current.resourceSnapshotId, idempotencyKey);
+			notifySessionConfiguration(sessionId);
 			profileOperationKeys.current.delete(operation);
 			await refresh();
 		} catch (error) {
@@ -284,7 +287,7 @@ export function HarnessShell({ children }: { children: ReactNode }) {
           <form className={styles.form} onSubmit={importCourse}>
             <label>
               Course ID
-              <input className={styles.input} name="courseId" required placeholder="s4ci3-f2022" />
+              <input className={styles.input} name="courseId" required placeholder="example-course" />
             </label>
             <label>
               ZIP, PDF, Markdown, text, notebook, or code

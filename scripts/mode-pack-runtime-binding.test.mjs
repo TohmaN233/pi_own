@@ -77,6 +77,7 @@ assert.throws(() => assertGenericModePackSnapshot({
 const prompt = formatModePackSystemPrompt(firstSnapshot, [
   { id: "skill:shared.revision-discipline", text: "Read, edit narrowly, and verify." },
 ]);
+assert.match(prompt, /contentHash="sha256:[a-f0-9]{64}"/);
 const expected = {
   activeTools: firstSnapshot.tools,
   loadedSkillIds: ["shared.revision-discipline"],

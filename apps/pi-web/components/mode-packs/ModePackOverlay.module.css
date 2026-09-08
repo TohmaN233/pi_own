@@ -41,6 +41,18 @@
   text-decoration: none;
 }
 
+.workspaceLink {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg));
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.workspaceLink:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 17%, var(--bg));
+}
+
 .warning {
   min-width: 0;
   max-width: min(520px, 42vw);

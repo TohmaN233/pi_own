@@ -23,6 +23,7 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
+import { PdfPreview } from "./PdfPreview";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
@@ -906,11 +907,11 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }:
           <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "#f87171", fontSize: 13, textAlign: "center" }}>
             {error}
           </div>
-        ) : (
+        ) : isPdf ? <PdfPreview key={previewUrl} url={previewUrl} title={t("i18n.previewFile", { file: getFileName(filePath) })}/> : (
           <iframe
             key={previewUrl}
             src={previewUrl}
-            sandbox={isPdf ? undefined : "allow-same-origin"}
+            sandbox="allow-same-origin"
             title={t("i18n.previewFile", { file: getFileName(filePath) })}
             style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
           />

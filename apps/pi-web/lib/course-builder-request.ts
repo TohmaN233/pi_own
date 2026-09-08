@@ -1,5 +1,14 @@
 import { getGenericModePackStatus, getRpcSession } from "./rpc-manager";
 import { assertCourseBuilderSession } from "./course-builder-service";
+import { resolveSessionPath } from "./session-reader";
+
+/** Persisted teacher work does not depend on a live model or current Skill snapshot. */
+export async function requireCourseBuilderWorkspace(sessionId: string, idle = false) {
+ assertCourseBuilderSession(sessionId);
+ const wrapper = getRpcSession(sessionId);
+ if (!wrapper?.isAlive() && !await resolveSessionPath(sessionId)) throw new Error(`Pi session not found: ${sessionId}`);
+ if (idle && wrapper?.isRunning()) throw new Error("Session is busy; wait before teacher changes");
+}
 
 export async function requireCourseBuilderRuntime(sessionId: string, idle = false) {
  assertCourseBuilderSession(sessionId);

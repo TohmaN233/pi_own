@@ -18,8 +18,9 @@ Course-bound learner state continues to use the reviewed Learning Harness SQLite
 | Tutor (`student-learn`) | course-bound student | Active through Learning Harness |
 | Practice | course-bound student | Active through Learning Harness |
 | Teach-back | course-bound student | Active through Learning Harness |
-| Visual Lab | course-bound student | Declared; P4 sandbox/HTML stage remains future |
-| Teacher Prep | teacher build | Declared; P5 detachable teacher build remains future |
+| Visual Lab | course-bound student | Fixed deterministic renderers exist; dedicated learner Stage remains future |
+| Teacher Prep | teacher build | Teaching Skills are integrated; detachable teacher distribution remains future |
+| Course Builder | ordinary Pi teacher session | Source analysis, plans, approvals, visuals, Beamer and evidence-backed acceptance implemented |
 | Coding | ordinary Pi session | Generic runtime activation implemented |
 | Creative | ordinary Pi session | Generic runtime activation implemented |
 | General | ordinary Pi session | Generic runtime activation implemented |
@@ -32,11 +33,11 @@ A generic Mode Pack is not considered active merely because its name appears in 
 Mode Pack id
   → resolve installed inventory without executing unselected plugins
   → verify exact version/content hashes
-  → compile immutable Resource Snapshot and prompt markers
+  → compile immutable Resource Snapshot and full-text/hash prompt blocks
   → create an unregistered candidate AgentSession
   → load only selected extension/Skill/prompt/theme paths
   → activate declared built-in tools plus tools registered by selected plugins
-  → verify tools, resources, prompt marker, and snapshot hash
+  → verify tools, physical resource digests, complete prompt bodies, body hashes, and snapshot hash
   → stop the old idle runtime
   → append the binding to the same Pi JSONL
   → read the binding back
@@ -52,13 +53,15 @@ Mode Pack sessions reject direct `set_tools`, model, thinking-level, and generic
 The inventory contains:
 
 - Pi built-in tools;
-- Pi Own synthetic prompt, Skill, and workflow resources;
+- Pi Own synthetic prompts and workflows plus physical built-in `SKILL.md` resources;
 - installed package extensions grouped by package source and scope;
 - installed Skills, prompt templates, and themes as individually addressable resources.
 
 Installed file resources receive stable `runtime.*` identifiers and content hashes. A custom pack pins those identifiers. Moving to a machine where a required resource is missing, or editing a pinned file in place, makes the pack unavailable rather than quietly substituting another resource.
 
-Selected physical Skills and prompts are both loaded through Pi's `DefaultResourceLoader` and embedded in the immutable Mode Pack prompt. Synthetic Pi Own guidance has no filesystem path and is loaded through explicit prompt resource markers. Unselected extension paths are not loaded into the candidate runtime.
+Selected physical Skills are loaded through Pi's `DefaultResourceLoader` and embedded in the immutable Mode Pack prompt. Each prompt block carries a SHA-256 of its complete body. Runtime verification requires the exact body and hash plus a fresh digest of every selected physical file; retaining only the Skill id or marker cannot pass. Synthetic Pi Own prompts and workflows have no filesystem path and are verified by the same exact prompt-body contract. Unselected extension paths are not loaded into the candidate runtime.
+
+Required resources fail closed before activation. Optional resources may be skipped during pack compilation and remain visible as an explicit availability diagnostic. Course Builder makes its planning, learning-strategy, curriculum, evidence, revision, learn-by-doing and visual Skills required; its conditional Teach-back Skill is optional. The immutable system prompt is outside transcript-message compaction, and every recovered runtime is verified again before use.
 
 ## Custom packs
 
@@ -95,12 +98,11 @@ Course-bound custom learner packs remain available from the Learning Harness Mod
 
 ## Current boundary after P1
 
-P1 now includes the common contract, built-in packs, custom generic library/editor, installed-resource inventory, real AgentSession resource filtering, verified activation, JSONL recovery, fork inheritance, rollback behavior, and the shared selector.
+P1 and the education-Skill integration now include the common contract, built-in packs, custom generic library/editor, installed-resource inventory, physical built-in Skills, exact-body verification, real AgentSession resource filtering, JSONL recovery, fork inheritance, rollback behavior, the shared selector and Course Builder.
 
 The following remain outside P1:
 
-- P2: finish product integration of the recommended education Skills and their workflow UI;
 - P3: persist concept evidence and curriculum-revisit state into the existing Harness transaction/Timeline;
-- P4: independent computation sandbox, interactive HTML Stage, artifact UI, and visual accessibility/browser checks;
+- P4: independent computation sandbox, interactive learner Stage, automatic accessibility/browser checks, and insertion of visuals into deck frames;
 - P5: detachable teacher build, adversarial evaluation, release packaging, backup, migration, and rollback evidence;
 - installing or upgrading third-party packages directly from the Mode Pack editor.

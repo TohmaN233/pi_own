@@ -20,7 +20,6 @@ test("rpc manager rebuilds and verifies generic Mode Pack runtimes instead of mu
   assert.match(source, /journalCommitted = true/);
   assert.match(source, /never resurrect the previous runtime/);
   assert.match(source, /Reopen the session to recover the committed snapshot/);
-  assert.match(source, /Mode Pack sessions own their tool selection/);
 });
 
 // Actual SDK sessions and JSONL, not a source-pattern substitute for recovery.
@@ -46,6 +45,8 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
     for (const wrapper of globalThis.__piSessions?.values() ?? []) {
       await wrapper.shutdown().catch(() => undefined);
     }
+    globalThis.__piLearningHarness?.close();
+    globalThis.__piLearningHarness = undefined;
     globalThis.fetch = originalFetch;
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
@@ -173,6 +174,25 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   assert.equal(rpc.getRpcSession(earlyFork.newSessionId)?.isAlive() ?? false, false);
   assert.match(readFileSync(grandchildPath, "utf8"), /custom\.smoke-required/);
 
+  // An explicit upgrade of a dormant stale session must keep its JSONL identity.
+  writeFileSync(skillFile, "---\nname: mode-pack-required-smoke\ndescription: Required runtime smoke fixture.\n---\nUpdated complete instructions for the same required skill.\n");
+  const beforeUpgrade = SessionManager.open(grandchildPath, undefined).getEntries();
+  await assert.rejects(rpc.startRpcSession(earlyFork.newSessionId, grandchildPath, undefined), /resource identity changed/i);
+  await store.saveDraft({
+    ...draft, modePackId: definition.modePackId, revision: 2,
+    components: [{ type: "skill", id: requiredSkill.id, required: true, enabled: true }],
+  }, cwd, 1);
+  const upgraded = await rpc.activateGenericModePack({
+    sessionId: earlyFork.newSessionId, modePackId: definition.modePackId,
+    expectedSnapshotId: required.binding.snapshot.resourceSnapshotId, idempotencyKey: "upgrade-dormant-stale",
+  });
+  assert.equal(upgraded.sessionId, earlyFork.newSessionId);
+  assert.equal(upgraded.runtime.verified, true);
+  assert.equal(rpc.getRpcSession(earlyFork.newSessionId).sessionFile, grandchildPath);
+  const afterUpgrade = SessionManager.open(grandchildPath, undefined).getEntries();
+  for (const entry of beforeUpgrade) assert.deepEqual(afterUpgrade.find((item) => item.id === entry.id), entry);
+  assert.notEqual(upgraded.binding.snapshot.resourceSnapshotId, required.binding.snapshot.resourceSnapshotId);
+
   // A candidate rejected AFTER SDK construction must not change the old saved model.
   const parent = await rpc.startRpcSession(sessionId, sessionFile, undefined);
   const otherModel = models.find((model) => model.id !== chosen.id);
@@ -199,4 +219,107 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   assert.deepEqual(SessionManager.open(sessionFile, undefined).buildSessionContext().model, {
     provider: expectedModel.provider, modelId: expectedModel.id,
   }, "a rejected candidate must not alter the authoritative saved model");
+
+  // The ordinary model selector must work inside a Mode Pack and survive restart.
+  const beforeSettings = readBinding();
+  const { POST: commandPost } = await jiti.import("../app/api/agent/[id]/route.ts");
+  const switchResponse = await commandPost(new Request(`http://localhost/api/agent/${sessionId}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "set_model", provider: otherModel.provider, modelId: otherModel.id }),
+  }), { params: Promise.resolve({ id: sessionId }) });
+  assert.equal(switchResponse.status, 200);
+  assert.deepEqual((await switchResponse.json()).data, { provider: otherModel.provider, id: otherModel.id });
+  const changed = rpc.getRpcSession(sessionId);
+  assert.deepEqual(modelOf(changed), { provider: otherModel.provider, id: otherModel.id });
+  const { buildSessionContext } = await jiti.import("./session-reader.ts");
+  assert.deepEqual(SessionManager.open(sessionFile, undefined).buildSessionContext().model, {
+    provider: otherModel.provider, modelId: otherModel.id,
+  }, "the model selector's reload must read the newly selected model from JSONL");
+  assert.deepEqual(buildSessionContext(changed.inner.sessionManager.getEntries(), changed.inner.sessionManager.getLeafId()).model, {
+    provider: otherModel.provider, modelId: otherModel.id,
+  }, "the session HTTP reader must expose the committed selection");
+  assert.equal(readBinding().revision, beforeSettings.revision + 1);
+  assert.equal(readBinding().snapshot.profileId, beforeSettings.snapshot.profileId);
+  await changed.send({ type: "set_thinking_level", level: "low" });
+  assert.equal(SessionManager.open(sessionFile, undefined).buildSessionContext().thinkingLevel, "low");
+  const { GET: getSession } = await jiti.import("../app/api/sessions/[id]/route.ts");
+  const response = await getSession(new Request(`http://localhost/api/sessions/${sessionId}`), { params: Promise.resolve({ id: sessionId }) });
+  assert.equal(response.status, 200);
+  const readback = await response.json();
+  assert.deepEqual(readback.context.model, { provider: otherModel.provider, modelId: otherModel.id });
+  assert.equal(readback.context.thinkingLevel, "low");
+  await rpc.getRpcSession(sessionId).shutdown();
+  // Simulate an older deployment: the committed snapshot is new but the
+  // ordinary model entry still points at the old selection.
+  SessionManager.open(sessionFile).appendModelChange(chosen.provider, chosen.id);
+  const restartedSettings = await rpc.startRpcSession(sessionId, sessionFile, undefined);
+  assert.deepEqual(modelOf(restartedSettings.session), { provider: otherModel.provider, id: otherModel.id });
+  assert.deepEqual(SessionManager.open(sessionFile).buildSessionContext().model, { provider: otherModel.provider, modelId: otherModel.id }, "reopening repairs stale settings from the committed snapshot");
+  const { createFauxCore, fauxAssistantMessage } = await jiti.import("@earendil-works/pi-ai");
+  const faux = createFauxCore({});
+  faux.setResponses([{ ...fauxAssistantMessage("Offline model selection verification."), provider: otherModel.provider, model: otherModel.id }]);
+  let requestedModel;
+  restartedSettings.session.inner.agent.streamFunction = (model, context, options) => {
+    requestedModel = { provider: model.provider, id: model.id };
+    return faux.stream(model, context, options);
+  };
+  await restartedSettings.session.inner.prompt("Verify the selected model without calling a provider.");
+  assert.deepEqual(requestedModel, { provider: otherModel.provider, id: otherModel.id }, "the next SDK turn must use the selected model");
+
+  const { getSessionModeSettings, updateSessionModeSettings } = await jiti.import("./mode-settings-service.ts");
+  const beforePrompt = await getSessionModeSettings(sessionId);
+  assert.ok(beforePrompt.skills.length >= 10, "the built-in local skill library must be visible even if this mode uses none");
+  const prompt = "Help this teacher plan a statistics lesson. Keep evidence separate from conjecture.";
+  const patch = { systemPrompt: prompt, skills: [{ id: "education.visual-explanation", enabled: true }] };
+  const request = { sessionId, expectedSnapshotId: beforePrompt.snapshotId, idempotencyKey: "settings-prompt-skills", settingsPatch: patch };
+  const edited = await updateSessionModeSettings(request);
+  assert.equal(edited.systemPrompt, prompt);
+  assert.ok(edited.skills.find((skill) => skill.id === "education.visual-explanation").loaded);
+  assert.ok(rpc.getRpcSession(sessionId).inner.agent.state.systemPrompt.includes(prompt));
+  const revision = readBinding().revision;
+  await updateSessionModeSettings(request);
+  assert.equal(readBinding().revision, revision, "retry must not create another revision");
+  await assert.rejects(updateSessionModeSettings({ ...request, settingsPatch: { systemPrompt: "different" } }), /idempotency key/i);
+  const away = await rpc.activateGenericModePack({ sessionId, modePackId: "creative", expectedSnapshotId: edited.snapshotId, idempotencyKey: "settings-away" });
+  assert.notEqual((await getSessionModeSettings(sessionId)).systemPrompt, prompt);
+  await rpc.activateGenericModePack({ sessionId, modePackId: "general", expectedSnapshotId: away.binding.snapshot.resourceSnapshotId, idempotencyKey: "settings-return" });
+  assert.equal((await getSessionModeSettings(sessionId)).systemPrompt, prompt);
+  const current = await getSessionModeSettings(sessionId);
+  const off = await updateSessionModeSettings({ sessionId, expectedSnapshotId: current.snapshotId, idempotencyKey: "settings-skill-off", settingsPatch: { skills: [{ id: "education.visual-explanation", enabled: false }] } });
+  assert.equal(off.skills.find((skill) => skill.id === "education.visual-explanation").loaded, false);
+  assert.ok(!rpc.getRpcSession(sessionId).inner.agent.state.systemPrompt.includes('<mode-pack-resource id="skill:education.visual-explanation"'));
+
+  // Ordinary controls revise the pack without dropping its prompt/skills or identity.
+  const setTools = async (toolNames) => {
+    const response = await commandPost(new Request(`http://localhost/api/agent/${sessionId}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "set_tools", toolNames }),
+    }), { params: Promise.resolve({ id: sessionId }) });
+    const result = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(result));
+    assert.equal(result.data.sessionId, sessionId);
+  };
+  await setTools(["read", "bash", "edit", "write"]);
+  assert.deepEqual(readBinding().snapshot.tools, ["bash", "edit", "read", "write"]);
+  assert.equal((await getSessionModeSettings(sessionId)).systemPrompt, prompt);
+  if (process.platform === "win32") {
+    const { writePowerShellToolEnabled } = await jiti.import("./powershell-settings.ts");
+    await writePowerShellToolEnabled(true);
+    await rpc.getRpcSession(sessionId).send({ type: "reload" });
+    let active = rpc.getRpcSession(sessionId).inner.getActiveToolNames();
+    assert.ok(active.includes("powershell"));
+    assert.ok(!active.includes("bash"));
+    assert.equal((await rpc.getGenericModePackStatus(sessionId)).runtime.verified, true);
+    await writePowerShellToolEnabled(false);
+    await rpc.getRpcSession(sessionId).send({ type: "reload" });
+    active = rpc.getRpcSession(sessionId).inner.getActiveToolNames();
+    assert.ok(active.includes("bash"));
+    assert.ok(!active.includes("powershell"));
+  }
+  await rpc.getRpcSession(sessionId).shutdown();
+  await setTools(["read", "grep", "find", "ls"]);
+  assert.deepEqual(rpc.getRpcSession(sessionId).inner.getActiveToolNames().sort(), ["find", "grep", "ls", "read"]);
+  assert.equal((await getSessionModeSettings(sessionId)).systemPrompt, prompt);
+  await setTools([]);
+  assert.deepEqual(rpc.getRpcSession(sessionId).inner.getActiveToolNames(), []);
 });

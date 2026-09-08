@@ -1,0 +1,17 @@
+.panel { min-height: 0; height: 100%; overflow: auto; padding: 18px; color: var(--text); background: var(--bg-panel); font-size: 13px; }
+.heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.heading span, .field small { color: var(--text-muted); }
+.field { display: grid; gap: 8px; }
+.field textarea { width: 100%; min-height: 180px; resize: vertical; padding: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font: 13px/1.6 var(--font-mono); }
+.path { overflow-wrap: anywhere; color: var(--text-muted); font-size: 11px; }
+.skills { display: grid; gap: 10px; }
+.skills article { border-bottom: 1px solid var(--border); padding: 10px 0; }
+.skills label { display: flex; align-items: center; gap: 10px; }
+.skills label span { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+.skills details { margin: 10px 0 0 25px; }
+.skills summary { cursor: pointer; color: var(--accent); }
+.skills pre { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono); }
+.footer { display: flex; align-items: center; gap: 12px; position: sticky; bottom: -18px; padding: 14px 0; background: var(--bg-panel); }
+.panel button { cursor: pointer; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-selected); color: var(--text); padding: 8px 12px; }
+.panel button:disabled { opacity: .5; cursor: not-allowed; }
+.error { color: #ef8354; overflow-wrap: anywhere; }

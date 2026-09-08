@@ -67,7 +67,7 @@ function safeFailure(message: string): string {
   return `Course-grounded answer was not published: ${message}`;
 }
 
-function appendModePackSystemPrompt(
+export function appendModePackSystemPrompt(
   base: string,
   snapshot: {
     resourceSnapshotId?: unknown;
@@ -81,6 +81,7 @@ function appendModePackSystemPrompt(
   const resourceSnapshotId = typeof snapshot.resourceSnapshotId === "string"
     ? snapshot.resourceSnapshotId
     : "unknown";
+  if (base.includes(`Resource Snapshot: ${resourceSnapshotId}\n`)) return base;
   const instructions = Array.isArray(snapshot.instructions)
     ? snapshot.instructions.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
     : [];

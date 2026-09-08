@@ -6,7 +6,7 @@ import {
 	parseResourceSnapshot,
 	type ResourceSnapshot,
 } from "../../harness-contracts/src/index.ts";
-import { contentHash, deterministicId, stableStringify } from "../../harness-core/src/index.ts";
+import { contentHash, deterministicId, sha256Hex, stableStringify } from "../../harness-core/src/index.ts";
 import {
 	BUILTIN_MODE_PACK_DRAFTS,
 	compileModePackDraft,
@@ -421,8 +421,17 @@ export function formatModePackSystemPrompt(
 		const id = requiredString(resource.id, "loadedResourceText.id");
 		if (seen.has(id)) throw new Error(`Duplicate Mode Pack resource text: ${id}`);
 		seen.add(id);
-		sections.push(`<mode-pack-resource id="${id}">\n${resource.text}\n</mode-pack-resource>`);
+		sections.push(formatModePackResourceBlock(id, resource.text));
 	}
 	sections.push(`</mode-pack-snapshot:${snapshot.resourceSnapshotId}>`);
 	return sections.join("\n\n");
+}
+
+export function formatModePackResourceBlock(idValue: string, textValue: string): string {
+	const id = requiredString(idValue, "loadedResourceText.id");
+	if (typeof textValue !== "string" || !textValue.trim()) {
+		throw new Error(`Mode Pack resource text is empty: ${id}`);
+	}
+	const textHash = `sha256:${sha256Hex(textValue)}`;
+	return `<mode-pack-resource id="${id}" contentHash="${textHash}">\n${textValue}\n</mode-pack-resource>`;
 }

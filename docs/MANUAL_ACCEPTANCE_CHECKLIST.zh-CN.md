@@ -1,5 +1,7 @@
 # Pi Own / Learning Harness 手工验收清单（备课优先）
 
+> 历史基线说明（2026-09-05）：本文件核对的是 Course Builder 合并前的版本。当前备课验收请使用 [HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md](HARNESS_ACCEPTANCE_CHECKLIST.zh-CN.md) 和 [COURSE_BUILDER.md](COURSE_BUILDER.md)。下文“Course Builder 未实现”等结论仅适用于旧基线，不适用于当前 main。
+
 > 适用仓库：`TohmaN233/pi_own`  
 > 核对基线：`main` @ `efb01ef248cc7f9fc8a91c2b4719cf9093ab9b9e`  
 > 核对日期：2026-09-03  

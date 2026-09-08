@@ -112,31 +112,28 @@ function ensureStoreFile(path: string): void {
   }
 }
 
-function fsyncPath(path: string): void {
-  const descriptor = openSync(path, "r");
-  try {
-    fsyncSync(descriptor);
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
 function writeStore(path: string, store: PersistedModePackStore): void {
   const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temporary, `${stableStringify(store)}\n`, { encoding: "utf8", flag: "wx" });
   try {
-    fsyncPath(temporary);
+    // Flush the writable handle: Windows rejects fsync on a read-only handle.
+    writeFileSync(temporary, `${stableStringify(store)}\n`, { encoding: "utf8", flag: "wx", flush: true });
     renameSync(temporary, path);
-    try {
-      fsyncPath(dirname(path));
-    } catch {
-      // Directory fsync is not available on every supported Windows filesystem.
+    // Windows does not support opening directories for fsync through Node.
+    if (process.platform !== "win32") {
+      const descriptor = openSync(dirname(path), "r");
+      try {
+        fsyncSync(descriptor);
+      } finally {
+        closeSync(descriptor);
+      }
     }
   } catch (error) {
     try {
       unlinkSync(temporary);
-    } catch {
-      // Preserve the original failure.
+    } catch (cleanupError) {
+      if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error("[mode-pack-store] failed to remove temporary store", { temporary, cleanupError });
+      }
     }
     throw error;
   }

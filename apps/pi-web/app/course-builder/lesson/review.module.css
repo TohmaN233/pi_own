@@ -1,0 +1,16 @@
+.page { height:100dvh; overflow:auto; background:#f3f4f6; color:#20262e; font-size:16px; line-height:1.8; }
+.toolbar { position:sticky; top:0; z-index:2; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; background:#fff; padding:14px 24px; border-bottom:1px solid #ddd; }
+.toolbar a { color:#2455a4; text-decoration:none; }
+.paper { max-width:940px; margin:28px auto; padding:44px 60px; background:#fff; box-shadow:0 2px 18px #00000008; }
+.paper h1 { font-size:32px; line-height:1.4; margin:24px 0; }
+.paper h2 { font-size:23px; margin:32px 0 16px; border-bottom:1px solid #e5e7eb; padding-bottom:8px; }
+.paper h3 { font-size:19px; margin:0 0 16px; }.paper h4 { font-size:15px; margin:14px 0 4px; color:#596574; }
+.paper small,.meta { color:#64748b; font-size:13px; font-weight:normal; }
+.segment { padding:22px 0; border-bottom:1px dashed #d5dae0; }
+.paper textarea,.paper input:not([type=checkbox]) { width:100%; padding:10px; border:1px solid #c6ccd5; border-radius:6px; color:#20262e; background:#fff; font:inherit; line-height:1.5; }
+.paper textarea { resize:vertical; }.paper label { display:block; margin:10px 0; }.paper ul { padding-left:24px; }.paper li { margin-bottom:10px; overflow-wrap:anywhere; }
+.page button { border:1px solid #c6ccd5; border-radius:6px; padding:7px 12px; color:#2455a4; background:#fff; cursor:pointer; font-size:14px; }.page button:disabled { opacity:.45; cursor:default; }
+.actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:13px; }.review { margin-top:40px; }.error { padding:12px; border:1px solid #d88675; color:#9d3020; background:#fff6f3; }
+.listEdit { display:flex; align-items:flex-start; gap:8px; margin:12px 0; }.check { display:flex!important; align-items:center; gap:8px; }
+@media(max-width:720px) { .paper { margin:0; padding:24px 18px; }.toolbar { padding:12px 16px; }.toolbar span { display:none; } }
+@media print { .page { height:auto; overflow:visible; background:white; }.toolbar,.actions,.review, .page button { display:none; }.paper { box-shadow:none; margin:0; padding:0; }.segment { break-inside:avoid; } }

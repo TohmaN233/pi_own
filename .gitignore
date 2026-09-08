@@ -43,3 +43,21 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+
+# Local personal data, chat attachments, deployment snapshots and course outputs
+**/.pi/
+**/.skill-upgrade-live-*.json
+docs/LOCAL_UPGRADE_*.md
+*.pdf
+*.tex
+*.pptx
+*.docx
+*.zip
+*.sqlite*
+*.db
+*.jsonl
+*.pem
+*.key
+.env.*
+!.env.example
+!.env.*.example

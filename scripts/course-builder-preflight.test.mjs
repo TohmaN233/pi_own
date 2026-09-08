@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import test from "node:test";
+import { getShellConfig } from "../packages/coding-agent/src/utils/shell.ts";
 
 const gate = new URL("./verify-course-builder-local.sh", import.meta.url);
 
@@ -31,8 +32,10 @@ test("missing Course Builder entrypoint fails before invoking tests, installers 
     for (const name of ["node", "npm", "git", "gh"]) {
       writeFileSync(join(root, "tools", name), `#!/bin/sh\nprintf '%s\\n' '${name}' >> '${marker}'\nexit 71\n`, { mode: 0o755 });
     }
-    const result = spawnSync("bash", [join(root, "scripts", "verify-course-builder-local.sh")], {
-      encoding: "utf8", env: { ...process.env, PATH: `${join(root, "tools")}:${process.env.PATH}` },
+    const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
+    const result = spawnSync(getShellConfig().shell, [join(root, "scripts", "verify-course-builder-local.sh").replaceAll("\\", "/")], {
+      encoding: "utf8", windowsHide: true,
+      env: { ...process.env, [pathKey]: `${join(root, "tools")}${delimiter}${process.env[pathKey]}` },
     });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Missing product file: packages\/course-builder-host\/src\/index\.ts/);

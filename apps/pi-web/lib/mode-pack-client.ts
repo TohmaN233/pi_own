@@ -1,3 +1,5 @@
+import { notifySessionConfiguration } from "./session-configuration-events";
+
 export interface ModePackStatusItem {
   modePackId: string;
   title: string;
@@ -49,6 +51,15 @@ export function getModePackStatus(sessionId: string): Promise<ModePackStatusResp
   return requestJson(`/api/mode-packs/status?sessionId=${encodeURIComponent(sessionId)}`);
 }
 
+/** Restore a persisted ordinary Pi session without sending a model prompt. */
+export function resumePiSession(sessionId: string): Promise<{ success: true; data: unknown }> {
+  return requestJson(`/api/agent/${encodeURIComponent(sessionId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "get_state" }),
+  });
+}
+
 export function activateModePack(options: {
   sessionId: string;
   modePackId: string;
@@ -64,11 +75,11 @@ export function activateModePack(options: {
   replay: boolean;
   verified?: boolean;
 }> {
-  return requestJson("/api/mode-packs/activate", {
+  return requestJson<Awaited<ReturnType<typeof activateModePack>>>("/api/mode-packs/activate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options),
-  });
+  }).then((result) => { notifySessionConfiguration(options.sessionId); return result; });
 }
 
 export function getModePackLibrary(sessionId: string): Promise<{

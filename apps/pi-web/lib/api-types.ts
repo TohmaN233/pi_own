@@ -23,6 +23,7 @@ export interface SkillSearchResult {
 export type SkillInstallScope = "global" | "project";
 
 export interface SkillInstallInfo {
+  directory?: string;
   package: string;
   scope: SkillInstallScope;
   source: string;
@@ -63,6 +64,7 @@ export interface SkillInfo {
 }
 
 export interface SkillsResponse {
+  installDirectory?: string;
   skills: SkillInfo[];
   diagnostics: ResourceDiagnostic[];
   projectResourcesLoaded: boolean;

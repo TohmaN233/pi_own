@@ -1360,7 +1360,7 @@ span.token.table {
   }
   .sidebar-container {
     position: fixed !important;
-    top: 0;
+    top: var(--harness-bar-height, 0px);
     left: env(safe-area-inset-left);
     bottom: 0;
     width: 280px;

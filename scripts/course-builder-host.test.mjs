@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
-import { CourseBuilderHost, compileBeamer, reviewBeamer, assertSafeBeamerSource, assertBeamerAssets } from '../packages/course-builder-host/src/index.ts';
+import { CourseBuilderHost, compileBeamer, reviewBeamer, assertSafeBeamerSource, assertBeamerAssets, runCourseBuilderCommand } from '../packages/course-builder-host/src/index.ts';
 import { contentHash, sha256Hex } from '../packages/harness-core/src/index.ts';
 
 export const projectInput = {
@@ -43,11 +43,78 @@ function planned() {
   return { ...f, plan, lesson, deck };
 }
 
+test('Host rejects leaked formatting commands but permits valid monospace and literal TeX examples', () => {
+  const f = planned();
+  try {
+    const draft = { lessonPlanId: f.lesson.lessonPlanId, title: 'Linearity', frameOutline: ['Goal'], assetMaterialIds: [] };
+    const replace = (fragment) => source.replace('A linear transformation', fragment + ' A linear transformation');
+    assert.throws(() => f.host.saveBeamerDeck('teacher', { ...draft, source: replace(String.raw`\\texttt{x[5]}`) }, 1, 1), /TEX_COMMAND_LEAK.*line/);
+    assert.equal(f.host.getSnapshotForSession('teacher').decks[0].revision, 1);
+    const legacyReview = reviewBeamer({ project: f.project, deck: { ...f.deck, source: replace(String.raw`\\texttt{x[5]}`) } });
+    assert.ok(legacyReview.issues.some((issue) => issue.code === 'TEX_COMMAND_LEAK' && issue.severity === 'critical' && /line/.test(issue.location)));
+    const valid = f.host.saveBeamerDeck('teacher', { ...draft, source: replace(String.raw`\\\texttt{x[5]} \verb|\\texttt{x}|`) }, 1, 1);
+    assert.equal(valid.revision, 2);
+  } finally { f.db.close(); }
+});
+
+test('failed compilation exposes the actual TeX error and paginated logs to the Agent', { skip: process.env.PI_TEST_XELATEX !== '1' }, async () => {
+  const f = planned();
+  try {
+    const broken = String.raw`\documentclass[aspectratio=169,11pt]{beamer}
+\begin{document}
+\begin{frame}[fragile]{Broken}Text\end{frame}
+\end{document}`;
+    const deck = f.host.saveBeamerDeck('teacher', { lessonPlanId: f.lesson.lessonPlanId, title: 'Broken', source: broken, frameOutline: ['Broken'], assetMaterialIds: [] }, 1, 1);
+    const result = await runCourseBuilderCommand(f.host, 'teacher', { action: 'compile', id: deck.deckId, expectedRevision: deck.revision }, { trustedTex: true });
+    assert.equal(result.succeeded, false);
+    assert.match(result.diagnostics.map(d => d.message).join('\n'), /File ended while scanning use/);
+    assert.match(result.logExcerpt.text, /File ended while scanning use/);
+    let fullLog = '', offset = 0;
+    do {
+      const part = await runCourseBuilderCommand(f.host, 'teacher', { action: 'read_compile_log', id: result.receiptId, offset, limit: 2000 });
+      assert.equal(part.logHash, result.logHash);
+      assert.equal(part.deckRevision, deck.revision);
+      fullLog += part.text; offset = part.nextOffset;
+    } while (offset !== null);
+    assert.equal(fullLog, f.host.getCompileLog('teacher', result.receiptId));
+    const other = f.host.createProject({ ...projectInput, courseId: 'other' });
+    f.host.bindSession('other-teacher', other.projectId);
+    await assert.rejects(runCourseBuilderCommand(f.host, 'other-teacher', { action: 'read_compile_log', id: result.receiptId }), /unavailable/);
+  } finally { f.db.close(); }
+});
+
+test('patch_deck preserves unrelated source and rejects ambiguous or stale edits atomically', async () => {
+  const f = planned();
+  try {
+    const patch = { action: 'patch_deck', id: f.deck.deckId, expectedRevision: 1, parentRevision: 1, draft: { edits: [{oldText:'Learning goal',newText:'Our learning goal'}] } };
+    await assert.rejects(runCourseBuilderCommand(f.host,'teacher',{...patch,draft:{edits:[{oldText:'Learning goal',newText:'Changed'},{oldText:'not present',newText:'bad'}]}}),/exactly once/);
+    assert.equal(f.host.getSnapshotForSession('teacher').decks[0].source, f.deck.source);
+    await assert.rejects(runCourseBuilderCommand(f.host,'teacher',{...patch,draft:{edits:[{oldText:'frame',newText:'bad'}]}}),/exactly once/);
+    const saved=await runCourseBuilderCommand(f.host,'teacher',patch);
+    assert.equal(saved.deckId,f.deck.deckId);
+    assert.equal(saved.revision,2);
+    assert.equal(f.host.getSnapshotForSession('teacher').decks[0].source,f.deck.source.replace('Learning goal','Our learning goal'));
+    await assert.rejects(runCourseBuilderCommand(f.host,'teacher',patch),/current deck/);
+  } finally {f.db.close();}
+});
+
 test('PR #7: draft, approval, deck and original source survive fresh Host construction', () => {
   const f = planned();
   const recovered = new CourseBuilderHost(f.db);
   assert.deepEqual(recovered.getSnapshotForSession('teacher'), f.host.getSnapshotForSession('teacher'));
   assert.equal(Buffer.from(recovered.getMaterialBytes('teacher', f.material.materialId)).toString(), 'Linearity');
+  f.db.close();
+});
+
+test('Course Builder restores version 1 databases created before Assignment workflows', () => {
+  const f = setup();
+  const row = f.db.prepare('SELECT value FROM course_builder_state').get();
+  const state = JSON.parse(row.value);
+  delete state.assignments;
+  delete state.bindings[0].agentAssignmentId;
+  f.db.prepare('UPDATE course_builder_state SET value=?').run(JSON.stringify(state));
+  const recovered = new CourseBuilderHost(f.db);
+  assert.deepEqual(recovered.getSnapshotForSession('teacher').assignments, []);
   f.db.close();
 });
 
@@ -60,14 +127,45 @@ test('PR #7: agent cannot forge approvals or skip teacher review', () => {
   db.close();
 });
 
-test('PR #7: revision conflicts and concurrent instances do not clobber state', () => {
+test('PR #7: revision conflicts still protect writes while cosmetic edits preserve approved planning', () => {
   const f = planned();
   const second = new CourseBuilderHost(f.db);
   f.host.updateProject(f.project.projectId, { ...projectInput, title: 'Changed title' }, 2);
   assert.throws(() => second.updateProject(f.project.projectId, projectInput, 2), /Expected/);
   assert.equal(second.getProject(f.project.projectId).title, 'Changed title');
-  assert.throws(() => second.getDeckForCompile('teacher', f.deck.deckId), /current approved Semester/);
+  assert.equal(second.getDeckForCompile('teacher', f.deck.deckId).deck.deckId, f.deck.deckId);
   f.db.close();
+});
+
+test('reference imports preserve semester approval and downstream work; planning changes invalidate it', () => {
+  const f = planned();
+  try {
+    const approved = f.host.getSnapshotForSession('teacher').semesterPlan;
+    f.host.importMaterials('teacher', [{ name: 'extra-questions.md', kind: 'markdown', sourceBytes: Buffer.from('Extra practice'), extractedText: 'Extra practice' }], 2);
+    const restored = new CourseBuilderHost(f.db);
+    assert.deepEqual(restored.getSnapshotForSession('teacher').semesterPlan, approved);
+    assert.equal(restored.getDeckForCompile('teacher', f.deck.deckId).deck.deckId, f.deck.deckId);
+    const lesson = restored.saveLessonPlan('teacher', lessonDraft(f.material.materialId), 1, 1);
+    assert.equal(lesson.revision, 2);
+    restored.updateProject(f.project.projectId, { ...projectInput, goals: ['Explain determinants'] }, 3);
+    assert.throws(() => restored.saveLessonPlan('teacher', lessonDraft(f.material.materialId), 2, 1), /Semester Plan changed/);
+  } finally { f.db.close(); }
+});
+
+test('legacy approved plans remain usable after material-only revisions without rewriting review history', () => {
+  const f = planned();
+  try {
+    f.host.importMaterials('teacher', [{ name: 'extra.md', kind: 'markdown', sourceBytes: Buffer.from('Practice'), extractedText: 'Practice' }], 2);
+    const state = JSON.parse(f.db.prepare('SELECT value FROM course_builder_state').get().value);
+    for (const project of state.projects) { delete project.planningRevision; const { contentHash: _, ...payload } = project; project.contentHash = contentHash(payload); }
+    for (const plan of state.semesterPlans) { delete plan.projectPlanningRevision; const { contentHash: _, ...payload } = plan; plan.contentHash = contentHash(payload); }
+    f.db.prepare('UPDATE course_builder_state SET value=?').run(JSON.stringify(state));
+    const restored = new CourseBuilderHost(f.db);
+    assert.deepEqual(restored.getSnapshotForSession('teacher').semesterPlan, state.semesterPlans[0]);
+    assert.equal(restored.getDeckForCompile('teacher', f.deck.deckId).deck.deckId, f.deck.deckId);
+    restored.updateProject(f.project.projectId, { ...projectInput, minutesPerSession: 40 }, 3);
+    assert.throws(() => restored.getDeckForCompile('teacher', f.deck.deckId), /current approved Semester/);
+  } finally { f.db.close(); }
 });
 
 test('PR #7: changing parent Semester Plan invalidates approved lessons and decks', () => {
@@ -127,6 +225,18 @@ test('PR #7: real XeLaTeX -> PDF -> review -> teacher acceptance -> restart', { 
     assert.equal(reopened.getSnapshotForSession('teacher').decks[0].status, 'accepted');
     assert.equal(sha256Hex(reopened.getCompiledPdf('teacher', result.receipt.receiptId)), result.receipt.pdfHash.slice(7));
     assert.equal(reopened.getCompileLog('teacher', result.receipt.receiptId), result.log);
+    assert.throws(() => reopened.revokeDeckAcceptance('teacher', f.deck.deckId, 2), /changed/);
+    reopened.revokeDeckAcceptance('teacher', f.deck.deckId, 1);
+    const cancelled = new CourseBuilderHost(f.db);
+    assert.equal(cancelled.getSnapshotForSession('teacher').decks[0].acceptedAt, null);
+    assert.equal(cancelled.getSnapshotForSession('teacher').decks[0].source, source);
+    cancelled.acceptDeck('teacher', f.deck.deckId, 1, result.receipt.receiptId, review.reviewId);
+    const next = cancelled.saveBeamerDeck('teacher', { lessonPlanId: f.lesson.lessonPlanId, title: f.deck.title, source: source.replace('Try two different', 'Try three different'), frameOutline: f.deck.frameOutline, assetMaterialIds: [] }, 1, 1);
+    assert.equal(next.revision, 2);
+    assert.equal(next.status, 'draft');
+    const history = JSON.parse(f.db.prepare('SELECT value FROM course_builder_state').get().value).decks;
+    assert.equal(history.find((deck) => deck.revision === 1).status, 'accepted');
+    assert.equal(history.find((deck) => deck.revision === 1).source, source);
   } finally { f.db.close(); }
 });
 
@@ -137,6 +247,12 @@ test('PR #7: model command surface cannot approve, accept or smuggle private sou
  const state=await runCourseBuilderCommand(f.host,'teacher',{action:'state'});
  assert.equal('source' in state.decks[0],false);
  assert.equal('extractedText' in state.materials[0],false);
+ const templates=await runCourseBuilderCommand(f.host,'teacher',{action:'visual_templates'});
+ assert.equal(templates.contract.courseVersionId,f.project.projectId);
+ assert.deepEqual(templates.kinds.map(item=>item.kind),['function-plot','matrix-transform','algorithm-trace','graph-trace','state-machine']);
+ const visual=await runCourseBuilderCommand(f.host,'teacher',{action:'visual',id:f.lesson.lessonPlanId,purpose:'Predict and compare a shear transformation',spec:{...templates.kinds[1].example,specId:'lesson-shear'}});
+ assert.equal(visual.projectId,f.project.projectId);
+ assert.match(visual.artifact.html,/Content-Security-Policy/);
  await assert.rejects(runCourseBuilderCommand(f.host,'teacher',{action:'compile',id:f.deck.deckId,expectedRevision:1}),/disabled/);
  f.db.close();
 });

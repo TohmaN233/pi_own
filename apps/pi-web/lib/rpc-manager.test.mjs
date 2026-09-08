@@ -381,9 +381,10 @@ test("RPC session startup treats only sessions with messages as continuing", asy
     startupSource,
     /const hasExistingMessages = sessionManager\.getBranch\(\)\.some\(\(entry\) => entry\.type === "message"\)/,
   );
-  assert.match(startupSource, /const initial = hasExistingMessages/);
+  assert.match(startupSource, /const initial = harnessSnapshot \? selectInitialModelScope/);
+  assert.match(startupSource, /\}\) : hasExistingMessages/);
   assert.doesNotMatch(startupSource, /const initial = sessionFile/);
-  assert.doesNotMatch(startupSource, /sessionManager\.buildSessionContext\(\)/);
+  assert.match(startupSource, /defaultModel: sessionManager\.buildSessionContext\(\)\.model/);
 });
 
 test("RPC session startup opens an existing session file only once and trusts its cwd", async () => {

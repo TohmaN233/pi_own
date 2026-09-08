@@ -79,7 +79,6 @@ test("all project resource loaders and reloads enforce project trust", async () 
   const modePackRpcSource = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
   const modelsSource = await readFile(new URL("../app/api/models/route.ts", import.meta.url), "utf8");
   const skillsSource = await readFile(new URL("./skills-service.ts", import.meta.url), "utf8");
-  const skillsInstallSource = await readFile(new URL("../app/api/skills/install/route.ts", import.meta.url), "utf8");
   const pluginsSource = await readFile(new URL("../app/api/plugins/route.ts", import.meta.url), "utf8");
 
   assert.match(rpcSource, /const sessionCwd = sessionManager\.getCwd\(\)/);
@@ -97,10 +96,9 @@ test("all project resource loaders and reloads enforce project trust", async () 
   assert.match(modelsSource, /resourceLoaderReloadOptions: trustReloadOptions/);
   assert.match(skillsSource, /loader\.reload\(projectTrustReloadOptions\(cwd, agentDir\)\)/);
   assert.match(pluginsSource, /projectTrusted: projectTrust\.trusted/);
-  assert.match(
-    skillsInstallSource,
-    /getProjectTrustStatus\(cwd, getAgentDir\(\)\)\.trusted/,
-  );
+  // Installation now targets the configured library, independently of session cwd.
+  // local-skill-install.test.mjs exercises the real route and verifies that caller
+  // scope/cwd/directory cannot redirect writes. Discovery above still enforces trust.
   assert.equal(
     Array.from(pluginsSource.matchAll(/projectTrusted: projectTrust\.trusted/g)).length,
     2,

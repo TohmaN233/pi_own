@@ -15,6 +15,7 @@ import {
 import { cacheSessionPath, invalidateSessionListCache, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
+import { persistCommittedRuntimeSettings } from "./session-runtime-settings";
 import { notifySessionComplete } from "./web-push";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -46,7 +47,7 @@ import {
   readSessionToolSelection,
   validateSessionToolSelection,
 } from "./session-tool-selection";
-import { createLearningHarnessExtension, type GroundedAnswerOutboundGate } from "./learning-harness-extension";
+import { appendModePackSystemPrompt, createLearningHarnessExtension, type GroundedAnswerOutboundGate } from "./learning-harness-extension";
 import { getLearningHarness } from "./harness-server";
 import type { ResourceSnapshot } from "../../../packages/harness-contracts/src/index.ts";
 
@@ -174,7 +175,7 @@ const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "m
 class PlainTextTheme extends Theme {
   constructor() {
     super(
-      { thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
+      { text: "", muted: "", thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
       { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
       "truecolor",
     );
@@ -480,6 +481,7 @@ export class AgentSessionWrapper {
 		this.inner.setActiveToolsByName(harnessActiveToolAllowlist(snapshot));
 		assertHarnessRuntime(snapshot, this.inner);
 		this.profileSnapshot = snapshot;
+		if (this.inner.agent.state) this.inner.agent.state.systemPrompt = appendModePackSystemPrompt(contextFilesSystemPrompt(this.inner.resourceLoader.getAgentsFiles().agentsFiles), snapshot);
 		this.applyExactSystemPrompt();
 	}
 
@@ -604,6 +606,12 @@ export class AgentSessionWrapper {
 
   async send(command: Record<string, unknown>): Promise<unknown> {
     const type = command.type as string;
+		if (this.profileSnapshot && (type === "set_model" || type === "set_thinking_level")) {
+			await reviseHarnessSessionSettings(this.sessionId, this.profileSnapshot.resourceSnapshotId,
+				type === "set_model" ? { provider: command.provider, model: command.modelId } : { thinkingLevel: command.level }, randomUUID());
+			const model = getRpcSession(this.sessionId)?.inner.model;
+			return type === "set_model" && model ? { id: model.id, provider: model.provider } : null;
+		}
 		if (this.profileTransitionLocked && !PROFILE_TRANSITION_READ_ONLY_COMMANDS.has(type)) {
 			throw new Error("Learning Harness profile transition is in progress; wait before changing this session.");
 		}
@@ -1904,18 +1912,12 @@ export async function warmSwitchHarnessProfile(
 	};
 	try {
 		const sessionFile = existing.sessionFile;
-		// Pi does not materialize a JSONL file until its first message. Before that
-		// point the existing AgentSession is the only runtime and can safely apply
-		// the narrow profile allowlist in place.
-		if (!sessionFile || !existsSync(sessionFile)) {
-			existing.activateHarnessProfile(prepared.snapshot);
-			getLearningHarness().commitPreparedProfileTransition(
-				existing.inner.sessionManager,
-				sessionId,
-				prepared.idempotencyKey,
-			);
-			committed = true;
-			return existing;
+		if (!sessionFile) throw new Error("Learner session has no persisted identity");
+		if (!existsSync(sessionFile)) {
+			const manager = existing.inner.sessionManager;
+			writeFileSync(sessionFile, [manager.getHeader(), ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n") + "\n", { flag: "wx" });
+			(manager as unknown as { flushed: boolean }).flushed = true;
+			cacheSessionPath(sessionId, sessionFile);
 		}
 		const candidateStart = await startRpcSession(sessionId, sessionFile, undefined, {
 			harnessResourceSnapshot: prepared.snapshot,
@@ -1933,6 +1935,7 @@ export async function warmSwitchHarnessProfile(
 			prepared.idempotencyKey,
 		);
 		committed = true;
+		persistCommittedRuntimeSettings(candidate.inner);
 		registerRpcWrapper(candidate);
 		liveWrapper = candidate;
 		return candidate;
@@ -1967,6 +1970,20 @@ export async function warmSwitchHarnessProfile(
 		existing.releaseProfileTransition();
 		release();
 	}
+}
+
+export async function reviseHarnessSessionSettings(sessionId: string, expectedSnapshotId: string, settingsPatch: unknown, idempotencyKey: string): Promise<AgentSessionWrapper> {
+  const current = getLearningHarness().getCurrentSession(sessionId);
+  let existing = getRpcSession(sessionId);
+  if (!existing?.isAlive()) {
+    const file = await resolveSessionPath(sessionId);
+    if (!file) throw new Error("Learner session file not found");
+    existing = (await startRpcSession(sessionId, file, undefined)).session;
+  }
+  const prepared = getLearningHarness().prepareProfileTransition({ sessionId, targetProfileId: current.snapshot.profileId, expectedSnapshotId, settingsPatch, idempotencyKey });
+  const changed = await warmSwitchHarnessProfile(sessionId, prepared);
+  console.info("[learning-harness] settings revised", { sessionId, snapshotId: prepared.snapshot.resourceSnapshotId });
+  return changed;
 }
 
 function runtimeMessageText(entry: SessionMessageEntry): string {
@@ -2205,7 +2222,10 @@ export async function startRpcSession(
         : chatOnly
           ? {
               ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS,
-              ...(learningHarnessExtension ? { extensionFactories: [learningHarnessExtension.extension] } : {}),
+              ...(learningHarnessExtension ? {
+                extensionFactories: [learningHarnessExtension.extension],
+                systemPromptOverride: () => appendModePackSystemPrompt("You are a course learning assistant. Use the active learning mode and its course evidence boundaries.", harnessSnapshot),
+              } : {}),
             }
         : {
             extensionFactories: [
@@ -2237,7 +2257,11 @@ export async function startRpcSession(
     const defaultProvider = services.settingsManager.getDefaultProvider();
     const defaultModelId = services.settingsManager.getDefaultModel();
     const hasExistingMessages = sessionManager.getBranch().some((entry) => entry.type === "message");
-    const initial = hasExistingMessages
+    const initial = harnessSnapshot ? selectInitialModelScope(scope, {
+      ...(harnessSnapshot.provider && harnessSnapshot.model ? { requestedModel: { provider: harnessSnapshot.provider, modelId: harnessSnapshot.model } } : {}),
+      ...(sessionManager.buildSessionContext().model ? { defaultModel: sessionManager.buildSessionContext().model! } : {}),
+      thinkingLevel: harnessSnapshot.thinkingLevel,
+    }) : hasExistingMessages
       ? { scopedModels: [...scope.scopedModels] }
       : selectInitialModelScope(scope, {
         ...(effectiveInitialModel ? { requestedModel: effectiveInitialModel } : {}),
@@ -2287,7 +2311,7 @@ export async function startRpcSession(
       ));
     }
 
-    const exactSystemPrompt = chatOnly
+    const exactSystemPrompt = chatOnly && !harnessEnabled
       ? subagentResources
         ? () => subagentResources.appendSystemPrompt[0] ?? ""
         : () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
@@ -2308,7 +2332,10 @@ export async function startRpcSession(
 		...(harnessSnapshot ? { profileSnapshot: harnessSnapshot } : {}),
     });
     const realSessionId = inner.sessionId as string;
-		if (!deferRegister) registerRpcWrapper(wrapper);
+		if (!deferRegister) {
+			if (harnessSnapshot) persistCommittedRuntimeSettings(inner);
+			registerRpcWrapper(wrapper);
+		}
 
     return { session: wrapper, realSessionId };
   })().finally(() => {
