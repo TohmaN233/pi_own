@@ -37,3 +37,9 @@ The complete upstream tree is vendored under `apps/pi-web`. `docs/pi-web-upstrea
 ## Deliberate boundary
 
 The integration does not add a second transcript, agent loop, retry queue, or SSE registry. Pi Web still owns browser transport and Pi still owns `AgentSession` plus the JSONL transcript. Harness state contains course, profile, learning, and validation state together with references written into Pi custom entries. This is an audited vertical slice, not a complete Learning Harness V1.
+
+## Study & Research foundation (2026-09-11)
+
+Retains the upgraded main baseline `00b19b026bb5a0c14462aa4a1b3d4e7270f0a25a`. Its previously unlisted upstream-file adaptations are now explicitly registered, not replaced with older upstream code: `app/api/skills/install/route.ts`, `app/api/skills/update/route.ts`, `app/globals.css`, `components/AppShell.tsx`, `components/ChatInput.tsx`, `components/ChatWindow.tsx`, `components/DirectoryPicker.tsx`, `components/FileViewer.tsx`, `components/MarkdownBody.test.mjs`, `components/SettingsPanel.tsx`, `components/SkillsConfig.dormancy.test.mjs`, `components/SkillsConfig.tsx`, `components/SystemPromptPanel.tsx`, `hooks/useAgentSession.ts`, `hooks/useDragDrop.ts`, `lib/agent-client.ts`, `lib/api-types.ts`, `lib/draft-store.ts`, `lib/file-links.ts`, `lib/markdown.ts`, `lib/skill-lock.ts`, `lib/skills-service.ts`, `lib/tool-presets.test.mjs`, `lib/tool-presets.ts`. The original upstream blobs remain in the manifest. Root README is downstream product documentation; its expected current blob is recorded separately from its original baseline fingerprint.
+
+New Study routes, notes/code panel, source adapters and physical plugins reuse the existing AgentSession/SQLite boundary. The only new direct runtime dependency is pinned `plotly.js-strict-dist-min@4.1.0`, served locally in a fixed sandboxed iframe; no CDN or arbitrary model JavaScript. Course Builder retains its existing visual artifacts and adds the shared panel.

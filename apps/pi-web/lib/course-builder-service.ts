@@ -10,7 +10,7 @@ import { readCourseRevisionTasks, readCourseDeliveryTask } from "./course-builde
 
 export function getCourseBuilderHost() { return getLearningHarness().courseBuilder; }
 export function assertCourseBuilderSession(sessionId: string): void {
- if (!sessionId || getLearningHarness().findCurrentSession(sessionId)) throw new Error("Course Builder requires a non-student Pi session");
+ if (!sessionId || getLearningHarness().findCurrentSession(sessionId) || getLearningHarness().studyResearch.findProjectForSession(sessionId)) throw new Error("Course Builder requires a non-student Pi session");
 }
 export function courseBuilderState(sessionId: string) {
  assertCourseBuilderSession(sessionId);

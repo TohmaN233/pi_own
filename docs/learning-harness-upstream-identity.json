@@ -11,6 +11,9 @@
       "package.json": "e981d3ab5acbd0d682a84d10197ad73f0a85361b",
       "tsconfig.base.json": "57e97d6e361d1473ceecc4ce65ea1a7ccb6d94bf",
       "packages/coding-agent/package.json": "8aa47351db845e14d68615a4250705faaf7bdcfb"
+    },
+    "downstreamFingerprints": {
+      "README.md": "f300ed289caa900833a3928175aa8ae87ac5a86c"
     }
   },
   "piWeb": {
@@ -27,14 +30,35 @@
       "app/api/agent/[id]/route.ts",
       "app/api/agent/new/route.ts",
       "app/api/sessions/[id]/export/route.ts",
+      "app/api/skills/install/route.ts",
+      "app/api/skills/update/route.ts",
+      "app/globals.css",
+      "app/layout.tsx",
       "app/page.tsx",
       "components/AppShell.file-viewer-state.test.mjs",
+      "components/AppShell.tsx",
+      "components/ChatInput.tsx",
+      "components/ChatWindow.tsx",
+      "components/DirectoryPicker.tsx",
+      "components/FileViewer.tsx",
+      "components/MarkdownBody.test.mjs",
       "components/SessionSidebar.test.mjs",
       "components/SessionSidebar.tsx",
+      "components/SettingsPanel.tsx",
+      "components/SkillsConfig.dormancy.test.mjs",
+      "components/SkillsConfig.tsx",
+      "components/SystemPromptPanel.tsx",
       "hooks/useAgentSession.test.mjs",
+      "hooks/useAgentSession.ts",
+      "hooks/useDragDrop.ts",
+      "lib/agent-client.ts",
+      "lib/api-types.ts",
       "lib/directory-browser.test.mjs",
       "lib/directory-browser.ts",
+      "lib/draft-store.ts",
       "lib/file-access.ts",
+      "lib/file-links.ts",
+      "lib/markdown.ts",
       "lib/model-discovery.test.mjs",
       "lib/next-config.test.mjs",
       "lib/pi-types.ts",
@@ -42,12 +66,15 @@
       "lib/project-trust.test.mjs",
       "lib/rpc-manager.test.mjs",
       "lib/rpc-manager.ts",
+      "lib/skill-lock.ts",
+      "lib/skills-service.ts",
       "lib/subagent-input.test.mjs",
+      "lib/tool-presets.test.mjs",
+      "lib/tool-presets.ts",
       "next.config.ts",
       "package-lock.json",
       "package.json",
-      "tsconfig.json",
-      "app/layout.tsx"
+      "tsconfig.json"
     ]
   },
   "ynReference": {

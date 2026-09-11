@@ -35,6 +35,7 @@ import {
 import { deterministicId, sha256Hex, stableStringify } from "../../harness-core/src/index.ts";
 import { KnowledgeHost, type KnowledgeHostState } from "../../knowledge-host/src/index.ts";
 import { LearningHost, type LearningHostState } from "../../learning-host/src/index.ts";
+import { MathVisualizationHost } from "../../math-visualization-host/src/index.ts";
 import { type PiSessionStore, RuntimeSessionHost } from "../../pi-runtime-host/src/index.ts";
 import {
 	compileModePackDraft,
@@ -45,6 +46,7 @@ import {
 	resolveModePackSnapshot,
 	reviseModePackSettings,
 } from "../../profile-resource-host/src/index.ts";
+import { StudyResearchHost } from "../../study-research-host/src/index.ts";
 import { ProjectWorkspaceHost } from "./project-workspaces.ts";
 
 const STORE_VERSION = 1;
@@ -309,6 +311,8 @@ function parseCommittedProfileTransition(value: unknown): CommittedProfileTransi
  */
 export class LearningHarness {
 	readonly courseBuilder: CourseBuilderHost;
+	readonly studyResearch: StudyResearchHost;
+	readonly mathVisualization: MathVisualizationHost;
 	readonly projectWorkspaces: ProjectWorkspaceHost;
 	readonly courseHost = new CourseHost();
 	readonly knowledgeHost = new KnowledgeHost(this.courseHost);
@@ -349,6 +353,8 @@ export class LearningHarness {
 			`);
 			this.restore();
 			this.courseBuilder = new CourseBuilderHost(this.database);
+			this.studyResearch = new StudyResearchHost(this.database);
+			this.mathVisualization = new MathVisualizationHost(this.database);
 			this.projectWorkspaces = new ProjectWorkspaceHost(this.database);
 		} catch (error) {
 			this.database.close();

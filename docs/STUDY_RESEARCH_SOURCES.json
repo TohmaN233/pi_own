@@ -1,0 +1,222 @@
+[
+  {
+    "id": "aris",
+    "project": "ARIS / Auto-claude-code-research-in-sleep",
+    "repository": "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep",
+    "revision": "f1bd907b58f653131ebe6807c482e2554e07f9b9",
+    "license": "MIT",
+    "inspected": [
+      "skills/experiment-plan/SKILL.md",
+      "skills/research-refine/SKILL.md",
+      "skills/ablation-planner/SKILL.md",
+      "skills/proof-checker/SKILL.md",
+      "LICENSE"
+    ],
+    "adopt": "主张→证据→实验；替代解释；负结果解释；证明义务与反例候选分类。改写为短 Skill。",
+    "exclude": "自动部署、租算力、无人值守自循环、以模型评分保证正确性、硬编码模型和全权限 Bash。",
+    "stage": "foundation",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/blob/f1bd907b58f653131ebe6807c482e2554e07f9b9/skills/experiment-plan/SKILL.md",
+      "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/blob/f1bd907b58f653131ebe6807c482e2554e07f9b9/skills/research-refine/SKILL.md",
+      "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/blob/f1bd907b58f653131ebe6807c482e2554e07f9b9/skills/ablation-planner/SKILL.md",
+      "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/blob/f1bd907b58f653131ebe6807c482e2554e07f9b9/skills/proof-checker/SKILL.md",
+      "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/blob/f1bd907b58f653131ebe6807c482e2554e07f9b9/LICENSE"
+    ]
+  },
+  {
+    "id": "paper-to-course",
+    "project": "paper-to-course",
+    "repository": "https://github.com/KaguraTart/paper-to-course",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "MIT",
+    "inspected": [
+      "README.md",
+      "SKILL.md"
+    ],
+    "adopt": "先确认论文身份；问题、方法、实验、局限的讲解结构；公式拆解与术语提示。",
+    "exclude": "所有论文强制六模块/16页；一次生成三种产物；未反对即视作批准；生成课程等于学会。",
+    "stage": "design reference",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/KaguraTart/paper-to-course/blob/main/README.md",
+      "https://github.com/KaguraTart/paper-to-course/blob/main/SKILL.md"
+    ]
+  },
+  {
+    "id": "deeptutor",
+    "project": "DeepTutor",
+    "repository": "https://github.com/HKUDS/DeepTutor",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "Apache-2.0",
+    "inspected": [
+      "README.md: Content Workspace and reading/mastery features"
+    ],
+    "adopt": "资料、私有运行配置和生成输出分离；阅读区与对话区并列；进度不等于已读字数。",
+    "exclude": "整套替换 Pi Runtime；把多 Agent 或产品宣传当教学效果证据。",
+    "stage": "design reference",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/HKUDS/DeepTutor/blob/main/README.md"
+    ]
+  },
+  {
+    "id": "paperqa",
+    "project": "PaperQA2",
+    "repository": "https://github.com/Future-House/paper-qa",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "Apache-2.0",
+    "inspected": [
+      "README.md: algorithm, evidence and citations"
+    ],
+    "adopt": "检索、证据摘取、带引用回答分工；来源可追溯。",
+    "exclude": "用检索命中、引用存在或模型打分代替证明核查。",
+    "stage": "design reference",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/Future-House/paper-qa/blob/main/README.md"
+    ]
+  },
+  {
+    "id": "plotly",
+    "project": "Plotly.js strict build",
+    "repository": "https://github.com/plotly/plotly.js",
+    "revision": "v4.1.0",
+    "license": "MIT",
+    "inspected": [
+      "dist/README.md",
+      "releases/tag/v4.1.0"
+    ],
+    "adopt": "本地固定版本 plotly.js-strict-dist-min；2D曲线/散点、矩阵变换和3D曲面交互。",
+    "exclude": "任意生成 JavaScript、任意 Plotly 选项、运行时 CDN、外部数据 URL。",
+    "stage": "foundation dependency",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/plotly/plotly.js/blob/v4.1.0/dist/README.md",
+      "https://github.com/plotly/plotly.js/releases/tag/v4.1.0"
+    ]
+  },
+  {
+    "id": "mafs",
+    "project": "Mafs",
+    "repository": "https://github.com/stevenpetryk/mafs",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "MIT",
+    "inspected": [
+      "README.md",
+      "package.json"
+    ],
+    "adopt": "面向数学的二维拖动/参数操作、浏览器视觉回归思路。",
+    "exclude": "只支持二维，不为统一2D/3D工作台再维护第二个基础绘图库。",
+    "stage": "optional adapter",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/stevenpetryk/mafs/blob/main/README.md",
+      "https://github.com/stevenpetryk/mafs/blob/main/package.json"
+    ]
+  },
+  {
+    "id": "mathbox",
+    "project": "MathBox",
+    "repository": "https://github.com/unconed/mathbox",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "MIT",
+    "inspected": [
+      "README.md"
+    ],
+    "adopt": "复杂三维数学场景的声明式表示参考。",
+    "exclude": "当前阶段不承担完整 ShaderGraph/Three.js 场景编辑和旧依赖整合。",
+    "stage": "optional adapter",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/unconed/mathbox/blob/main/README.md"
+    ]
+  },
+  {
+    "id": "manim",
+    "project": "Manim Community",
+    "repository": "https://github.com/ManimCommunity/manim",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "MIT",
+    "inspected": [
+      "README.md"
+    ],
+    "adopt": "后续证明动画/视频导出适配器；源代码与渲染回执分离。",
+    "exclude": "任意Python动画执行不是安全浏览器渲染；不在基础模式自动安装TeX/ffmpeg。",
+    "stage": "future",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/ManimCommunity/manim/blob/main/README.md"
+    ]
+  },
+  {
+    "id": "katex",
+    "project": "KaTeX",
+    "repository": "https://github.com/KaTeX/KaTeX",
+    "revision": "existing pi_own lockfile",
+    "license": "MIT",
+    "inspected": [
+      "https://katex.org/docs/security"
+    ],
+    "adopt": "复用现有 MarkdownBody + remark-math/rehype-katex，保持 KaTeX 默认非 trusted 模式；未来按需求收紧尺寸/宏预算。",
+    "exclude": "不能将排版成功解释为公式正确；不支持完整LaTeX文档执行。",
+    "stage": "reuse",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://katex.org/docs/security"
+    ]
+  },
+  {
+    "id": "annotations",
+    "project": "W3C Web Annotation / Hypothesis",
+    "repository": "https://github.com/hypothesis/client",
+    "revision": "W3C Recommendation / main inspected 2026-09-11",
+    "license": "W3C specification; Hypothesis BSD-2-Clause (no code copied)",
+    "inspected": [
+      "https://www.w3.org/TR/annotation-model/",
+      "README.md"
+    ],
+    "adopt": "source版本+文本位置+原文引句锚定笔记；作者、修订与失效状态独立保存。",
+    "exclude": "不复制整套云端账户/协作后端；不伪称首版已有PDF坐标高亮。",
+    "stage": "foundation data model",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://www.w3.org/TR/annotation-model/",
+      "https://github.com/hypothesis/client/blob/main/README.md"
+    ]
+  },
+  {
+    "id": "docling",
+    "project": "Docling",
+    "repository": "https://github.com/docling-project/docling",
+    "revision": "main inspected 2026-09-11 (not vendored)",
+    "license": "MIT (models have separate licenses)",
+    "inspected": [
+      "README.md"
+    ],
+    "adopt": "后续结构化文档与页/公式/表格适配；保留提取质量和位置证据。",
+    "exclude": "不默认OCR，不把坏的公式提取当作原文，不先安装整套重量级模型。",
+    "stage": "future import adapter",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://github.com/docling-project/docling/blob/main/README.md"
+    ]
+  },
+  {
+    "id": "jupyterlite",
+    "project": "JupyterLite / Pyodide",
+    "repository": "https://github.com/jupyterlite/jupyterlite",
+    "revision": "stable docs inspected 2026-09-11 (not vendored)",
+    "license": "BSD-3-Clause",
+    "inspected": [
+      "https://jupyterlite.readthedocs.io/en/latest/howto/content/python.html"
+    ],
+    "adopt": "后续浏览器Python练习内核；本地Code Lab先留统一run receipt协议。",
+    "exclude": "浏览器Python不等于本机环境/GPU复现，不等于禁止网络。",
+    "stage": "future execution adapter",
+    "checkedAt": "2026-09-11",
+    "urls": [
+      "https://jupyterlite.readthedocs.io/en/latest/howto/content/python.html"
+    ]
+  }
+]

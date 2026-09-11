@@ -55,7 +55,8 @@ test("teacher TeX edits save new shared drafts without a runtime; PDF previews a
   const coverageResponse = await workspace.POST(req(coverageBody)); const coverageSaved = await coverageResponse.json();
   assert.equal(coverageResponse.status, 200, JSON.stringify(coverageSaved));
   assert.equal(coverageSaved.checkpoint.status, "planned");
-  assert.equal(coverageSaved.snapshot.coverageCheckpoints[0].coverage[0].end, 2);
+  assert.equal(coverageSaved.snapshot.coverageCheckpoints[0].coverage[0].position, "旧记录定位（待核对）：第 1–2 行", "legacy ranges normalize to the current one-file checkpoint view");
+  assert.equal(coverageSaved.snapshot.coverageCheckpoints[0].coverage[0].sourceHash, reference.sourceHash);
   assert.equal(host.listCoverageCheckpoints(sid)[0].revision, 1);
   assert.equal(host.getSnapshotForSession(sid).lessonPlans[0].status, "approved");
   const confirmation = { sessionId: sid, action: "confirm_checkpoint", id: lesson.lessonPlanId, expectedRevision: 1 };

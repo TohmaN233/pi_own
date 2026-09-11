@@ -54,3 +54,9 @@ pi-own 基于 Pi 与 Pi Web，探索一个在本地保存资料、课程资产�
 另收录可选技能：`pi-subagents`、`council-mode` 来自 [nicobailon/pi-subagents](https://github.com/nicobailon/pi-subagents)；`chrome-devtools` 来自 [github/awesome-copilot](https://github.com/github/awesome-copilot)；`gpt-image-2` 来自 [prime-skills/runcomfy-agent-skills](https://github.com/prime-skills/runcomfy-agent-skills)。收录不代表默认启用或已配置对应外部服务，来源记录保存在 `skills/.skills-lock.json`。
 
 各第三方组件和技能遵循其各自许可证；本项目许可证见 [LICENSE](LICENSE)。
+
+## Study & Research foundation
+
+The `/study-research` workspace links a read-only paper/book/code folder, prepares a critical source-anchored roadmap, supports separate human/Agent math notes, and saves research proposals and explicitly approved experiments. The shared `math-visualization` Pi plugin is enabled in both Study & Research and Course Builder.
+
+See [research and design plan](docs/STUDY_RESEARCH_PLAN.zh-CN.md), [usage and limits](docs/STUDY_RESEARCH.md), and [manual acceptance](docs/STUDY_RESEARCH_ACCEPTANCE.zh-CN.md). Local Python/JavaScript execution is off by default and is not an OS sandbox.
