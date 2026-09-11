@@ -1,4 +1,4 @@
-name: Prepare study foundation inputs
+name: Prepare pinned visualization dependency
 on:
   push:
     branches: [feat/study-research-foundation]
@@ -8,38 +8,24 @@ permissions:
 jobs:
   inputs:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: 00b19b026bb5a0c14462aa4a1b3d4e7270f0a25a
-          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22.20.0
           package-manager-cache: false
-      - name: Export exact source and locked dependencies, without source writes
+      - name: Fetch exact published package (no lifecycle scripts, no product writes)
         shell: bash
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/study-inputs"
-          mkdir -p "$out"
-          git archive --format=tar.gz HEAD > "$out/source.tar.gz"
-          npm ci --ignore-scripts --no-audit --cache "$RUNNER_TEMP/study-npm-cache"
-          npm ci --prefix apps/pi-web --ignore-scripts --no-audit --cache "$RUNNER_TEMP/study-npm-cache"
-          git diff --exit-code
-          npm run hydrate:model-data
-          tar -C packages/ai/src/providers -czf "$out/model-data.tar.gz" data
-          prefix=$(dirname "$(dirname "$(command -v node)")")
-          tar -C "$prefix" -czf "$out/node.tar.gz" bin include lib share
-          tar -C "$RUNNER_TEMP/study-npm-cache" -czf "$out/npm-cache.tar.gz" _cacache
-          { git rev-parse HEAD; node --version; npm --version; sha256sum package-lock.json apps/pi-web/package-lock.json; } > "$out/IDENTITY.txt"
-          cd "$out"
-          sha256sum *.tar.gz > SHA256SUMS
+          mkdir -p "$RUNNER_TEMP/plotly-input"
+          cd "$RUNNER_TEMP/plotly-input"
+          npm view plotly.js-strict-dist-min@4.1.0 --json > package-metadata.json
+          npm pack plotly.js-strict-dist-min@4.1.0 --ignore-scripts --json > package-pack.json
+          sha256sum *.tgz > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: study-foundation-inputs
-          path: ${{ runner.temp }}/study-inputs/
-          compression-level: 0
+          name: study-plotly-strict-input
+          path: ${{ runner.temp }}/plotly-input/
           retention-days: 3
           if-no-files-found: error
