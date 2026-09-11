@@ -25,8 +25,10 @@ test("learning harness baseline matches frozen Pi source fingerprints", () => {
 	assert.equal(identity.version, 1);
 	assert.equal(identity.pi.upstream, "earendil-works/pi");
 	assert.match(identity.pi.baselineCommit, /^[0-9a-f]{40}$/);
+	const downstream = identity.pi.downstreamFingerprints ?? {};
+	for (const path of Object.keys(downstream)) assert.ok(path in identity.pi.baselineFingerprints, `unknown Pi override: ${path}`);
 	for (const [path, expectedSha] of Object.entries(identity.pi.baselineFingerprints)) {
-		assert.equal(git("hash-object", "--", path), expectedSha, `baseline drift: ${path}`);
+		assert.equal(git("hash-object", "--", path), downstream[path] ?? expectedSha, `baseline drift: ${path}`);
 	}
 });
 

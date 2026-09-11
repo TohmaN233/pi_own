@@ -34,13 +34,16 @@ test("actual Course Builder web importer preserves UTF-8 source and metadata typ
   assert.equal(Buffer.from(result[0].sourceBytes).toString("utf8"), content);
 });
 
-test("actual importer rejects path traversal, invalid UTF-8, unsupported batches and forged images", async () => {
+test("actual importer rejects unsafe paths and invalid text, and reports unsupported/invalid assets without executing them", async () => {
   for (const name of ["../notes.md", "sub/notes.md", "sub\\notes.md"]) {
     await assert.rejects(parseCourseBuilderFiles([new File(["test"], name)]), /Unsafe material filename/);
   }
   await assert.rejects(parseCourseBuilderFiles([new File([new Uint8Array([255, 254])], "bad.txt")]));
-  await assert.rejects(parseCourseBuilderFiles([new File(["ok"], "notes.md"), new File(["bad"], "script.exe")]), /Unsupported file type/);
-  await assert.rejects(parseCourseBuilderFiles([new File(["not an image"], "figure.png")]), /Invalid image asset/);
+  const [plain,binary,image]=await parseCourseBuilderFiles([new File(["ok"], "notes.md"),new File([Uint8Array.of(255,254,0)], "script.exe"),new File(["not an image"], "figure.png")]);
+  assert.equal(plain.extractedText,"ok");
+  assert.equal(binary.kind,"asset");assert.equal(binary.metadata.extraction,"unavailable");
+  assert.equal(image.kind,"asset");assert.equal(image.metadata.signatureValid,false);
+  assert.match(image.extractedText,/semantics have not been extracted/);
 });
 
 test("actual importer rejects over-budget files before reading their contents", async () => {

@@ -9,7 +9,8 @@ import { listAllSessions, resolveSessionPath, invalidateSessionListCache } from 
 import { ModePackStore } from "./mode-pack-store";
 import { buildModePackRuntimePlanFromInventory } from "./mode-pack-inventory";
 
-export function projectConversationHref(sessionId: string, course: boolean): string {
+export function projectConversationHref(sessionId: string, course: boolean, study = false): string {
+  if (study) return `/study-research?sessionId=${encodeURIComponent(sessionId)}`;
   return course ? `/course-builder?sessionId=${encodeURIComponent(sessionId)}` : `/?session=${encodeURIComponent(sessionId)}`;
 }
 
@@ -23,7 +24,7 @@ export async function projectWorkspaceList() {
     const course = harness.courseBuilder.getProjectForSession(session.id);
     return { id: session.id, title: session.name || session.firstMessage || "未命名对话", modified: session.modified, messageCount: session.messageCount, cwd: session.cwd,
       projectId: course?.projectId ?? members.get(session.id) ?? null,
-      href: projectConversationHref(session.id, !!course), student: !!harness.findCurrentSession(session.id) };
+      href: projectConversationHref(session.id, !!course, !!harness.studyResearch.findProjectForSession(session.id)), student: !!harness.findCurrentSession(session.id) };
   }).sort((a, b) => b.modified.localeCompare(a.modified));
   const summaries = saved.filter((item) => !item.courseProjectId).map((item) => ({ ...item }));
   for (const course of courses) {
@@ -70,7 +71,7 @@ async function ensureProject(projectId: string) {
 
 export async function createProjectFolder(input: { id: string; title: string; cwd: string; sourceSessionId?: string }) {
   const source = input.sourceSessionId ? await sessionSource(input.sourceSessionId) : null;
-  if (source?.snapshot.profileId === "course-builder") throw new Error("备课对话请在其课程内新建对话。");
+  if (source && ["course-builder", "study-research"].includes(source.snapshot.profileId)) throw new Error("备课对话请在其课程内新建对话。");
   const cwd = resolve(source?.cwd ?? input.cwd);
   if (!(await stat(cwd)).isDirectory()) throw new Error("项目工作目录不存在。");
   const defaults = source?.snapshot ?? (await new ModePackStore().resolve("general", cwd)).snapshot;
@@ -79,17 +80,20 @@ export async function createProjectFolder(input: { id: string; title: string; cw
 
 export async function createProjectConversation(input: { projectId: string; title: string; requestId: string }) {
   const project = await ensureProject(input.projectId);
+  const study = getLearningHarness().studyResearch.listProjects().some(item => item.id === project.id);
   const base = project.defaults ?? (await new ModePackStore().resolve(project.courseProjectId ? "course-builder" : "general", project.cwd)).snapshot;
   if (project.courseProjectId && base.profileId !== "course-builder") throw new Error("课程默认设置必须使用备课模式。");
+  if (study && base.profileId !== "study-research") throw new Error("学习项目必须使用学习研究模式默认设置。");
   const resolved = await resolveSavedModeSettings(base, undefined, project.cwd);
   buildModePackRuntimePlanFromInventory({ snapshot: resolved.snapshot, inventory: resolved.inventory });
   const host = getLearningHarness().projectWorkspaces;
   const sessionId = host.createSession(project.id, input.requestId, contentHash(input), () => createPersistedGenericSession(project.cwd, input.title, resolved.snapshot));
   if (!await resolveSessionPath(sessionId)) throw new Error("The previously created conversation was deleted; start a new creation request.");
   if (project.courseProjectId) getLearningHarness().courseBuilder.bindSession(sessionId, project.courseProjectId);
+  if (study) getLearningHarness().studyResearch.bindSession(sessionId, project.id);
   invalidateSessionListCache();
   console.info("[projects] created conversation", { projectId: project.id, sessionId, defaultRevision: project.revision });
-  return { sessionId, href: projectConversationHref(sessionId, !!project.courseProjectId) };
+  return { sessionId, href: projectConversationHref(sessionId, !!project.courseProjectId, study) };
 }
 
 export async function saveProjectDefaults(projectId: string, sourceSessionId: string, expectedRevision: number) {
@@ -100,6 +104,7 @@ export async function saveProjectDefaults(projectId: string, sourceSessionId: st
   const source = await sessionSource(sourceSessionId);
   const project = await ensureProject(projectId);
   if (project.courseProjectId && source.snapshot.profileId !== "course-builder") throw new Error("课程默认设置必须使用备课模式。");
+  if (getLearningHarness().studyResearch.listProjects().some(item => item.id === projectId) && source.snapshot.profileId !== "study-research") throw new Error("学习项目默认设置必须使用学习研究模式。");
   const result = getLearningHarness().projectWorkspaces.update(projectId, { title: prior.title, defaults: source.snapshot }, expectedRevision === 0 ? 1 : expectedRevision);
   console.info("[projects] saved shared defaults", { projectId, sourceSessionId, revision: result.revision });
   return { revision: result.revision };
@@ -108,8 +113,8 @@ export async function saveProjectDefaults(projectId: string, sourceSessionId: st
 export async function moveProjectConversation(sessionId: string, projectId: string | null) {
   const harness = getLearningHarness();
   if (!await resolveSessionPath(sessionId)) throw new Error("Session not found");
-  if (harness.courseBuilder.getProjectForSession(sessionId) || harness.findCurrentSession(sessionId)) throw new Error("课程对话包含课程绑定，请保留在原课程中；可在外面新建独立对话。");
-  if (projectId && (await ensureProject(projectId)).courseProjectId) throw new Error("请使用课程内的新建对话，避免把其他任务的历史混入课程。");
+  if (harness.studyResearch.findProjectForSession(sessionId) || harness.courseBuilder.getProjectForSession(sessionId) || harness.findCurrentSession(sessionId)) throw new Error("课程对话包含课程绑定，请保留在原课程中；可在外面新建独立对话。");
+  if (projectId && (harness.studyResearch.listProjects().some(item => item.id === projectId) || (await ensureProject(projectId)).courseProjectId)) throw new Error("请使用课程内的新建对话，避免把其他任务的历史混入课程。");
   harness.projectWorkspaces.move(sessionId, projectId);
   console.info("[projects] moved conversation", { sessionId, projectId });
 }

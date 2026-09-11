@@ -27,7 +27,7 @@ test("Course Builder mode resolves physical plugin and fixed guidance without sh
  assert.ok(definition);assert.deepEqual(definition.tools,[]);
  const snapshot=resolveModePackSnapshot({pack:definition,courseVersionId:null,catalog:inventory.catalog});
  const plan=buildModePackRuntimePlanFromInventory({snapshot,inventory,definition});
- assert.equal(plan.extensionPaths.length,1);assert.match(plan.extensionPaths[0],/course-builder-extension\.ts$/);
+ assert.equal(plan.extensionPaths.length,2);assert.ok(plan.extensionPaths.some(path=>/course-builder-extension\.ts$/.test(path)));assert.ok(plan.extensionPaths.some(path=>/math-visualization-extension\.ts$/.test(path)));
  assert.match(plan.systemPrompt,/teacher approval/i);assert.match(plan.systemPrompt,/Noi1r/);
  assert.match(plan.systemPrompt,/assignment_state/u);assert.match(plan.systemPrompt,/read_assignment_material/u);
  const teachingSkills = ["education.lesson-blueprint","education.learning-to-learn","education.curriculum-continuity","education.evidence-ledger","shared.revision-discipline","education.learn-by-doing","education.visual-explanation"];
@@ -54,9 +54,10 @@ test("resource verification rejects empty Skill bodies even when their markers s
  assert.equal(result.verified,false,"a Skill name and snapshot hash cannot prove its body was loaded");
 });
 test("Actual extension registers only a dedicated agent surface, with no teacher approval action",async()=>{
- const tools=[];extension({registerTool:tool=>tools.push(tool)});
+ const tools=[];const events=[];extension({registerTool:tool=>tools.push(tool),on:(name)=>events.push(name)});
+ assert.ok(events.includes("before_agent_start"));assert.ok(events.includes("agent_end"));
  assert.deepEqual(tools.map(t=>t.name),["course_builder"]);
- const ctx={sessionManager:{getSessionId:()=>"test-unbound-session"}};
+ const ctx={sessionManager:{getSessionId:()=>"test-unbound-session",getBranch:()=>[]}};
  const result=await tools[0].execute("call",{action:"state"},new AbortController().signal,undefined,ctx);
  assert.equal(JSON.parse(result.content[0].text),null);
  await assert.rejects(tools[0].execute("call",{action:"accept"},undefined,undefined,ctx),/not available/);

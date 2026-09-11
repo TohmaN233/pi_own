@@ -19,7 +19,7 @@ test("one native Pi prompt survives two premature stops and completes only after
   globalThis.fetch = async () => { throw new Error("No network or paid provider is allowed in this test"); };
   const database = new DatabaseSync(":memory:"), host = new CourseBuilderHost(database);
   let session;
-  t.after(() => { session?.dispose(); database.close(); globalThis.fetch = originalFetch; assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + "\\pi-delivery-faux-")); rmSync(directory, { recursive: true }); });
+  t.after(() => { session?.dispose(); database.close(); globalThis.fetch = originalFetch; assert.ok(resolve(directory).startsWith(join(resolve(tmpdir()), "pi-delivery-faux-"))); rmSync(directory, { recursive: true }); });
   const faux = createFauxCore({});
   const credentials = AuthStorage.inMemory();
   await credentials.modify("faux", async () => ({ type: "api_key", key: "faux-key" }));

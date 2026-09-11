@@ -42,6 +42,9 @@ const BUILTIN_SKILL_FOLDERS: Readonly<Record<string, string>> = Object.freeze({
 	"shared.personal-skill-builder": "personal-skill-builder",
 	"education.visual-explanation": "visual-explanation",
 	"teacher.course-planning-beamer": "course-planning-beamer",
+	"study.paper-reading": "paper-reading",
+	"research.plan-experiments": "research-plan-experiments",
+	"shared.math-visualization": "math-visualization",
 });
 
 export function localModeSkillsDirectory(): string {
@@ -149,6 +152,9 @@ export const BUILTIN_MODE_RESOURCES: readonly BuiltinModeResource[] = deepFreeze
 	skillResource("shared.personal-skill-builder"),
 	skillResource("education.visual-explanation"),
 	skillResource("teacher.course-planning-beamer"),
+	skillResource("study.paper-reading"),
+	skillResource("research.plan-experiments"),
+	skillResource("shared.math-visualization"),
 	resource("prompt", "workflow:tutor", TUTOR_WORKFLOW),
 	resource("prompt", "workflow:practice", PRACTICE_WORKFLOW),
 	resource("prompt", "workflow:teach-back", TEACH_BACK_WORKFLOW),

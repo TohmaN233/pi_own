@@ -1,0 +1,13 @@
+.start { max-width:1000px;margin:32px auto;padding:24px;color:var(--text); }
+.workspace { display:grid;grid-template-columns:minmax(430px,1fr) minmax(360px,43vw);height:100dvh;overflow:hidden;background:var(--bg);color:var(--text); }
+.main { padding:24px;overflow:auto;min-width:0; }
+.start section,.main section,.main article,.start article { padding:16px;margin:16px 0;border:1px solid var(--border);border-radius:10px;background:var(--bg-panel); }
+.main h1,.start h1 { font-size:1.65rem;margin:18px 0 10px; }.main h2 {font-size:1.35rem;margin:14px 0;}.main h3{font-size:1.1rem;margin:12px 0;}
+.main p,.start p {line-height:1.7;margin:10px 0;}.main ul{padding-left:24px;}.main li{margin:5px 0;}
+.main button,.start button { padding:7px 12px;margin:4px;cursor:pointer;border:1px solid var(--border);border-radius:6px;background:var(--bg-panel);color:var(--text); }
+.main button:disabled,.start button:disabled { opacity:.5;cursor:not-allowed; }.main button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);}
+.main input:not([type=checkbox]),.start input,.main textarea,.main select {display:block;width:100%;padding:8px;margin:8px 0;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);}
+.main textarea {font:13px/1.6 var(--font-mono);}.main pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:450px;overflow:auto;font:13px/1.6 var(--font-mono);}.main small {overflow-wrap:anywhere;}.main :global([role=alert]){color:#cf5f45;white-space:pre-wrap;}
+.source {padding:12px;background:var(--bg);}
+.workspace :global(.study-chat){display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--border);}.workspace :global(.study-chat>header){padding:14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;}.workspace :global(.study-chat-body){flex:1;min-height:0;flex-direction:column;overflow:hidden;}.workspace :global(.study-chat button){padding:6px;color:var(--text);background:var(--bg-panel);border:1px solid var(--border);}.workspace :global(.study-preview){padding:14px;background:var(--bg);}
+@media(max-width:880px){.workspace{display:flex;flex-direction:column;height:auto;overflow:auto;}.main{overflow:visible;padding:12px;}.workspace :global(.study-chat){height:75dvh;min-height:500px;border-top:1px solid var(--border);}}

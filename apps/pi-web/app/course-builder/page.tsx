@@ -17,6 +17,7 @@ import {
 	type CourseBuilderSetup,
 } from "@/lib/course-builder-onboarding";
 import { prepareCourseBuilderUpload } from "@/lib/course-builder-upload";
+import { MathVisualizationPanel } from "@/components/visualization/MathVisualizationPanel";
 import { TeacherConversation } from "@/components/course-builder/TeacherConversation";
 import { SemesterPlanReview } from "@/components/course-builder/SemesterPlanReview";
 import { WorkspaceFilePreview } from "@/components/course-builder/WorkspaceFilePreview";
@@ -716,6 +717,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 								})}
 								<div className={styles.outputArticle} id="visuals" tabIndex={-1}>
 									<h4>教学可视化</h4>
+									<MathVisualizationPanel key={sid} sessionId={sid}/>
 									<p className={styles.sectionIntro}>可视化由固定渲染器生成，不会自动塞进课件。请打开检查标签、比例、边界情况和学习目标。</p>
 									{state.visuals.length > 0 ? <div className={styles.visualList}>{state.visuals.map((visual) => <div className={styles.visualItem} key={visual.visualId}><p>{visual.learningPurpose}</p><a className={styles.downloadLink} href={download("visual", visual.visualId)} target="_blank" rel="noreferrer">打开可视化</a></div>)}</div> : <div className={styles.emptyState}>还没有单独生成的可视化。可在上方修订框说明“学生操作什么、观察什么、由此理解什么”。</div>}
 									<JsonView label="查看可视化规格与生成记录" value={state.visuals}/>

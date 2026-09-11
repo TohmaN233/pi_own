@@ -148,7 +148,7 @@ test("real workspace routes edit and link a dormant course, then activate the sa
   await rpc.getRpcSession(sid).send({ type: "reload" });
   assert.equal((await rpc.getGenericModePackStatus(sid)).runtime.verified, true);
   await rpc.setRpcSessionTools(sid, file, []);
-  assert.deepEqual(rpc.getRpcSession(sid).inner.getActiveToolNames(), ["course_builder"]);
+  assert.deepEqual(rpc.getRpcSession(sid).inner.getActiveToolNames().sort(), ["course_builder", "math_visualization"]);
   assert.equal(host.getProjectForSession(sid).projectId, project.projectId);
 
   const semester = { title: "Review workflow", rationale: "Teach then check understanding", sessions: Array.from({ length: input.weeks }, (_, index) => ({ week: index + 1, session: 1, title: `Week ${index + 1}`, objectives: [input.goals[0]], prerequisites: [], topics: ["Concept"], materialIds: [linked.snapshot.materials[0].materialId], activities: ["Predict and explain"], understandingEvidence: ["Explain the result"], assessment: null, homework: null, courseGoalsCovered: input.goals, revisits: [], visualOpportunities: [] })) };

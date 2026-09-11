@@ -32,6 +32,7 @@ import {
 } from "../../../packages/mode-pack-host/src/index.ts";
 import { getProjectTrustStatus } from "./project-trust";
 import { COURSE_BUILDER_DRAFT } from "./course-builder-pack";
+import { STUDY_RESEARCH_DRAFT } from "./study-research-pack";
 import { resolveShellTools } from "./powershell-settings";
 
 const TOOL_HASH = "sha256:built-in-tool";
@@ -260,7 +261,13 @@ function builtinResources(): RuntimeModeResource[] {
     runtimeResource({kind:"extension",id:"course-builder",title:"Course Builder",paths:[extensionPath],source:"pi-own",scope:"platform"}),
     runtimeResource({kind:"prompt",id:"workflow:course-builder",title:"Teacher approval workflow",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:"Use the fixed Course Builder workflow. For an Assignment, call assignment_state, read only through read_assignment_material with the same assignmentId, save_assignment, and wait for teacher review. Keep course, Assignment and cross-Assignment materials isolated. Wait for real teacher approval between plan, lesson and deck. Never self-approve.",digestPayload:"course-builder-workflow-v2"}),
   ] : [];
-  return [...tools, learningHarness, ...modeResources, ...courseResources];
+  const sharedResources: RuntimeModeResource[] = [];
+  for (const id of ["study-research", "math-visualization"]) {
+    const path = [resolve(process.cwd(), `lib/${id}-extension.ts`), resolve(process.cwd(), `apps/pi-web/lib/${id}-extension.ts`)].find(existsSync);
+    if (path) sharedResources.push(runtimeResource({ kind: "extension", id, title: id, paths: [path], source: "pi-own", scope: "platform" }));
+  }
+  sharedResources.push(runtimeResource({ kind: "prompt", id: "workflow:study-research", title: "Critical study then human-approved research", paths: [], source: "pi-own", scope: "platform", synthetic: true, text: "Read bounded sources → save a critical roadmap and unresolved proof/code obligations → explain the chosen unit with the user → record separate notes → propose falsifiable research ideas → save an exact experiment. Only the user can approve/run or report learning progress. Reading, typesetting and exit code zero are not proof verification.", digestPayload: "study-research-workflow-v1" }));
+  return [...tools, learningHarness, ...modeResources, ...courseResources, ...sharedResources];
 }
 
 function pushResource(
@@ -378,7 +385,7 @@ export async function inspectModePackInventory(cwd: string): Promise<ModePackInv
     resources: resources.sort((left, right) => resourceKey(left.kind, left.id).localeCompare(resourceKey(right.kind, right.id))),
     resourcesByKey,
     diagnostics,
-    builtinPacks: {...createRuntimeBuiltinModePacks(catalog), ...(catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft(COURSE_BUILDER_DRAFT, catalog)} : {})},
+    builtinPacks: {...createRuntimeBuiltinModePacks(catalog), ...(catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft(COURSE_BUILDER_DRAFT, catalog)} : {}), ...(catalog.get("extension", "study-research") ? {"study-research": compileModePackDraft(STUDY_RESEARCH_DRAFT, catalog)} : {})},
   };
 }
 

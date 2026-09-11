@@ -97,7 +97,7 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
     }
   };
 
-  if (!sessionId || !status || status.sessionId !== sessionId) return <div className={styles.overlay}><a className={styles.link} href="/projects">项目与对话</a><a className={styles.workspaceLink} href="/course-builder">备课 · 继续已有课程</a></div>;
+  if (!sessionId || !status || status.sessionId !== sessionId) return <div className={styles.overlay}><a className={styles.link} href="/projects">项目与对话</a><a className={styles.workspaceLink} href="/course-builder">备课 · 继续已有课程</a><a className={styles.link} href="/study-research">Study &amp; Research</a></div>;
   if (status.kind !== "generic") return null;
   const canSwitch = !status.busy && !busy;
   return (
@@ -136,6 +136,7 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
       >
         打开备课工作区
       </a>
+      <a className={styles.link} href="/study-research">Study &amp; Research</a>
       {(error || status.diagnostic) && (
         <span className={styles.warning} title={error ?? status.diagnostic ?? undefined}>
           {error ?? status.diagnostic}

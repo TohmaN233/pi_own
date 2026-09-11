@@ -1,0 +1,66 @@
+name: Study Research Foundation
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: study-research-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  foundation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci --ignore-scripts && npm ci --prefix apps/pi-web --ignore-scripts
+      - name: Test critical study state and actual code execution
+        run: node --test scripts/study-research*.test.mjs scripts/math-visualization-host.test.mjs
+      - name: Test native Pi integration and existing Course mode
+        run: cd apps/pi-web && node --test lib/study-research.test.mjs lib/course-builder.test.mjs
+      - name: Build actual web application
+        run: npm run build --prefix apps/pi-web
+      - name: Install pinned browser test tooling
+        run: |
+          python3 -m venv "$RUNNER_TEMP/study-browser-venv"
+          "$RUNNER_TEMP/study-browser-venv/bin/pip" install playwright==1.57.0
+          "$RUNNER_TEMP/study-browser-venv/bin/python" -m playwright install --with-deps chromium
+      - name: Real UI, notes, approved Python and shared 2D/3D rendering
+        env:
+          PI_NO_LOCAL_LLM: "1"
+          NEXT_TELEMETRY_DISABLED: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PI_STUDY_BROWSER_ROOT="$(mktemp -d /tmp/pi-study-browser-XXXXXXXX)"
+          echo "PI_STUDY_BROWSER_ROOT=$PI_STUDY_BROWSER_ROOT" >> "$GITHUB_ENV"
+          export PI_CODING_AGENT_DIR="$PI_STUDY_BROWSER_ROOT/agent"
+          export PI_LEARNING_HARNESS_DIR="$PI_STUDY_BROWSER_ROOT/data"
+          export PI_STUDY_TRUSTED_CODE=1
+          export PI_STUDY_PYTHON_PATH="$(command -v python3)"
+          node scripts/study-research-browser-fixture.mjs
+          npm run start --prefix apps/pi-web > "$PI_STUDY_BROWSER_ROOT/server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:30141/api/study-research >/dev/null; then break; fi
+            kill -0 "$server_pid"
+            sleep 1
+          done
+          "$RUNNER_TEMP/study-browser-venv/bin/python" scripts/browser/study_research_smoke.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: study-research-browser-evidence
+          path: |
+            ${{ env.PI_STUDY_BROWSER_ROOT }}/browser-evidence/
+            ${{ env.PI_STUDY_BROWSER_ROOT }}/server.log
+          if-no-files-found: ignore
+          retention-days: 7
