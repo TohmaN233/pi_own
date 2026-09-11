@@ -1,31 +1,81 @@
-name: Prepare pinned visualization dependency
+name: Upload verified Study product blobs
 on:
   push:
     branches: [feat/study-research-foundation]
     paths: [.github/workflows/study-foundation-inputs.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  inputs:
+  upload:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          node-version: 22.20.0
-          package-manager-cache: false
-      - name: Fetch exact published package (no lifecycle scripts, no product writes)
+          ref: 00b19b026bb5a0c14462aa4a1b3d4e7270f0a25a
+          persist-credentials: false
+      - name: Verify sealed product and upload immutable file contents only
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/plotly-input"
-          cd "$RUNNER_TEMP/plotly-input"
-          npm view plotly.js-strict-dist-min@4.1.0 --json > package-metadata.json
-          npm pack plotly.js-strict-dist-min@4.1.0 --ignore-scripts --json > package-pack.json
-          sha256sum *.tgz > SHA256SUMS
+          python3 - <<'PY'
+          import base64, hashlib, json, lzma, os, pathlib, subprocess, time, urllib.request
+          BASE = '00b19b026bb5a0c14462aa4a1b3d4e7270f0a25a'
+          TREE = 'ba7e0a8fd1587f5404f5bc61ede1bbe79db64e04'
+          PARTS = ['ffbd196335b94d06b2a30ae86e740a5d58309168', '11754885cbf0579b6d5e7110b3b0a53bf37e4cc6', 'ca149be51d2faf104e602abb5fea143034012d49', '79933a15a2139a21ae6e1ed8a4672aa4e7af09d7', 'a1fe618e741e6bf91d66262a08477af2cf738cc2']
+          def gitblob(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          def request(path, value=None):
+              req = urllib.request.Request('https://api.github.com/repos/TohmaN233/pi_own/' + path,
+                  data=None if value is None else json.dumps(value).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json', 'User-Agent': 'pi-own-verified-source-upload'})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.load(r)
+          chunks = []
+          for sha in PARTS:
+              obj = request('git/blobs/' + sha)
+              assert obj['encoding'] == 'base64'
+              data = base64.b64decode(obj['content'])
+              assert gitblob(data) == sha
+              chunks.append(data)
+          archive = b''.join(chunks)
+          assert len(archive) == 62076
+          assert hashlib.sha256(archive).hexdigest() == '0218b8c8a4e0a790d301a77ee41f9f8c1d484abcf3ecda07c60896c1261bd948'
+          raw = lzma.decompress(archive)
+          assert len(raw) == 232332
+          bundle = json.loads(raw)
+          assert bundle['base'] == BASE
+          files = dict(bundle['files'])
+          for path, patch in bundle['patches'].items():
+              old = subprocess.check_output(['git', 'show', BASE + ':' + path])
+              assert hashlib.sha256(old).hexdigest() == patch['sha256'], path
+              lines = old.decode('utf-8').splitlines(keepends=True)
+              for edit in reversed(patch['edits']):
+                  lines[edit['start']:edit['end']] = edit['lines']
+              files[path] = ''.join(lines)
+          assert len(files) == 60 and set(files) == set(bundle['gitBlobs'])
+          for path, text in files.items():
+              p = pathlib.PurePosixPath(path)
+              assert not p.is_absolute() and '..' not in p.parts and '.git' not in p.parts
+              assert gitblob(text.encode('utf-8')) == bundle['gitBlobs'][path], path
+          print('Verified all 60 actual product files against sealed content hashes.')
+          # Upload immutable file contents only. No tree, commit, ref, PR or merge operations.
+          uploaded = {}
+          for path, text in sorted(files.items()):
+              result = request('git/blobs', {'encoding': 'base64', 'content': base64.b64encode(text.encode('utf-8')).decode()})
+              assert result['sha'] == bundle['gitBlobs'][path], path
+              uploaded[path] = result['sha']
+              print('Uploaded actual file:', path, result['sha'])
+              time.sleep(0.3)
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'study-upload'
+          out.mkdir(exist_ok=True)
+          (out / 'uploaded-blobs.json').write_text(json.dumps({'base': BASE, 'expectedTree': TREE, 'files': uploaded}, indent=2) + '\n')
+          print('All contents verified on GitHub. No branch was changed by this worker.')
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: study-plotly-strict-input
-          path: ${{ runner.temp }}/plotly-input/
+          name: study-verified-source-blobs
+          path: ${{ runner.temp }}/study-upload/uploaded-blobs.json
           retention-days: 3
           if-no-files-found: error
