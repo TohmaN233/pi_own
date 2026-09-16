@@ -12,7 +12,7 @@ import {
 	type SnapshotDiff,
 } from "../../harness-contracts/src/index.ts";
 import { contentHash, deepFreeze, deterministicId, stableStringify } from "../../harness-core/src/index.ts";
-import { BUILTIN_MODE_RESOURCES } from "./builtin-mode-resources.ts";
+import { createBuiltinModeResources } from "./builtin-mode-resources.ts";
 
 export class ProfileResolutionError extends Error {
 	readonly code: string;
@@ -292,7 +292,7 @@ export function createDefaultResourceCatalog(): ResourceCatalog {
 			contentHash: TOOL_HASH,
 		})),
 		{ kind: "extension", id: "learning-harness", version: "1", contentHash: "sha256:learning-harness-v1" },
-		...BUILTIN_MODE_RESOURCES,
+		...createBuiltinModeResources(),
 	]);
 }
 

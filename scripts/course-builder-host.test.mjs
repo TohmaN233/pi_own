@@ -1,5 +1,6 @@
 // PR #7 regression: exercise the real Host, approval boundaries and SQLite restore.
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { CourseBuilderHost, compileBeamer, reviewBeamer, assertSafeBeamerSource, assertBeamerAssets, runCourseBuilderCommand } from '../packages/course-builder-host/src/index.ts';
@@ -96,6 +97,24 @@ test('patch_deck preserves unrelated source and rejects ambiguous or stale edits
     assert.equal(f.host.getSnapshotForSession('teacher').decks[0].source,f.deck.source.replace('Learning goal','Our learning goal'));
     await assert.rejects(runCourseBuilderCommand(f.host,'teacher',patch),/current deck/);
   } finally {f.db.close();}
+});
+
+test('patch_deck can attach generated assets atomically without replacing the existing deck', async () => {
+  const f = planned();
+  try {
+    const [image] = f.host.importMaterials('teacher', [{name:'plot.png',kind:'asset',sourceBytes:Buffer.from('image fixture'),extractedText:''}], 2);
+    const patch = {action:'patch_deck',id:f.deck.deckId,expectedRevision:1,parentRevision:1,draft:{edits:[{oldText:'Learning goal',newText:'Updated learning goal'}],addAssetMaterialIds:[image.materialId]}};
+    const saved = await runCourseBuilderCommand(f.host,'teacher',patch);
+    assert.deepEqual(saved.assetMaterialIds,[image.materialId]);
+    assert.equal(saved.deckId,f.deck.deckId);
+    const current = f.host.getSnapshotForSession('teacher').decks[0];
+    assert.equal(current.source,f.deck.source.replace('Learning goal','Updated learning goal'));
+    for (const invalid of [null, [image.materialId,image.materialId], [42]]) {
+      await assert.rejects(runCourseBuilderCommand(f.host,'teacher',{...patch,expectedRevision:2,draft:{edits:[{oldText:'Updated learning goal',newText:'Bad'}],addAssetMaterialIds:invalid}}),/unique array/);
+    }
+    await assert.rejects(runCourseBuilderCommand(f.host,'teacher',{...patch,expectedRevision:2,draft:{edits:[{oldText:'Updated learning goal',newText:'Bad'}],addAssetMaterialIds:['missing']}}));
+    assert.deepEqual(f.host.getSnapshotForSession('teacher').decks[0],current);
+  } finally { f.db.close(); }
 });
 
 test('PR #7: draft, approval, deck and original source survive fresh Host construction', () => {
@@ -195,6 +214,45 @@ test('PR #7: successful receipt requires matching PDF and log bytes', () => {
   f.db.close();
 });
 
+test('Beamer SyncTeX maps are receipt-bound, survive restart, and old maps remain readable as unavailable', () => {
+  const f = planned();
+  try {
+    const receiptId = 'beamer-synctex-receipt';
+    const log = 'compiler output';
+    const pdfBytes = new Uint8Array(Buffer.from('%PDF-1.4\n'));
+    const base = {
+      receiptId,
+      projectId: f.project.projectId,
+      deckId: f.deck.deckId,
+      deckRevision: f.deck.revision,
+      sourceHash: f.deck.sourceHash,
+      compiler: 'xelatex.exe',
+      arguments: ['-synctex=1', 'deck.tex'],
+      succeeded: true,
+      exitCode: 0,
+      pageCount: 1,
+      pdfHash: `sha256:${sha256Hex(pdfBytes)}`,
+      logHash: `sha256:${sha256Hex(log)}`,
+      diagnostics: [],
+      createdAt: new Date().toISOString(),
+    };
+    const receipt = { ...base, contentHash: contentHash(base) };
+    const artifact = { receiptId, pdfBytes, syncTexBytes: new Uint8Array(gzipSync('SyncTeX Version:1\n')), syncTexCommand: 'synctex.exe' };
+    assert.throws(() => f.host.recordCompile('teacher', receipt, { receiptId, pdfBytes }, log), /SyncTeX/);
+    f.host.recordCompile('teacher', receipt, artifact, log);
+    assert.equal(f.host.hasBeamerSyncTex('teacher', receiptId), true);
+    const restarted = new CourseBuilderHost(f.db);
+    assert.equal(restarted.hasBeamerSyncTex('teacher', receiptId), true);
+    restarted.saveBeamerDeck('teacher', { lessonPlanId: f.lesson.lessonPlanId, title: f.deck.title, source: f.deck.source.replace('Learning goal', 'Updated goal'), frameOutline: f.deck.frameOutline, assetMaterialIds: [] }, f.deck.revision, f.lesson.revision);
+    assert.equal(restarted.hasBeamerSyncTex('teacher', receiptId), false);
+
+    f.db.prepare('DELETE FROM course_builder_teacher_notes_compile_synctex WHERE receipt_id=?').run(receiptId);
+    const legacy = new CourseBuilderHost(f.db);
+    assert.equal(legacy.hasBeamerSyncTex('teacher', receiptId), false);
+    assert.deepEqual(legacy.getCompiledPdf('teacher', receiptId), pdfBytes);
+  } finally { f.db.close(); }
+});
+
 test('PR #7: TeX direct reads, encoded primitives and graphic path escape are blocked', () => {
   for (const fragment of [String.raw`\input{/etc/passwd}`, String.raw`\write18{touch x}`, String.raw`^^5cinput{x}`, String.raw`\csname input\endcsname{x}`]) assert.throws(() => assertSafeBeamerSource(source.replace('\\end{document}', `${fragment}\n\\end{document}`)), /primitive/);
   assert.throws(() => assertBeamerAssets(source + String.raw`\includegraphics{../../secret.pdf}`, []), /Unknown published/);
@@ -246,7 +304,7 @@ test('PR #7: model command surface cannot approve, accept or smuggle private sou
  for(const action of ['approve','accept','review_semester','review_lesson']) await assert.rejects(runCourseBuilderCommand(f.host,'teacher',{action}),/not available/);
  const state=await runCourseBuilderCommand(f.host,'teacher',{action:'state'});
  assert.equal('source' in state.decks[0],false);
- assert.equal('extractedText' in state.materials[0],false);
+ assert.equal(state.materials.length,0,'legacy copied sources are absent from the selected-folder reference catalog');
  const templates=await runCourseBuilderCommand(f.host,'teacher',{action:'visual_templates'});
  assert.equal(templates.contract.courseVersionId,f.project.projectId);
  assert.deepEqual(templates.kinds.map(item=>item.kind),['function-plot','matrix-transform','algorithm-trace','graph-trace','state-machine']);
@@ -268,6 +326,7 @@ test('PR #7: real composition root owns one shared SQLite connection and restore
 test('PR #7: asynchronous runtime admission completes before a draft can be written', async () => {
   const { runCourseBuilderCommand } = await import('../packages/course-builder-host/src/index.ts');
   const f = setup();
+  f.host.importMaterials('teacher', [{name:'linked-notes.md',kind:'markdown',sourceBytes:Buffer.from('local-link marker'),extractedText:'',metadata:{storage:'local-link',sourceRoot:'/teacher-selected',sourcePath:'/teacher-selected/linked-notes.md'}}],2);
   let release;
   const gate = new Promise(resolve => { release = resolve; });
   const draft = { topicChains: ['Linearity'], prerequisiteGaps: [], duplicates: [], sequenceGaps: [], terminologyConflicts: [], practiceOpportunities: [], visualOpportunities: [] };

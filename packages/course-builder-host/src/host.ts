@@ -7,6 +7,12 @@ import { VisualHost } from "../../visual-host/src/index.ts";
 import { assertBeamerPresentationSource, assertSafeBeamerSource } from "./beamer.ts";
 import { CourseCoverageLedger } from "./coverage.ts";
 import { coursePlanningSettings, semesterPlanningIssue } from "./planning.ts";
+import { CourseTeacherNotesLedger } from "./teacher-notes.ts";
+import {
+	CourseTeacherNotesCompiler,
+	type BeamerSyncTexArtifact,
+	type TeacherNotesCompileOptions,
+} from "./teacher-notes-compilation.ts";
 import type {
 	AssignmentDraft,
 	BeamerAsset,
@@ -489,6 +495,8 @@ function assignmentScopeId(material: CourseBuilderMaterial): string | null {
 export class CourseBuilderHost {
 	private readonly database: DatabaseSync;
 	private readonly coverage: CourseCoverageLedger;
+	private readonly teacherNotes: CourseTeacherNotesLedger;
+	private readonly teacherNotesCompiler: CourseTeacherNotesCompiler;
 	private persistedState: string | null = null;
 	private readonly visualHost = new VisualHost();
 	private projects = new Map<string, CourseBuilderProject>();
@@ -524,6 +532,8 @@ export class CourseBuilderHost {
 				bytes BLOB NOT NULL
 			);
 		`);
+		this.teacherNotes = new CourseTeacherNotesLedger(database);
+		this.teacherNotesCompiler = new CourseTeacherNotesCompiler(database);
 		this.restore();
 		this.coverage = new CourseCoverageLedger(database);
 	}
@@ -531,6 +541,74 @@ export class CourseBuilderHost {
 	listCoverageCheckpoints(sessionId: string) {
 		const snapshot = this.getSnapshotForSession(sessionId);
 		return snapshot ? this.coverage.list(snapshot) : [];
+	}
+
+	getTeacherNotes(sessionId: string, notesId: string) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
+		return this.teacherNotes.get(snapshot, notesId);
+	}
+	compileTeacherNotes(
+		sessionId: string,
+		notesId: string,
+		expectedRevision: number,
+		options: TeacherNotesCompileOptions,
+	) {
+		const notes = this.getTeacherNotes(sessionId, notesId);
+		const deck = this.getSnapshotForSession(sessionId)?.decks.find((item) => item.deckId === notes.deckId);
+		if (!deck) throw new CourseBuilderError("DECK_NOT_FOUND", "The lecture script's deck is unavailable");
+		return this.teacherNotesCompiler.compile(() => this.getSnapshotForSession(sessionId), notesId, expectedRevision, {
+			...options,
+			assets: this.publishedDeckAssets(sessionId, deck),
+		});
+	}
+	getTeacherNotesCompileReceipt(sessionId: string, receiptId: string) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
+		return this.teacherNotesCompiler.getReceipt(snapshot, receiptId);
+	}
+	getTeacherNotesPdf(sessionId: string, receiptId: string) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
+		return this.teacherNotesCompiler.getPdf(snapshot, receiptId);
+	}
+	hasTeacherNotesSyncTex(sessionId: string, receiptId: string) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
+		return this.teacherNotesCompiler.hasSyncTex(snapshot, receiptId);
+	}
+	async locateTeacherNotes(sessionId: string, receiptId: string, query: { line: number } | { page: number; x: number; y: number }) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
+		const receipt = this.teacherNotesCompiler.getReceipt(snapshot, receiptId);
+		const result = await this.teacherNotesCompiler.locate(snapshot, receiptId, query);
+		const current = this.getTeacherNotes(sessionId, receipt.notesId);
+		if (current.revision !== receipt.notesRevision || current.sourceHash !== receipt.sourceHash)
+			throw new CourseBuilderError("REVISION_CONFLICT", "讲稿在定位期间发生变化，请重新编译后定位。");
+		return result;
+	}
+	getTeacherNotesCompileLog(sessionId: string, receiptId: string) {
+		const snapshot = this.getSnapshotForSession(sessionId);
+		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
+		return this.teacherNotesCompiler.getLog(snapshot, receiptId);
+	}
+	saveTeacherNotes(sessionId: string, draft: unknown, expectedRevision: number) {
+		return this.teacherNotes.save(() => this.getSnapshotForSession(sessionId), draft, expectedRevision);
+	}
+	patchTeacherNotes(
+		sessionId: string,
+		notesId: string,
+		edits: unknown,
+		expectedRevision: number,
+		deckRevision: number,
+	) {
+		return this.teacherNotes.patch(
+			() => this.getSnapshotForSession(sessionId),
+			notesId,
+			edits,
+			expectedRevision,
+			deckRevision,
+		);
 	}
 
 	saveCoverageCheckpoint(sessionId: string, draft: unknown, expectedRevision: number) {
@@ -1036,10 +1114,14 @@ export class CourseBuilderHost {
 		const parsed = parseMaterialAnalysis(value);
 		timestamp(createdAt, "createdAt");
 		const materialIds = this.courseMaterials(project.projectId)
+			.filter((item) => item.metadata.storage === "local-link")
 			.map((item) => item.materialId)
 			.sort();
 		if (materialIds.length === 0)
-			throw new CourseBuilderError("MATERIALS_REQUIRED", "Import course materials before saving an analysis");
+			throw new CourseBuilderError(
+				"MATERIALS_REQUIRED",
+				"Link the teacher's material folder before saving a source analysis; generated assets and legacy copies are not course references",
+			);
 		const base = { projectId: project.projectId, materialIds, ...parsed, createdAt };
 		const analysis: MaterialAnalysis = { ...base, contentHash: contentHash(base) };
 		this.mutate(() => this.materialAnalyses.set(project.projectId, analysis));
@@ -1295,6 +1377,9 @@ export class CourseBuilderHost {
 			throw new CourseBuilderError("RECEIPT_CONFLICT", "Compile receipts are immutable");
 		if (artifact && artifact.receiptId !== receipt.receiptId)
 			throw new CourseBuilderError("COMPILE_ARTIFACT_MISMATCH", "Compiled PDF belongs to another receipt");
+		const syncTex: BeamerSyncTexArtifact | undefined = receipt.succeeded
+			? this.teacherNotesCompiler.prepareBeamerSyncTex(receipt, artifact?.syncTexBytes, artifact?.syncTexCommand)
+			: undefined;
 		const history = this.decks.get(deck.deckId) ?? [];
 		const base: Omit<BeamerDeck, "contentHash"> = {
 			...withoutHash(deck),
@@ -1310,6 +1395,8 @@ export class CourseBuilderHost {
 			artifact ?? undefined,
 			[],
 			{ receiptId: receipt.receiptId, log },
+			[],
+			syncTex,
 		);
 		return clone(receipt);
 	}
@@ -1486,6 +1573,46 @@ export class CourseBuilderHost {
 		return binding ? this.snapshot(binding.projectId) : null;
 	}
 
+	/** Delete only unreferenced internal asset copies; every historical product and
+	 * preparation checkpoint participates in reachability, not just current decks. */
+	cleanupStoredCourseAssets(sessionId: string, dryRun = false) {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const state = this.exportState();
+		const { materials: _materials, ...products } = state;
+		const checkpointRows = this.database
+			.prepare("SELECT payload FROM course_builder_checkpoint WHERE project_id = ?")
+			.all(project.projectId);
+		const notesRows = this.database
+			.prepare("SELECT payload FROM course_builder_teacher_notes WHERE project_id = ?")
+			.all(project.projectId);
+		const references = JSON.stringify({ products, checkpoints: checkpointRows, teacherNotes: notesRows });
+		const candidates = state.materials.filter(
+			(material) =>
+				material.projectId === project.projectId &&
+				material.kind === "asset" &&
+				material.metadata.storage !== "local-link" &&
+				material.metadata.materialScope !== "assignment",
+		);
+		const removedMaterialIds = candidates
+			.filter((material) => !references.includes(material.materialId))
+			.map((material) => material.materialId);
+		const retainedMaterialIds = candidates
+			.filter((material) => references.includes(material.materialId))
+			.map((material) => material.materialId);
+		if (!dryRun && removedMaterialIds.length)
+			this.mutate(
+				() => {
+					for (const id of removedMaterialIds) this.materials.delete(id);
+				},
+				undefined,
+				[],
+				undefined,
+				removedMaterialIds,
+			);
+		return { projectId: project.projectId, dryRun, removedMaterialIds, retainedMaterialIds };
+	}
+
 	getSnapshot(projectId: string): CourseBuilderSnapshot {
 		this.refresh();
 		return this.snapshot(projectId);
@@ -1504,6 +1631,35 @@ export class CourseBuilderHost {
 		if (receipt.pdfHash !== `sha256:${sha256Hex(row.bytes)}`)
 			throw new CourseBuilderError("CORRUPT_STATE", "Stored PDF failed its content hash");
 		return new Uint8Array(row.bytes);
+	}
+
+	hasBeamerSyncTex(sessionId: string, receiptId: string): boolean {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const receipt = this.compileReceipts.get(receiptId);
+		if (!receipt || receipt.projectId !== project.projectId) return false;
+		const snapshot = this.snapshot(project.projectId);
+		return this.teacherNotesCompiler.hasBeamerSyncTex(snapshot, receipt);
+	}
+
+	async locateBeamer(
+		sessionId: string,
+		receiptId: string,
+		query: { line: number } | { page: number; x: number; y: number },
+	) {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const receipt = this.compileReceipts.get(receiptId);
+		if (!receipt || receipt.projectId !== project.projectId)
+			throw new CourseBuilderError("COMPILE_RECEIPT_NOT_FOUND", "Beamer compile receipt was not found in this project");
+		const snapshot = this.snapshot(project.projectId);
+		const pdf = this.getCompiledPdf(sessionId, receiptId);
+		const result = await this.teacherNotesCompiler.locateBeamer(snapshot, receipt, pdf, query);
+		this.refresh();
+		const current = this.currentDeck(receipt.deckId);
+		if (!current || current.revision !== receipt.deckRevision || current.sourceHash !== receipt.sourceHash)
+			throw new CourseBuilderError("REVISION_CONFLICT", "课件在定位期间发生变化，请重新编译后定位。");
+		return result;
 	}
 
 	getMaterial(sessionId: string, materialId: string): CourseBuilderMaterial {
@@ -1582,7 +1738,11 @@ export class CourseBuilderHost {
 		if (!deck || deck.projectId !== project.projectId)
 			throw new CourseBuilderError("DECK_NOT_FOUND", "Deck unavailable");
 		this.assertCurrentDeck(project, deck);
-		const assets = deck.assetMaterialIds.map((id) => {
+		return { project: clone(project), deck: clone(deck), assets: this.publishedDeckAssets(sessionId, deck) };
+	}
+
+	private publishedDeckAssets(sessionId: string, deck: BeamerDeck): BeamerAsset[] {
+		return deck.assetMaterialIds.map((id) => {
 			const material = this.getMaterial(sessionId, id);
 			const extension = /\.(png|jpe?g|pdf)$/iu.exec(material.name)?.[1]?.toLowerCase();
 			if (!extension)
@@ -1593,7 +1753,6 @@ export class CourseBuilderHost {
 				contentHash: material.sourceHash,
 			};
 		});
-		return { project: clone(project), deck: clone(deck), assets };
 	}
 
 	private assertCurrentLesson(project: CourseBuilderProject, lesson: LessonPlan, requireApproved = true): void {
@@ -1717,7 +1876,9 @@ export class CourseBuilderHost {
 		const decks = [...this.decks.values()]
 			.map((items) => currentByRevision(items))
 			.filter((item): item is BeamerDeck => item !== null && item.projectId === projectId);
-		return {
+		const snapshot: CourseBuilderSnapshot = {
+			teacherNotes: [],
+			teacherNotesCompileReceipts: [],
 			project: clone(project),
 			materials: this.projectMaterials(projectId).map(clone),
 			assignments: [...this.assignments.values()]
@@ -1744,6 +1905,9 @@ export class CourseBuilderHost {
 				.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 				.map(clone),
 		};
+		snapshot.teacherNotes = this.teacherNotes.list(snapshot);
+		snapshot.teacherNotesCompileReceipts = this.teacherNotesCompiler.list(snapshot);
+		return snapshot;
 	}
 
 	private projectMaterials(projectId: string): CourseBuilderMaterial[] {
@@ -1818,11 +1982,13 @@ export class CourseBuilderHost {
 		artifact?: BeamerCompiledArtifact,
 		sources: readonly { materialId: string; bytes: Uint8Array }[] = [],
 		compileLog?: { receiptId: string; log: string },
+		removedMaterialIds: readonly string[] = [],
+		syncTex?: BeamerSyncTexArtifact,
 	): void {
 		const before = this.exportState();
 		try {
 			change();
-			this.persist(artifact, sources, compileLog);
+			this.persist(artifact, sources, compileLog, removedMaterialIds, syncTex);
 		} catch (error) {
 			this.loadState(before);
 			this.refresh();
@@ -1834,6 +2000,8 @@ export class CourseBuilderHost {
 		artifact?: BeamerCompiledArtifact,
 		sources: readonly { materialId: string; bytes: Uint8Array }[] = [],
 		compileLog?: { receiptId: string; log: string },
+		removedMaterialIds: readonly string[] = [],
+		syncTex?: BeamerSyncTexArtifact,
 	): void {
 		const json = stableStringify(this.exportState());
 		if (Buffer.byteLength(json) > 128 * 1024 * 1024)
@@ -1845,6 +2013,8 @@ export class CourseBuilderHost {
 				| undefined;
 			if ((current?.value ?? null) !== this.persistedState)
 				throw new CourseBuilderError("REVISION_CONFLICT", "Concurrent Course Builder writer detected; reload");
+			for (const id of removedMaterialIds)
+				this.database.prepare("DELETE FROM course_builder_source WHERE material_id = ?").run(id);
 			for (const source of sources)
 				this.database
 					.prepare(
@@ -1857,6 +2027,7 @@ export class CourseBuilderHost {
 						"INSERT INTO course_builder_log(receipt_id, value) VALUES(?, ?) ON CONFLICT(receipt_id) DO NOTHING",
 					)
 					.run(compileLog.receiptId, compileLog.log);
+			if (syncTex) this.teacherNotesCompiler.persistBeamerSyncTex(syncTex);
 			this.database
 				.prepare("INSERT INTO course_builder_audit(before_hash, after_hash, created_at) VALUES(?, ?, ?)")
 				.run(

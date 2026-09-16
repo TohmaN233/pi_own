@@ -1,0 +1,26 @@
+---
+name: paper-learning
+description: Guide natural, source-grounded understanding of papers, definitions, proofs and small learning calculations in the Study and Research workspace.
+---
+
+Use the current Host source manifest and reading map. Prefer TeX or Word source when available; retain macro definitions and exact mathematical notation. PDF text extraction alone is not mathematical verification: inspect the original page wherever symbols, subscripts, alignment or equations are uncertain. Never silently merge source and PDF versions.
+
+Build a paper map from completed reading checkpoints: question, contribution, assumptions, argument and limitations. Mark unread sections explicitly. Work on the user's immediate question while background reading continues in its own task context; do not run two prompts against the same Pi session. Read bounded located chunks instead of reinserting the whole paper.
+
+When beginning an authorized paper-learning session, use `start_reading` with the observed current source/hash and phase revision to queue complete reading fragments (including registered TeX includes). It pins the conversation's current model and each source version in separate native Pi contexts. Repeating the same request reuses its tasks. `reading_state` exposes progress, substantive findings and unresolved points; completed tasks atomically update notes, graph and located reading checkpoints. Continue answering immediate questions from `read`, `search` and existing notes while this runs. Do not announce that the whole paper has been understood before its fragments have reports; extraction, reading and mathematical checking are different states. Failed or interrupted model tasks require visible reconciliation, not an automatic repeated model turn.
+
+Explain at the requested depth and let the user jump freely. Expand prerequisites locally and return to the original question. Do not grade, infer mastery, require teach-back or set an exam by default. Only an explicit request for exercises should enter the shared Assignment path.
+
+Treat the user's own papers and other papers equally. Explain errors that materially affect a claim or method. Report uncertainty as uncertainty, with its implications. Minor stylistic or cosmetic issues belong in a requested paper audit. Continue the well-supported parts and gather unresolved questions at the end.
+
+Distinguish original claims, your derivation, actual computation and external evidence. Preserve per-paper notation and assumptions in same-project links. Do not put private source text into external search queries. External background reading in Study supports understanding; it does not initiate a research direction.
+
+Save notes and graph links in one Host change set. Preserve user-written text and corrections. If a source changes, create the affected backup and candidate update, show the differences and wait for the user's decision through the Host; do not delete recovery data yourself.
+
+At the start of resumed paper work, inspect the selected registered source with `study_paper` action `inspect_change`. It returns actual current bytes as bounded candidate chunks, the previous/candidate hashes, and affected records. When changed, read the necessary candidate chunks before generating `update_draft`; bind every proposed claim to the observed candidate hash. Use explicit `replaceNodeId` / `replaceNoteId` only for the same automatic claim or note that you have compared. Never match by array position, title similarity alone, or overwrite human corrections. Omitted replacement IDs create new records; unmatched old records remain marked for checking. Explain what changed and why. `read_update` shows the candidate and backup comparison. The user confirms in the workspace; there is no Agent acceptance tool. If bytes or revisions change again, regenerate the affected draft from the new state instead of retrying a stale acceptance.
+
+Use admitted R/Python cells for helpful small calculations. Describe what the computation does and what it cannot establish. A numerical example is not a proof. Changing to Research requires the user's explicit phase choice; noticing a possible idea does not grant that choice.
+
+`study_paper` action `save_cell` saves editable R/Python code, its explanatory purpose, JSON parameters and registered input bindings. For edits carry the observed cell ID and revision. Saving code is not execution evidence. Read the actual run receipt before reporting a numerical outcome, and preserve failures and limitations. Never substitute an imagined result when the execution service is unavailable.
+
+For a small learning calculation, `run_cell` admits the observed saved cell revision with the machine's safe default limits and freezes its code, parameters, registered input bytes and environment. Supply the observed phase revision and any required installed R packages. It returns a queued/background run, not a numerical answer. Use `execution_state` with its queueJobId to read the actual result; the user can also view and cancel it in the workspace. Do not busy-poll or silently rerun failures. A chat turn ending does not cancel an admitted calculation. Formal experiments, long runs and exploration require the Research scope path; this learning capability does not grant that authorization.

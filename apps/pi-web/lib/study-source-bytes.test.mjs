@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { createJiti } from "jiti";
+const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
+const { readExactStudySourceBytes } = await jiti.import("./study-source-bytes.ts");
+const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+
+test("registered byte snapshots are exact, bounded, immutable after reading, and confined to their source root", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "study-source-bytes-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const sourceRoot = join(directory, "paper"); await mkdir(sourceRoot);
+  const original = Buffer.from([0, 1, 2, 255]);
+  await writeFile(join(sourceRoot, "data.bin"), original);
+  const source = { sourceRoot, relativePath: "data.bin", contentHash: hash(original) };
+  const snapshot = await readExactStudySourceBytes(source, 4);
+  assert.deepEqual(snapshot, original);
+  await assert.rejects(readExactStudySourceBytes(source, 3), /byte limit/);
+  await writeFile(join(sourceRoot, "data.bin"), Buffer.from([9, 1, 2, 255]));
+  assert.deepEqual(snapshot, original);
+  await assert.rejects(readExactStudySourceBytes(source, 4), /changed since import/);
+  await writeFile(join(directory, "outside.bin"), original);
+  await assert.rejects(readExactStudySourceBytes({ ...source, relativePath: "../outside.bin" }, 4), /escapes/);
+  await mkdir(join(directory, "external")); await writeFile(join(directory, "external", "data.bin"), original);
+  await symlink(join(directory, "external"), join(sourceRoot, "linked"), "junction");
+  await assert.rejects(readExactStudySourceBytes({ ...source, relativePath: "linked/data.bin" }, 4), /escapes/);
+  assert.deepEqual(await readFile(join(directory, "outside.bin")), original);
+});

@@ -48,3 +48,16 @@ test("Course Builder owns scrolling and keeps an explicit Pi return control", ()
 	assert.match(styles, /\.page\s*\{[\s\S]*?height:\s*100%;[\s\S]*?overflow-y:\s*auto;/u);
 	assert.match(styles, /\.header\s*\{[\s\S]*?position:\s*sticky;/u);
 });
+
+test("Course Builder removes the decorative workflow strip and lazily renders history", () => {
+	assert.doesNotMatch(page, /aria-label=["']备课流程["']/u);
+	assert.doesNotMatch(page, /const FLOW\s*=/u);
+	assert.match(page, /function ProgressiveList/u);
+	assert.match(page, /ordered\.slice\(0, 3\)/u);
+	assert.match(page, /查看过往 \$\{hiddenCount\} \$\{unit\}\$\{label\}/u);
+	assert.match(page, /expanded && ordered\.length > 3/u);
+	assert.match(page, /open && <pre>\{JSON\.stringify/u);
+	for (const label of ["课程资料", "Assignment", "修改记录", "单课教案", "课件", "可视化"]) {
+		assert.match(page, new RegExp(`label=["']${label}["']`, "u"));
+	}
+});

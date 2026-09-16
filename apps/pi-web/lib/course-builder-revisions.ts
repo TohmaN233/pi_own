@@ -2,7 +2,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { CourseBuilderHost, CourseBuilderCommand } from "../../../packages/course-builder-host/src/index.ts";
 import { getRpcSession, type AgentSessionWrapper } from "./rpc-manager";
 import { resolveSessionPath } from "./session-reader";
-import { DELIVERY_ENTRY, type DeliveryTask } from "./course-builder-delivery";
+import { CourseDeliveryLoop, DELIVERY_ENTRY, DELIVERY_REQUEST_ENTRY, deliveryRequest, type DeliveryTask } from "./course-builder-delivery";
 
 export type ReviewAction = "review_semester" | "review_lesson" | "review_assignment";
 export interface CourseRevisionTask {
@@ -45,12 +45,16 @@ export async function readCourseRevisionTasks(sessionId: string) {
   return manager ? tasksFrom(manager).map((task) => ({ ...task, running: (task.status === "sent" || task.status === "sending") && !!wrapper?.isRunning() })) : [];
 }
 
-export async function readCourseDeliveryTask(sessionId: string): Promise<DeliveryTask | null> {
+export async function readCourseDeliveryTask(sessionId: string, host: CourseBuilderHost): Promise<DeliveryTask | null> {
   const wrapper = getRpcSession(sessionId);
   const path = wrapper?.isAlive() ? null : await resolveSessionPath(sessionId);
   const manager = wrapper?.isAlive() ? wrapper.inner.sessionManager : path ? SessionManager.open(path) : null;
-  const entry = manager?.getBranch().reverse().find((item) => item.type === "custom" && item.customType === DELIVERY_ENTRY);
-  return entry?.type === "custom" ? entry.data as DeliveryTask : null;
+  if(!manager)return null;
+  return new CourseDeliveryLoop({
+    snapshot:()=>{const snapshot=host.getSnapshotForSession(sessionId);if(!snapshot)throw new Error("Delivery course is unavailable");return snapshot;},
+    load:()=>{const entry=manager.getBranch().reverse().find((item)=>item.type==="custom"&&item.customType===DELIVERY_ENTRY);return entry?.type==="custom" ? entry.data as DeliveryTask : undefined;},
+    save:(task)=>{manager.appendCustomEntry(DELIVERY_ENTRY,task);console.info("[course-delivery] binding restored",{sessionId,taskId:task.id,target:task.target,repair:task.bindingRepair});},
+  }).restore() ?? null;
 }
 
 /** Review and dispatch share one admission boundary. Retries replay the receipt. */
@@ -82,14 +86,16 @@ export async function requestCourseRevision(host: CourseBuilderHost, wrapper: Ag
     const save = assignment ? "save_assignment" : input.action === "review_semester" ? "save_semester" : "save_lesson";
     try {
       host.setAgentAssignmentScope(input.sessionId, assignment ? input.id : null);
-      await wrapper.send({ type: "prompt", message: [
+      const message = [
         `The teacher requests changes to ${input.action}, target ${input.id}, revision ${input.revision}. Request ID: ${input.requestId}.`,
         "Read the current target and its teacher review with course_builder before editing. Existing assets are the baseline. Preserve all unaffected content and styling. Do not rewrite from scratch unless the teacher explicitly says to abandon the existing asset. A request to regenerate or improve does not grant that permission. Respect source scope. Read back the saved target and report only the actual changed sections.",
         assignment ? `Use assignment_state and only this Assignment's materials: ${input.id}.` : "Use the course material scope; do not use private Assignment materials.",
         "Teacher's requested changes:", input.note,
         `Apply these changes now, then save the revised target using ${save} with the current expectedRevision${input.action === "review_lesson" ? " and the approved semester's parentRevision" : ""}.`,
         "Report the saved revision and changes. If blocked, explain what is missing; do not claim completion without a successful save. Do not approve the new draft or modify unrelated targets.",
-      ].join("\n\n") });
+      ].join("\n\n");
+      manager.appendCustomEntry(DELIVERY_REQUEST_ENTRY,deliveryRequest(message,{kind:assignment ? "assignment" : input.action==="review_semester" ? "semester" : "lesson",id:input.id}));
+      await wrapper.send({ type: "prompt", message });
       const latest = tasksFrom(manager).find((item) => item.requestId === task.requestId);
       if (latest?.status === "completed") return latest;
       const sent = { ...task, status: "sent" as const };

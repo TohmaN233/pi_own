@@ -15,7 +15,7 @@ import type {
 } from "../../../packages/harness-contracts/src/index.ts";
 import { contentHash, sha256Hex, stableStringify } from "../../../packages/harness-core/src/index.ts";
 import {
-  BUILTIN_MODE_RESOURCES,
+  createBuiltinModeResources,
   compileModePackDraft,
   ResourceCatalog,
   resolveBuiltinModeSkillPath,
@@ -32,6 +32,8 @@ import {
 } from "../../../packages/mode-pack-host/src/index.ts";
 import { getProjectTrustStatus } from "./project-trust";
 import { COURSE_BUILDER_DRAFT } from "./course-builder-pack";
+import { assertStudyModeBoundary } from "./study-mode-policy";
+import { STUDY_RESEARCH_DRAFTS } from "./study-research-pack";
 import { resolveShellTools } from "./powershell-settings";
 
 const TOOL_HASH = "sha256:built-in-tool";
@@ -218,7 +220,7 @@ function builtinResources(): RuntimeModeResource[] {
     scope: "platform",
     synthetic: true,
   };
-  const modeResources = BUILTIN_MODE_RESOURCES.map((entry) => {
+  const modeResources = createBuiltinModeResources().map((entry) => {
     const text = entry.instructions.join("\n\n");
     if (entry.kind !== "skill") {
       return {
@@ -260,7 +262,27 @@ function builtinResources(): RuntimeModeResource[] {
     runtimeResource({kind:"extension",id:"course-builder",title:"Course Builder",paths:[extensionPath],source:"pi-own",scope:"platform"}),
     runtimeResource({kind:"prompt",id:"workflow:course-builder",title:"Teacher approval workflow",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:"Use the fixed Course Builder workflow. For an Assignment, call assignment_state, read only through read_assignment_material with the same assignmentId, save_assignment, and wait for teacher review. Keep course, Assignment and cross-Assignment materials isolated. Wait for real teacher approval between plan, lesson and deck. Never self-approve.",digestPayload:"course-builder-workflow-v2"}),
   ] : [];
-  return [...tools, learningHarness, ...modeResources, ...courseResources];
+  const studyResources: RuntimeModeResource[] = [];
+  for (const [id, filename] of [
+    ["study-research", "study-research-extension.ts"],
+    ["study-visualization", "study-visualization-extension.ts"],
+    ["research-execution", "research-execution-extension.ts"],
+    ["study-results", "study-results-extension.ts"],
+    ["study-manuscript", "study-manuscript-extension.ts"],
+    ["study-assignment", "study-assignment-extension.ts"],
+  ]) {
+    const path = [resolve(process.cwd(), "lib", filename), resolve(process.cwd(), "apps/pi-web/lib", filename)].find(existsSync);
+    if (path) studyResources.push(runtimeResource({ kind: "extension", id, title: id, paths: [path], source: "pi-own", scope: "platform" }));
+  }
+  for (const [id, folder] of [
+    ["study.paper-learning", "paper-learning"],
+    ["study.visual-validation", "visual-validation"],
+    ["study.research-execution", "research-execution"],
+  ]) {
+    const path = resolve(localModeSkillsDirectory(), folder, "SKILL.md");
+    if (existsSync(path)) studyResources.push(runtimeResource({ kind: "skill", id, title: folder, paths: [path], text: readText(path), source: "pi-own", scope: "platform" }));
+  }
+  return [...tools, learningHarness, ...modeResources, ...courseResources, ...studyResources];
 }
 
 function pushResource(
@@ -378,7 +400,13 @@ export async function inspectModePackInventory(cwd: string): Promise<ModePackInv
     resources: resources.sort((left, right) => resourceKey(left.kind, left.id).localeCompare(resourceKey(right.kind, right.id))),
     resourcesByKey,
     diagnostics,
-    builtinPacks: {...createRuntimeBuiltinModePacks(catalog), ...(catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft(COURSE_BUILDER_DRAFT, catalog)} : {})},
+    builtinPacks: {
+      ...createRuntimeBuiltinModePacks(catalog),
+      ...(catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft(COURSE_BUILDER_DRAFT, catalog)} : {}),
+      ...Object.fromEntries(STUDY_RESEARCH_DRAFTS.filter((draft) => draft.components.every((component) =>
+        catalog.get(component.type === "plugin" ? "extension" : "skill", component.id),
+      )).map((draft) => [draft.modePackId, compileModePackDraft(draft, catalog)])),
+    },
   };
 }
 
@@ -404,6 +432,7 @@ export function buildModePackRuntimePlanFromInventory(options: {
   definition?: ModePackDefinition | null;
 }): ModePackRuntimePlan {
   const snapshot = assertGenericModePackSnapshot(options.snapshot);
+  assertStudyModeBoundary(snapshot);
   const definition = options.definition ? assertModePackDefinitionIntegrity(options.definition) : null;
   if (definition && definition.modePackId !== snapshot.profileId) {
     throw new Error("Mode Pack definition and snapshot profile differ");

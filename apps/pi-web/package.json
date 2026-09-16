@@ -24,10 +24,12 @@
     "!.next/dev",
     "!.next/**/*.js.map",
     "public",
+    "runtime",
     "next.config.ts",
     "package.json"
   ],
   "scripts": {
+    "prebuild": "node ../../scripts/build-study-worker.mjs",
     "dev": "next dev -H 127.0.0.1 -p 30141",
     "dev:lan": "next dev -H 0.0.0.0 -p 30141",
     "build": "next build --webpack",
@@ -43,6 +45,7 @@
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@earendil-works/pi-tui": "0.85.1",
     "ansi_up": "^6.0.6",
+    "hast-util-from-html": "2.0.3",
     "js-yaml": "^5.2.3",
     "jszip": "3.10.1",
     "next": "16.3.1",

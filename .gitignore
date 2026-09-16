@@ -1,4 +1,5 @@
 node_modules/
+.codegraph/
 dist/
 .artifacts/
 .learning-harness-data/
@@ -46,6 +47,7 @@ collect.sh
 
 # Local personal data, chat attachments, deployment snapshots and course outputs
 **/.pi/
+apps/pi-web/figure/
 **/.skill-upgrade-live-*.json
 docs/LOCAL_UPGRADE_*.md
 *.pdf

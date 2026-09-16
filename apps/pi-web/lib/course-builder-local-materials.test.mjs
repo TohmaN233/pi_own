@@ -22,6 +22,38 @@ const projectInput = {
 	beamerProfile: { aspectRatio: "169", fontSize: 11, theme: "default", author: "Teacher", institute: "", language: "Chinese", overlayPolicy: "allow", referencesPolicy: "optional", backupSlides: 0, speakerNotes: false, preamble: null },
 };
 
+test("course references exclude generated assets and legacy copied captures", async () => {
+  const database=new DatabaseSync(":memory:"),host=new CourseBuilderHost(database);
+  try {
+    const project=host.createProject(projectInput);host.bindSession("teacher",project.projectId);
+    host.importMaterials("teacher",[
+      {name:"generated-chart.png",kind:"asset",sourceBytes:new Uint8Array([1,2]),extractedText:"",metadata:{storage:"generated",generatedAsset:true,materialScope:"course"}},
+      {name:"temporary-capture.md",kind:"markdown",sourceBytes:new TextEncoder().encode("Temporary capture"),extractedText:"Temporary capture",metadata:{}},
+    ],1);
+    assert.equal(courseBuilderView(host,"teacher").materials.length,0,"only teacher-selected local folder references appear in the material catalog");
+    for(const material of host.getSnapshotForSession("teacher").materials) {
+      await assert.rejects(runCourseBuilderCommand(host,"teacher",{action:"read_material",id:material.materialId}),/not a reference in the teacher-selected material folders/);
+    }
+  } finally {database.close();}
+});
+
+test("asset cleanup deletes only unreferenced internal copies and preserves referenced bytes", async () => {
+  const database=new DatabaseSync(":memory:"),host=new CourseBuilderHost(database);
+  try {
+    const project=host.createProject(projectInput);host.bindSession("teacher",project.projectId);
+    const [used]=host.importMaterials("teacher",[{name:"used.png",kind:"asset",sourceBytes:new Uint8Array([1]),extractedText:"",metadata:{storage:"generated",materialScope:"course"}}],1);
+    host.updateProject(project.projectId,{...projectInput,goals:[`Explain the saved figure ${used.materialId}`]},2);
+    const [unused]=host.importMaterials("teacher",[{name:"unused.png",kind:"asset",sourceBytes:new Uint8Array([2]),extractedText:"",metadata:{storage:"generated",materialScope:"course"}}],3);
+    const dry=host.cleanupStoredCourseAssets("teacher",true);
+    assert.deepEqual(dry.removedMaterialIds,[unused.materialId]);assert.equal(host.getSnapshotForSession("teacher").materials.length,2);
+    const result=host.cleanupStoredCourseAssets("teacher");
+    assert.deepEqual(result.removedMaterialIds,[unused.materialId]);
+    assert.deepEqual(host.getMaterialBytes("teacher",used.materialId),new Uint8Array([1]));
+    assert.equal(database.prepare("SELECT bytes FROM course_builder_source WHERE material_id=?").get(unused.materialId),undefined);
+    assert.equal(new CourseBuilderHost(database).getSnapshotForSession("teacher").materials.length,1);
+  } finally {database.close();}
+});
+
 test("local folder binding indexes every file but reads content only on demand", async () => {
 	const root = join(tmpdir(), `pi-course-materials-${crypto.randomUUID()}`);
 	try {

@@ -1,0 +1,44 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import test from "node:test";
+import { createJiti } from "jiti";
+
+test("visual editor saves exact versions, preserves stale drafts and rejects a different project", async (t) => {
+  const parent = resolve("../../.artifacts/study-research/visual-editor"); mkdirSync(parent, { recursive: true });
+  const root = mkdtempSync(join(parent, "route-"));
+  const env = { PI_LEARNING_HARNESS_DIR: join(root, "data"), PI_CODING_AGENT_DIR: join(root, "agent"), PI_MODE_PACK_STORE_PATH: join(root, "packs.json") };
+  const saved = Object.fromEntries(Object.keys(env).map((key) => [key, process.env[key]])); Object.assign(process.env, env);
+  const originalFetch = globalThis.fetch; globalThis.fetch = async () => { throw new Error("No external requests in editor test"); };
+  t.after(() => { globalThis.__piLearningHarness?.close(); globalThis.__piLearningHarness = undefined; globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    rmSync(root, { recursive: true, force: true });
+  });
+  const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
+  const { POST } = await jiti.import("../app/api/study-research/visualization/route.ts");
+  const { ModePackStore } = await jiti.import("./mode-pack-store.ts");
+  const { createPersistedGenericSession } = await jiti.import("./rpc-manager.ts");
+  const { getLearningHarness } = await jiti.import("./harness-server.ts");
+  const { studyContext } = await jiti.import("./study-research-service.ts");
+  const harness = getLearningHarness();
+  const snapshot = (await new ModePackStore().resolve("study-research.study", root)).snapshot;
+  const sessionId = createPersistedGenericSession(root, "Visual editor", snapshot);
+  harness.projectWorkspaces.create({ id: "visual-editor", title: "Editor", cwd: root, defaults: snapshot, courseProjectId: null });
+  harness.projectWorkspaces.move(sessionId, "visual-editor");
+  const context = await studyContext(sessionId);
+  const url = "http://127.0.0.1:30141/api/study-research/visualization";
+  const headers = { host: "127.0.0.1:30141", origin: "http://127.0.0.1:30141", "sec-fetch-site": "same-origin", "sec-fetch-mode": "cors", "content-type": "application/json" };
+  const body = { sessionId, expectedPhaseRevision: context.phase.revision, expectedProjectRevision: 0, purpose: "Scalar circle", code: 'return {elements:[{tag:"circle",attrs:{cx:inputs.x,cy:20,r:5}}],metrics:{x:inputs.x}}', inputs: { x: 20 } };
+  const post = async (value, expected = 200, requestHeaders = headers) => { const response = await POST(new Request(url, { method: "POST", headers: requestHeaders, body: JSON.stringify(value) })); const parsed = await response.json(); assert.equal(response.status, expected, JSON.stringify(parsed)); return parsed; };
+  await post(body, 403, { host: headers.host, "content-type": "application/json" });
+  const first = (await post(body)).visualization;
+  const revision = { ...body, visualizationId: first.visualizationId, expectedVisualizationRevision: 1, expectedProjectRevision: 1, inputs: { x: 80 } };
+  const second = (await post(revision)).visualization;
+  assert.equal(second.revision, 2); assert.notEqual(second.contentHash, first.contentHash);
+  await post(revision, 409);
+  assert.equal(harness.studyResearch.getVisualizationDraft(context.scope, first.visualizationId).inputs.x, 80);
+  const outsider = createPersistedGenericSession(root, "Other project", snapshot);
+  harness.projectWorkspaces.create({ id: "visual-other", title: "Other", cwd: root, defaults: snapshot, courseProjectId: null });
+  harness.projectWorkspaces.move(outsider, "visual-other"); await studyContext(outsider);
+  await post({ ...revision, sessionId: outsider, expectedProjectRevision: 0, expectedVisualizationRevision: 2 }, 400);
+});

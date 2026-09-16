@@ -56,6 +56,15 @@ try {
   await page.locator('.page[data-page="2"][data-rendered="true"] canvas').waitFor();
   assert.equal(await page.locator("#zoom-label").textContent(), "125%");
   assert.deepEqual(downloads, []);
+  for (const source of ["/api/study-research/source?sessionId=fixture&sourceId=pdf", "/api/study-research/execution/artifact?sessionId=fixture&queueJobId=run&path=plot.pdf"]) {
+    await page.goto(`${base}/pdf-viewer.html?file=${encodeURIComponent(source)}`);
+    await page.locator('.page[data-page="1"][data-rendered="true"] canvas').waitFor();
+    assert.equal(await page.locator("#page-count").textContent(), "/ 2");
+  }
+  await page.goto(`${base}/pdf-viewer.html?file=${encodeURIComponent("/api/study-research/execution/artifact-untrusted")}`);
+  await page.getByRole("alert").waitFor();
+  assert.match(await page.getByRole("alert").textContent(), /只允许/);
+  assert.deepEqual(downloads, []);
   await page.goto(`${base}/pdf-viewer.html?file=${encodeURIComponent("/api/files/broken.pdf")}`);
   await page.getByRole("alert").waitFor();
   assert.match(await page.getByRole("alert").textContent(), /PDF 预览失败/);

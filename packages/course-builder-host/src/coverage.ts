@@ -313,7 +313,7 @@ export class CourseCoverageLedger {
 					.at(-1) ?? null;
 			if ((previous?.revision ?? 0) !== expectedRevision)
 				throw new Error(
-					`Checkpoint revision conflict: expected ${expectedRevision}, actual ${previous?.revision ?? 0}`,
+					`Checkpoint revision conflict for lesson ${lessonId}: expected ${expectedRevision}, actual ${previous?.revision ?? 0}. expectedRevision is this lesson's checkpoint revision, not its lesson/deck revision or another checkpoint. Call delivery_status for the current saveTemplate, or read_checkpoints and match lessonPlanId; retain the draft and retry only after reconciling that record.`,
 				);
 			const payload = change(snapshot, previous);
 			const checkpoint = { ...payload, contentHash: contentHash(payload) };

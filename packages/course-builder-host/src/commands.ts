@@ -19,6 +19,13 @@ export const COURSE_BUILDER_ACTIONS = [
 	"read_checkpoints",
 	"save_deck",
 	"patch_deck",
+	"read_teacher_notes",
+	"save_teacher_notes",
+	"patch_teacher_notes",
+	"compile_teacher_notes",
+	"read_teacher_notes_compile_log",
+	"import_generated_asset",
+	"add_material",
 	"compile",
 	"review_deck",
 	"visual_templates",
@@ -186,11 +193,34 @@ export function courseBuilderView(host: CourseBuilderHost, sessionId: string) {
 	return {
 		...s,
 		coverageCheckpoints: host.listCoverageCheckpoints(sessionId),
+		teacherNotes: s.teacherNotes.map(({ source: _source, ...notes }) => notes),
 		planningStatus: {
 			issue: s.semesterPlan ? semesterPlanningIssue(s.project, s.semesterPlan) : null,
 			materialChangesRequireSemesterRevision: false,
 		},
-		materials: s.materials.filter((material) => material.metadata.materialScope !== "assignment").map(materialView),
+		materials: s.materials
+			.filter(
+				(material) =>
+					material.metadata.materialScope !== "assignment" && material.metadata.storage === "local-link",
+			)
+			.map(materialView),
+		generatedAssets: s.materials
+			.filter(
+				(material) =>
+					material.metadata.materialScope !== "assignment" &&
+					material.metadata.storage !== "local-link" &&
+					material.kind === "asset",
+			)
+			.map(({ materialId, kind, sourceHash, metadata }) => ({
+				materialId,
+				kind,
+				sourceHash,
+				lessonPlanId: metadata.lessonPlanId ?? null,
+				purpose: metadata.purpose ?? "Course output asset",
+				usedByDeckIds: s.decks
+					.filter((deck) => deck.assetMaterialIds.includes(materialId))
+					.map((deck) => deck.deckId),
+			})),
 		assignments: s.assignments.map((assignment) => ({
 			...assignment,
 			materials: assignment.materialIds.map((materialId) => {
@@ -229,6 +259,8 @@ export async function runCourseBuilderCommand(
 		assertActive?: () => void | Promise<void>;
 		readLinkedMaterial?: (material: ReturnType<CourseBuilderHost["getMaterial"]>) => Promise<string>;
 		readAttachment?: (id: string) => Promise<string>;
+		importGeneratedAsset?: (spec: unknown, expectedProjectRevision: number) => Promise<unknown>;
+		addMaterial?: (spec: unknown, expectedProjectRevision: number) => Promise<unknown>;
 	} = {},
 ): Promise<unknown> {
 	if (!COURSE_BUILDER_ACTIONS.some((a) => a === command.action))
@@ -276,6 +308,84 @@ export async function runCourseBuilderCommand(
 		);
 	}
 	switch (command.action) {
+		case "compile_teacher_notes": {
+			const receipt = await host.compileTeacherNotes(
+				sessionId,
+				required(command.id),
+				revision(command.expectedRevision),
+				{ trustedTex: options.trustedTex === true, assertActive: options.assertActive },
+			);
+			const log = host.getTeacherNotesCompileLog(sessionId, receipt.receiptId);
+			return {
+				...receipt,
+				logExcerpt: receipt.succeeded
+					? null
+					: {
+							...excerpt(log, {
+								action: "read_teacher_notes_compile_log",
+								offset: Math.max(0, log.length - 6000),
+							}),
+							untrusted: true,
+						},
+				nextAction: receipt.succeeded
+					? "Read the script and deliver its TeX and PDF links after delivery_finish."
+					: "Read diagnostics and read_teacher_notes_compile_log with id=receiptId and offset/limit, read_teacher_notes, patch_teacher_notes to repair the source, then compile_teacher_notes for the new revision. Do not stop at an exit code or present a partial PDF as success.",
+			};
+		}
+		case "read_teacher_notes_compile_log": {
+			const receipt = host.getTeacherNotesCompileReceipt(sessionId, required(command.id));
+			return {
+				...excerpt(host.getTeacherNotesCompileLog(sessionId, receipt.receiptId), command),
+				receiptId: receipt.receiptId,
+				notesId: receipt.notesId,
+				notesRevision: receipt.notesRevision,
+				sourceHash: receipt.sourceHash,
+				logHash: receipt.logHash,
+				untrusted: true,
+			};
+		}
+		case "read_teacher_notes": {
+			const notes = host.getTeacherNotes(sessionId, required(command.id));
+			return {
+				...excerpt(notes.source, command),
+				notesId: notes.notesId,
+				revision: notes.revision,
+				deckId: notes.deckId,
+				deckRevision: notes.deckRevision,
+				sourceHash: notes.sourceHash,
+			};
+		}
+		case "save_teacher_notes":
+			return host.saveTeacherNotes(sessionId, command.draft, revision(command.expectedRevision));
+		case "patch_teacher_notes": {
+			const draft = command.draft;
+			if (
+				!draft ||
+				typeof draft !== "object" ||
+				Array.isArray(draft) ||
+				!("edits" in draft) ||
+				Object.keys(draft).some((key) => key !== "edits")
+			)
+				throw new CourseBuilderError(
+					"INVALID_INPUT",
+					"patch_teacher_notes draft must be {edits:[{oldText,newText}]}",
+				);
+			return host.patchTeacherNotes(
+				sessionId,
+				required(command.id),
+				draft.edits,
+				revision(command.expectedRevision),
+				revision(command.parentRevision),
+			);
+		}
+		case "add_material":
+			if (!options.addMaterial)
+				throw new CourseBuilderError("MATERIAL_IMPORTER_REQUIRED", "Course material importer unavailable");
+			return options.addMaterial(command.spec, revision(command.expectedRevision));
+		case "import_generated_asset":
+			if (!options.importGeneratedAsset)
+				throw new CourseBuilderError("ASSET_IMPORTER_REQUIRED", "Generated asset importer unavailable");
+			return options.importGeneratedAsset(command.spec, revision(command.expectedRevision));
 		case "read_checkpoints":
 			return {
 				...excerpt(JSON.stringify(host.listCoverageCheckpoints(sessionId)), command),
@@ -301,13 +411,14 @@ export async function runCourseBuilderCommand(
 					"MATERIAL_SCOPE_MISMATCH",
 					"Use read_assignment_material with the owning assignmentId for Assignment materials",
 				);
-			const source =
-				m.metadata.storage === "local-link"
-					? await (options.readLinkedMaterial?.(m) ??
-							Promise.reject(
-								new CourseBuilderError("LINKED_READER_REQUIRED", "Local linked material reader is unavailable"),
-							))
-					: m.extractedText;
+			if (m.metadata.storage !== "local-link")
+				throw new CourseBuilderError(
+					"REFERENCE_FOLDER_REQUIRED",
+					"This ID is an internal asset or legacy copied source, not a reference in the teacher-selected material folders. Use state.materials for readable course references; keep generatedAssets for slide asset reuse. Import reference files into the existing material folder with add_material before reading them.",
+				);
+			if (!options.readLinkedMaterial)
+				throw new CourseBuilderError("LINKED_READER_REQUIRED", "Local linked material reader is unavailable");
+			const source = await options.readLinkedMaterial(m);
 			return {
 				...excerpt(source, command),
 				materialId: m.materialId,
@@ -392,10 +503,10 @@ export async function runCourseBuilderCommand(
 			if (!deck) throw new CourseBuilderError("DECK_NOT_FOUND", "No deck in this project");
 			if (deck.revision !== revision(command.expectedRevision))
 				throw new CourseBuilderError("REVISION_CONFLICT", "Read the current deck before patching");
-			const draft = command.draft as { edits?: unknown } | null;
+			const draft = command.draft as { edits?: unknown; addAssetMaterialIds?: unknown } | null;
 			if (
 				!draft ||
-				Object.keys(draft).some((key) => key !== "edits") ||
+				Object.keys(draft).some((key) => key !== "edits" && key !== "addAssetMaterialIds") ||
 				!Array.isArray(draft.edits) ||
 				draft.edits.length < 1 ||
 				draft.edits.length > 100
@@ -404,6 +515,14 @@ export async function runCourseBuilderCommand(
 					"INVALID_PATCH",
 					"Supply draftJson: {edits:[{oldText,newText}]} with 1..100 exact replacements",
 				);
+			const additions = draft.addAssetMaterialIds === undefined ? [] : draft.addAssetMaterialIds;
+			if (
+				!Array.isArray(additions) ||
+				additions.length > 500 ||
+				additions.some((id) => typeof id !== "string" || !id.trim()) ||
+				new Set(additions).size !== additions.length
+			)
+				throw new CourseBuilderError("INVALID_PATCH", "addAssetMaterialIds must be a unique array of material IDs");
 			let source = deck.source;
 			for (const raw of draft.edits) {
 				const edit = raw as { oldText?: unknown; newText?: unknown } | null;
@@ -430,7 +549,7 @@ export async function runCourseBuilderCommand(
 					title: deck.title,
 					source,
 					frameOutline: deck.frameOutline,
-					assetMaterialIds: deck.assetMaterialIds,
+					assetMaterialIds: [...new Set([...deck.assetMaterialIds, ...additions])],
 				},
 				deck.revision,
 				revision(command.parentRevision),

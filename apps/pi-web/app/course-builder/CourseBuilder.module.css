@@ -176,39 +176,6 @@
 	white-space: nowrap;
 }
 
-.flow {
-	display: grid;
-	grid-template-columns: repeat(8, minmax(88px, 1fr));
-	margin: 0 0 28px;
-	padding: 0;
-	overflow-x: auto;
-	border: 1px solid var(--border);
-	border-radius: 12px;
-	background: var(--bg-panel);
-	list-style: none;
-}
-
-.flow li {
-	position: relative;
-	min-width: 100px;
-	padding: 13px 12px 14px;
-	color: var(--text-muted);
-	font-size: 12px;
-	font-weight: 620;
-	white-space: nowrap;
-}
-
-.flow li + li {
-	border-left: 1px solid var(--border);
-}
-
-.flowNumber {
-	display: block;
-	margin-bottom: 3px;
-	color: var(--accent);
-	font: 700 10px/1 var(--font-mono);
-}
-
 .notice,
 .error,
 .loading,
@@ -857,6 +824,35 @@
 	color: var(--text-muted);
 }
 
+.historySearch {
+	display: grid;
+	grid-template-columns: auto minmax(12rem, 24rem);
+	align-items: center;
+	gap: 10px;
+	margin: 14px 0 8px;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.historySearch input {
+	min-width: 0;
+}
+
+.historyToggle {
+	margin-top: 12px;
+	padding: 7px 0;
+	border: 0;
+	background: transparent;
+	color: var(--accent);
+	font-size: 12px;
+	font-weight: 650;
+}
+
+.historyToggle:hover {
+	text-decoration: underline;
+	transform: none;
+}
+
 .runtimeNote {
 	margin: 0;
 	color: var(--text-muted);
@@ -910,10 +906,6 @@
 		align-items: start;
 	}
 
-	.flow {
-		border-radius: 9px;
-	}
-
 	.fieldGrid,
 	.taskGrid,
 	.assignmentForm,
@@ -923,6 +915,10 @@
 
 	.wideField {
 		grid-column: auto;
+	}
+
+	.historySearch {
+		grid-template-columns: 1fr;
 	}
 
 	.assignmentForm .buttonRow {

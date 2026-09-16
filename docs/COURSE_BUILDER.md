@@ -1,5 +1,29 @@
 # Course Builder：备课与 Beamer
 
+## 备课中补充素材
+
+在对话中提供本地文件、附件路径或网址，Agent 可调用 `add_material`，将文件或抓取后的可读 Markdown 存入课程**已经链接的素材文件夹**。素材区的上传按钮使用相同存储流程；多个目录时可选择新增素材的保存位置，没有目录时先链接自己的目录。不会自动创建新的素材库，也不会把参考资料放进课件输出目录。
+
+网页抓取保留正文结构、代码、公式、表格和原始链接，记录来源网址；图片链接仍指向原网页资源，不表示已离线下载所有图片。动态、登录或无法可靠提取的页面明确报错，Agent 可用合适的原生浏览器/终端方法获取后再导入本地文件。一次页面抓取不代表爬取整站。其他文件不按扩展名拒绝，原始字节保留；没有阅读适配器的格式会报告实际能力限制。
+
+新增素材是按需读取的本地引用，不会全部进入上下文，也不会使已批准的大纲过期。重名不同内容保存为版本文件，保留原文件。独立素材任务使用 `materials` 交付类型；备课过程中导入只是当前教案或课件任务的辅助步骤，不改成 `visual` 任务。
+
+## 本地代码与计算图片
+
+备课模式默认开启原生 read/write/edit 和随系统解析的终端工具，用户仍可调整当前对话的工具设置。Agent 可编写 `.Rmd`、R、Python 等文件并执行本机已安装的程序；TeX 编译器的文件与 shell 限制不应解释为禁止 Agent 写代码。
+
+`state.workspace.outputDirectory` 返回当前课程的本地输出目录。源文件和输出图按课次保存在其子目录；文件不会全部塞进上下文。Agent 使用 `import_generated_asset` 导入真实 PNG/JPEG/PDF，传入当前项目 revision 和 `{path,lessonPlanId,sourcePath?,purpose}`。Host 校验归属、文件内容与来源，分配 material ID 并返回 `beamerPath`。来源 Hash 表示记录的源文件身份，不等于证明代码已执行或结果正确。
+
+在原课件上插图使用 `patch_deck` 的 `edits` 和 `addAssetMaterialIds`，同一次保存保留原资产并追加新资产，再编译和审查。文件生成、资产登记、课件编译是三个不同状态，Agent 必须报告实际完成到哪一步。新默认设置不会强行覆盖所有已有对话的个人选择。
+
+## 交付目标与恢复
+
+工作台的“生成所选课次”将产品类型和课次作为结构化数据绑定到本次请求；教师审阅修改请求同样绑定实际目标。Host 从当前课程的课次、教案和课件关系解析 ID。新资产的 ID 由保存操作分配并自动绑定，模型不能自行命名产品 ID。直接对话可以选择课次或引用已存在的资产，引用会先经过所属课程和类型校验。
+
+`delivery_finish` 只需提交各要求的证据，不需要再次传入产品 ID。保存、编译和审查使用同一目标；其他课次的 ID 会在写入前拒绝。版本冲突仍须读取当前版本后处理，不会自动覆盖其他对话的修改。
+
+旧任务若错误地将教案 ID 绑定为课件 ID，恢复时根据真实父子关系追加修复记录，保留原要求与版本基线，不改写课件或代替教师批准。修复后可继续检查现有产物，无需仅为修复绑定生成新版本。未知或跨课程引用会明确报错，不会猜测相似名称。交付仍需通过原有内容证据、编译与审查检查；绑定修复本身不表示已交付。
+
 ## 同页备课与模式设置（2026-09-05）
 
 教师工作台在同一页显示课程操作和原 Pi Agent 对话。进入已有工作区时，在原会话上激活备课模式并保留 JSONL 历史；不会仅因打开页面就发送模型请求。Agent 启动失败时，对话区显示错误和重试按钮，已保存的课程仍可编辑。
@@ -180,3 +204,24 @@ node apps/pi-web/scripts/course-workspace-navigation-smoke.mjs
 `apps/pi-web/lib/course-builder-workspace.test.mjs` 验证，不调用模型供应商。
 
 对话中的本地文件链接（含 Windows 路径）和工作区的作业 Markdown、TeX、编译日志、PDF、可视化链接，可在右侧文件预览中打开。预览支持滚动、展开、关闭和 Escape；Markdown 可切换源码，产物仍可下载。文件读取沿用当前会话的访问边界，点击预览不会将文件全文送入模型上下文。上述浏览器回归同时检查文件/作业预览、读取拒绝的错误提示以及关闭后保留工作区。
+
+
+## Typed delivery evidence
+
+`delivery_route` requires explicit `verification` per requirement: `content`, `compile-review`, `checkpoint`, or `materials`. Omitted requirement IDs are allocated deterministically by Host. The route response and `delivery_status` provide the authoritative IDs and exact `finishTemplate`. Only content requirements have model-supplied quotes. Operational proof records come from current Host receipts/checkpoints/imports and are persisted in `delivered.hostEvidence`; unrelated source quotations cannot substitute for them. Historical completed tasks remain unchanged. Legacy unfinished requirements must be explicitly classified with their original ID/text before finish.
+
+Material content checks include `materialId`, `offset` and `quote`. The extension reads that imported material's actual text window at finish; it does not compare its filename/registration metadata to body text. This is provenance validation, not a semantic guarantee that arbitrary quotations prove exhaustive crawling. Host status exposes the current per-lesson checkpoint and a save template so its revision is not confused with a deck or lesson revision. `state.workspace.materialAvailability` reports missing/changed local links without loading file contents into context. Unbound direct-chat routing mistakes can be corrected explicitly; saved/workspace-selected product ownership remains guarded.
+# 教师讲稿与素材目录
+
+课程“参考资料”只列出教师选择目录中的本地链接；网页抓取和补充文件也保存到这些已有目录，按需读取。生成课件使用的内部图片保存在独立资产区，不再作为参考资料混入列表。清理操作只删除没有被任何历史产物、备课记录或教师讲稿引用的内部图片副本，不删除教师目录里的文件。
+
+在所选课次的 Beamer 生成入口勾选“同时生成教师讲稿（TeX）”，Agent 会交付课件和独立讲稿。每份已有 Beamer 也有单独生成讲稿的入口，不需要重新生成或撤销课件的接受状态。讲稿应逐页包含教师实际讲述的内容、公式推导、板书提示、转场、时间安排、提问及预期回答，而不是重复幻灯片要点。额外要求输入框适用于这两种入口。
+
+讲稿作为独立 TeX 产物保存，链接可在侧栏打开、编辑和下载；保留独立修订号以及对应课件修订号。课件更新后会提示讲稿基于旧版课件。Host 工具是 `read_teacher_notes`、`save_teacher_notes`（`draft={deckId,deckRevision,title,source}`）和 `patch_teacher_notes`（`id`、`expectedRevision`、`parentRevision=当前课件修订号`、`draft={edits:[{oldText,newText}]}`）。ID 和课件内容哈希由 Host 决定。TeX 保存会检查结构、大小和已知命令泄漏；它不代表经过编译或课堂质量验收。
+
+
+## 教师讲稿 PDF 与左右编辑
+
+教师讲稿生成后还需要调用 `compile_teacher_notes`（`id=notesId`，`expectedRevision=讲稿修订号`）。失败时使用 `read_teacher_notes_compile_log` 读取该回执的完整分页日志，修订讲稿并重编译。讲稿交付要求对应当前修订与内容哈希的成功编译回执；课件的回执不能替代讲稿回执。原课件与讲稿的 PDF、日志和版本记录彼此独立。
+
+教师可在讲稿编辑器编译已保存源码，关闭后重新打开仍能查看对应 PDF。桌面编辑器左侧是 TeX、右侧是 PDF，各自滚动；现有 Beamer 编辑器采用相同布局，窄屏允许上下排列。编译失败展示具体诊断与日志，不会把旧 PDF 当作本次编译成功。PDF 保持本地 JSON/base64 预览，避免浏览器下载管理器反复触发下载。

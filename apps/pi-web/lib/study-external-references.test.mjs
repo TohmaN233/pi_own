@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import test from "node:test";
+import { createJiti } from "jiti";
+
+test("external reference lookup transmits only a bounded query and persists separate source provenance", async (t) => {
+  const base = resolve(".artifacts/study-research/external-references"); await mkdir(base,{recursive:true});
+  const directory=await mkdtemp(join(base,"fixture-"));const cwd=join(directory,"paper");await mkdir(cwd);
+  const env={PI_CODING_AGENT_DIR:join(directory,"agent"),PI_CODING_AGENT_SESSION_DIR:join(directory,"sessions"),PI_LEARNING_HARNESS_DIR:join(directory,"data"),PI_MODE_PACK_STORE_PATH:join(directory,"packs.json")};
+  const saved=Object.fromEntries(Object.keys(env).map((key)=>[key,process.env[key]]));Object.assign(process.env,env);
+  const previousFetch=globalThis.fetch; const requests=[];let beforeResponse=()=>{};
+  globalThis.fetch=async(url,options)=>{requests.push({url:String(url),options});beforeResponse();return Response.json({message:{items:[{DOI:"10.1000/fixture",title:["Synthetic bibliographic fixture"],author:[{given:"Fixture",family:"Author"}],published:{"date-parts":[[2026]]},abstract:"<p>External fixture abstract, not a verified paper claim.</p>"}]}});};
+  t.after(()=>{globalThis.__piLearningHarness?.close();globalThis.__piLearningHarness=undefined;globalThis.fetch=previousFetch;for(const[key,value]of Object.entries(saved)){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+  const jiti=createJiti(import.meta.url,{tsconfigPaths:true});
+  const {ModePackStore}=await jiti.import("./mode-pack-store.ts");const rpc=await jiti.import("./rpc-manager.ts");
+  const {getLearningHarness}=await jiti.import("./harness-server.ts");const {studyContext}=await jiti.import("./study-research-service.ts");
+  const {searchExternalStudyReferences,externalStudyQuery,fetchExternalStudyReferences}=await jiti.import("./study-external-references.ts");
+  assert.throws(()=>externalStudyQuery("private\nfull\ntext"),/short concept/);assert.throws(()=>externalStudyQuery("x".repeat(161)),/short concept/);
+  const resolved=await new ModePackStore().resolve("study-research.study",cwd);const sessionId=rpc.createPersistedGenericSession(cwd,"External references fixture",resolved.snapshot);
+  const harness=getLearningHarness();harness.projectWorkspaces.create({id:"references",title:"References",cwd,courseProjectId:null,defaults:resolved.snapshot});harness.projectWorkspaces.move(sessionId,"references");
+  const context=await studyContext(sessionId);
+  const result=await searchExternalStudyReferences({sessionId,expectedPhaseRevision:context.phase.revision,query:"functional depth"});
+  assert.equal(requests.length,1);const outbound=new URL(requests[0].url);
+  assert.equal(outbound.origin,"https://api.crossref.org");assert.deepEqual([...outbound.searchParams.keys()].sort(),["query.bibliographic","rows"]);
+  assert.equal(outbound.searchParams.get("query.bibliographic"),"functional depth");assert.equal(requests[0].options.credentials,"omit");assert.equal(requests[0].options.redirect,"error");assert.deepEqual(Object.keys(requests[0].options.headers),["accept"]);
+  const sources=context.host.listSources(context.scope);assert.equal(sources.length,1);assert.equal(sources[0].sourceRole,"reference");assert.equal(sources[0].parser,"crossref-metadata-v1");
+  const captured=JSON.parse(await readFile(join(sources[0].sourceRoot,sources[0].relativePath),"utf8"));assert.equal(captured.origin,"external-crossref-metadata");assert.equal(captured.references[0].doi,"10.1000/fixture");assert.match(captured.interpretation,/full texts have not been read/);
+  assert.equal(result.sourceHash,sources[0].contentHash);assert.equal((await studyContext(sessionId)).phase.phase,"study");
+  beforeResponse=()=>context.host.setPhase(context.scope,"research");
+  await assert.rejects(searchExternalStudyReferences({sessionId,expectedPhaseRevision:context.phase.revision,query:"another concept"}),/revision conflict/);
+  globalThis.fetch=async()=>Response.json({message:{items:[{title:["No DOI"]}]}});
+  await assert.rejects(fetchExternalStudyReferences("valid query"),/valid DOI/);
+});

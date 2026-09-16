@@ -1,6 +1,6 @@
 const CACHE_PREFIX = "pi-web";
 const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
-const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}`;
+const STATIC_CACHE = `${CACHE_PREFIX}-static-network-v2-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [
   OFFLINE_URL,
@@ -54,9 +54,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  const isStaticAsset =
-    url.pathname.startsWith("/_next/static/") ||
-    PRECACHE_URLS.includes(url.pathname);
+  // Development chunks reuse URLs across edits. Never serve an old application
+  // bundle from Cache Storage while the server provides newer source.
+  if (url.pathname.startsWith("/_next/")) return;
+
+  const isStaticAsset = PRECACHE_URLS.includes(url.pathname);
 
   if (isStaticAsset) {
     event.respondWith(cacheFirst(request));

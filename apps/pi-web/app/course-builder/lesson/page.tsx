@@ -86,6 +86,7 @@ function LessonReviewPage() {
       {notice && <p role="status">{notice}</p>}
       {!draft || !plan || !snapshot ? <p>正在读取已保存的教案…</p> : <>
         <p className={styles.meta}>{snapshot.project.title} · 第 {draft.week} 周 / 第 {draft.session} 次 · r{plan.revision} · {plan.status === "approved" ? "已批准" : plan.status === "changes-requested" ? "待修改" : "待审阅"}</p>
+        <p><Link href={`/course-builder/study-assets?sessionId=${encodeURIComponent(sid)}&lessonPlanId=${encodeURIComponent(id)}`}>查看本课从 Study 移交的独立成果副本</Link></p>
         {conflict && <p role="alert" className={styles.error}>工作区已有 r{plan.revision}，暂存编辑基于 r{baseRevision}。请先保留需要的内容，再读取最新版；不会覆盖新版本。</p>}
         <div className={styles.actions}><button disabled={busy} onClick={() => setEditing(!editing)}>{editing ? "阅读排版" : "编辑教案"}</button><button disabled={busy || !dirty || conflict} onClick={() => void submit("edit_lesson")}>保存修改</button><button disabled={busy} onClick={() => { setDraft(lessonReviewDraft(plan)); setBaseRevision(plan.revision); setParentRevision(plan.semesterPlanRevision); setNote(plan.review?.note ?? ""); setRecoveryReady(true); setNotice("已恢复工作区保存的版本。"); }}>放弃暂存，读取已保存版本</button>{dirty && <span>有未保存的编辑 · 已在本机暂存</span>}</div>
         {editing ? <label>教案标题<input aria-label="教案标题" value={draft.title} disabled={busy} onChange={(event) => setDraft({ ...draft, title: event.target.value })}/></label> : <h1>{draft.title}</h1>}

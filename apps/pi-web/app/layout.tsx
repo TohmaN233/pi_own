@@ -58,6 +58,10 @@ export default function RootLayout({
     <html lang="en" translate="no" className="notranslate" style={localFontStyle} suppressHydrationWarning>
       <head>
         <meta name="google" content="notranslate" />
+        {process.env.NODE_ENV === "development" && <script dangerouslySetInnerHTML={{
+          // Run from fresh HTML: an older worker may still serve cached client bundles.
+          __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistration('/').then(function(r){if(!r)return;var w=r.active||r.waiting||r.installing;if(w&&new URL(w.scriptURL).origin===location.origin&&new URL(w.scriptURL).pathname==='/sw.js')return r.update();}).catch(function(e){console.error('Pi Web service worker update failed',e);});}`,
+        }} />}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("pi-theme");var dark=t==="dark"||((t==null||t===""||t==="auto")&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(dark)document.documentElement.classList.add("dark")}catch(e){}})();`,

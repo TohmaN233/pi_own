@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { contentHash, deterministicId, sha256Hex } from "../../harness-core/src/index.ts";
 import type {
 	BeamerAsset,
@@ -125,6 +125,100 @@ interface ProcessResult {
 	stderr: string;
 	timedOut: boolean;
 	outputLimited: boolean;
+}
+
+export type LatexDocumentKind = "beamer" | "teacher-notes";
+
+/** Resolve the companion SyncTeX executable without guessing a different tool. */
+export async function resolveSyncTexCommand(compiler?: string): Promise<string> {
+	const configured = compiler?.trim() || process.env.PI_XELATEX_PATH?.trim() || "";
+	if (configured && (isAbsolute(configured) || configured.includes("/") || configured.includes("\\"))) {
+		const candidate = join(dirname(resolve(configured)), "synctex.exe");
+		try {
+			const info = await lstat(candidate);
+			if (info.isFile()) return candidate;
+		} catch (error) {
+			if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
+		}
+	}
+	return "synctex.exe";
+}
+
+export interface CompileLatexDocumentOptions {
+	source: string;
+	sourceHash: string;
+	documentKind: LatexDocumentKind;
+	compiler?: string;
+	passes?: number;
+	timeoutMs?: number;
+	maxOutputBytes?: number;
+	maxPdfBytes?: number;
+	env?: NodeJS.ProcessEnv;
+	createdAt?: string;
+	assets?: readonly BeamerAsset[];
+}
+
+export interface CompileLatexDocumentResult {
+	sourceHash: string;
+	documentKind: LatexDocumentKind;
+	pdfBytes: Uint8Array | null;
+	/** The compressed SyncTeX map produced for this document, when available. */
+	syncTexBytes?: Uint8Array;
+	log: string;
+	compiler: string;
+	arguments: string[];
+	succeeded: boolean;
+	exitCode: number | null;
+	pageCount: number | null;
+	pdfHash: string | null;
+	logHash: string;
+	diagnostics: CompileDiagnostic[];
+	createdAt: string;
+}
+
+const TEACHER_NOTES_DOCUMENT_CLASSES = new Set(["article", "report", "book", "ctexart", "ctexrep", "ctexbook"]);
+const MAX_SYNCTEX_BYTES = 64 * 1024 * 1024;
+
+function isNodeErrorWithCode(value: unknown, code: string): boolean {
+	return value instanceof Error && "code" in value && (value as NodeJS.ErrnoException).code === code;
+}
+
+function assertStandaloneTeacherNotesSource(source: string): void {
+	const declarations = [...source.matchAll(/\\documentclass(?:\s*\[[^\]]*\])?\s*\{([^}\r\n]+)\}/gu)];
+	if (declarations.length !== 1)
+		throw new BeamerWorkflowError(
+			"TEACHER_NOTES_DOCUMENT_REQUIRED",
+			"Teacher notes source must contain exactly one standalone documentclass",
+		);
+	if (!TEACHER_NOTES_DOCUMENT_CLASSES.has(declarations[0][1].trim()))
+		throw new BeamerWorkflowError(
+			"TEACHER_NOTES_DOCUMENT_REQUIRED",
+			"Teacher notes source must use article, report, book, ctexart, ctexrep or ctexbook",
+		);
+	if (!/\\begin\s*\{\s*document\s*\}/u.test(source) || !/\\end\s*\{\s*document\s*\}/u.test(source))
+		throw new BeamerWorkflowError(
+			"TEACHER_NOTES_DOCUMENT_REQUIRED",
+			"Teacher notes source must contain begin{document} and end{document}",
+		);
+}
+
+function assertSafeTeacherNotesSource(source: string): void {
+	if (typeof source !== "string" || !source.trim())
+		throw new BeamerWorkflowError("EMPTY_TEACHER_NOTES_SOURCE", "Teacher notes source must be a non-empty string");
+	if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES)
+		throw new BeamerWorkflowError(
+			"TEACHER_NOTES_SOURCE_TOO_LARGE",
+			`Teacher notes source exceeds ${MAX_SOURCE_BYTES} bytes`,
+		);
+	assertStandaloneTeacherNotesSource(source);
+	for (const pattern of DANGEROUS_TEX) {
+		if (pattern.test(source))
+			throw new BeamerWorkflowError(
+				"UNSAFE_TEX_PRIMITIVE",
+				"Teacher notes source contains a TeX primitive that is not permitted by the bounded compiler",
+			);
+	}
+	assertBeamerPresentationSource(source);
 }
 
 function runBoundedProcess(options: {
@@ -277,19 +371,17 @@ export interface CompileBeamerOptions {
 	assets?: readonly BeamerAsset[];
 }
 
-export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<{
-	receipt: BeamerCompileReceipt;
-	artifact: BeamerCompiledArtifact | null;
-	log: string;
-}> {
-	assertSafeBeamerSource(options.deck.source);
-	assertBeamerPresentationSource(options.deck.source);
-	assertBeamerAssets(options.deck.source, options.assets ?? []);
-	if (options.deck.sourceHash !== `sha256:${sha256Hex(options.deck.source)}`)
-		throw new BeamerWorkflowError("SOURCE_HASH_MISMATCH", "Deck source does not match its hash");
-	if (options.deck.projectId !== options.project.projectId) {
-		throw new BeamerWorkflowError("PROJECT_MISMATCH", "Deck belongs to another Course Builder project");
-	}
+export async function compileLatexDocument(options: CompileLatexDocumentOptions): Promise<CompileLatexDocumentResult> {
+	if (options.documentKind !== "beamer" && options.documentKind !== "teacher-notes")
+		throw new BeamerWorkflowError("INVALID_DOCUMENT_KIND", "documentKind must be beamer or teacher-notes");
+	const source = options.source;
+	if (options.documentKind === "beamer") {
+		assertSafeBeamerSource(source);
+		assertBeamerPresentationSource(source);
+	} else assertSafeTeacherNotesSource(source);
+	assertBeamerAssets(source, options.assets ?? []);
+	if (options.sourceHash !== `sha256:${sha256Hex(source)}`)
+		throw new BeamerWorkflowError("SOURCE_HASH_MISMATCH", "Document source does not match its hash");
 	const compiler = options.compiler?.trim() || process.env.PI_XELATEX_PATH?.trim() || "xelatex";
 	const passes = clampInteger(options.passes ?? 2, "passes", 1, 3);
 	const timeoutMs = clampInteger(options.timeoutMs ?? 30_000, "timeoutMs", 1_000, 120_000);
@@ -306,15 +398,27 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 		256 * 1024 * 1024,
 	);
 	const createdAt = isoTimestamp(options.createdAt ?? new Date().toISOString(), "createdAt");
-	const args = ["-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", "-file-line-error", "deck.tex"];
+	const inputName = options.documentKind === "beamer" ? "deck.tex" : "teacher-notes.tex";
+	const stem = inputName.slice(0, -4);
+	const args = [
+		"-no-shell-escape",
+		"-interaction=nonstopmode",
+		"-halt-on-error",
+		"-file-line-error",
+		"-synctex=1",
+		inputName,
+	];
 	let directory: string | null = null;
 	let log = "";
 	let finalLog = "";
 	let finalResult: ProcessResult = { exitCode: null, stdout: "", stderr: "", timedOut: false, outputLimited: false };
 	let pdfBytes: Uint8Array | null = null;
+	let syncTexBytes: Uint8Array | undefined;
 	try {
-		directory = await mkdtemp(join(tmpdir(), "pi-own-beamer-"));
-		await writeFile(join(directory, "deck.tex"), options.deck.source, "utf8");
+		directory = await mkdtemp(
+			join(tmpdir(), options.documentKind === "beamer" ? "pi-own-beamer-" : "pi-own-teacher-notes-"),
+		);
+		await writeFile(join(directory, inputName), source, "utf8");
 		await mkdir(join(directory, "assets"));
 		for (const asset of options.assets ?? []) await writeFile(join(directory, asset.path), asset.bytes);
 		const environment: NodeJS.ProcessEnv = {
@@ -342,30 +446,52 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 			});
 			finalLog = `${finalResult.stdout}\n${finalResult.stderr}`;
 			try {
-				const logInfo = await lstat(join(directory, "deck.log"));
+				const logInfo = await lstat(join(directory, `${stem}.log`));
 				if (!logInfo.isFile() || logInfo.size > maxOutputBytes)
 					throw new BeamerWorkflowError("BEAMER_LOG_TOO_LARGE", "Compiler log exceeds its budget");
-				finalLog += `\n${await readFile(join(directory, "deck.log"), "utf8")}`;
+				finalLog += `\n${await readFile(join(directory, `${stem}.log`), "utf8")}`;
 			} catch (error) {
-				if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+				if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
 			}
 			log += `\n=== pass ${pass + 1} ===\n${finalLog}`;
 			if (finalResult.exitCode !== 0 || finalResult.timedOut || finalResult.outputLimited) break;
 		}
 		try {
-			const info = await lstat(join(directory, "deck.pdf"));
+			const info = await lstat(join(directory, `${stem}.pdf`));
 			if (!info.isFile() || info.size < 5 || info.size > maxPdfBytes)
-				throw new BeamerWorkflowError("BEAMER_PDF_TOO_LARGE", "Compiler output is not a bounded PDF file");
-			const candidate = await readFile(join(directory, "deck.pdf"));
+				throw new BeamerWorkflowError(
+					options.documentKind === "beamer" ? "BEAMER_PDF_TOO_LARGE" : "LATEX_PDF_TOO_LARGE",
+					"Compiler output is not a bounded PDF file",
+				);
+			const candidate = await readFile(join(directory, `${stem}.pdf`));
 			if (candidate.subarray(0, 5).toString() !== "%PDF-")
 				throw new BeamerWorkflowError("INVALID_PDF", "Compiler output has no PDF header");
-			if (candidate.byteLength > maxPdfBytes) {
-				throw new BeamerWorkflowError("BEAMER_PDF_TOO_LARGE", `Compiled PDF exceeds ${maxPdfBytes} bytes`);
-			}
+			if (candidate.byteLength > maxPdfBytes)
+				throw new BeamerWorkflowError(
+					options.documentKind === "beamer" ? "BEAMER_PDF_TOO_LARGE" : "LATEX_PDF_TOO_LARGE",
+					`Compiled PDF exceeds ${maxPdfBytes} bytes`,
+				);
 			pdfBytes = new Uint8Array(candidate);
 		} catch (error) {
-			if (error instanceof BeamerWorkflowError) throw error;
+			if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
 			pdfBytes = null;
+		}
+		try {
+			const info = await lstat(join(directory, `${stem}.synctex.gz`));
+			if (!info.isFile() || info.size < 2 || info.size > MAX_SYNCTEX_BYTES)
+				throw new BeamerWorkflowError(
+					"LATEX_SYNCTEX_TOO_LARGE",
+					"Compiler SyncTeX output is not a bounded mapping file",
+				);
+			const candidate = await readFile(join(directory, `${stem}.synctex.gz`));
+			if (candidate.byteLength < 2 || candidate.byteLength > MAX_SYNCTEX_BYTES)
+				throw new BeamerWorkflowError(
+					"LATEX_SYNCTEX_TOO_LARGE",
+					"Compiler SyncTeX output exceeds its byte budget",
+				);
+			syncTexBytes = new Uint8Array(candidate);
+		} catch (error) {
+			if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
 		}
 	} finally {
 		if (directory) await rm(directory, { recursive: true, force: true });
@@ -378,11 +504,12 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 		!finalResult.outputLimited &&
 		pdfBytes !== null &&
 		!diagnostics.some((item) => item.severity === "critical");
-	const base = {
-		projectId: options.project.projectId,
-		deckId: options.deck.deckId,
-		deckRevision: options.deck.revision,
-		sourceHash: options.deck.sourceHash,
+	return {
+		sourceHash: options.sourceHash,
+		documentKind: options.documentKind,
+		pdfBytes,
+		syncTexBytes,
+		log,
 		compiler: basename(resolve(compiler)),
 		arguments: args,
 		succeeded,
@@ -393,15 +520,73 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 		diagnostics,
 		createdAt,
 	};
+}
+
+export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<{
+	receipt: BeamerCompileReceipt;
+	artifact: BeamerCompiledArtifact | null;
+	log: string;
+}> {
+	assertSafeBeamerSource(options.deck.source);
+	assertBeamerPresentationSource(options.deck.source);
+	assertBeamerAssets(options.deck.source, options.assets ?? []);
+	if (options.deck.sourceHash !== `sha256:${sha256Hex(options.deck.source)}`)
+		throw new BeamerWorkflowError("SOURCE_HASH_MISMATCH", "Deck source does not match its hash");
+	if (options.deck.projectId !== options.project.projectId) {
+		throw new BeamerWorkflowError("PROJECT_MISMATCH", "Deck belongs to another Course Builder project");
+	}
+	const result = await compileLatexDocument({
+		source: options.deck.source,
+		sourceHash: options.deck.sourceHash,
+		documentKind: "beamer",
+		compiler: options.compiler,
+		passes: options.passes,
+		timeoutMs: options.timeoutMs,
+		maxOutputBytes: options.maxOutputBytes,
+		maxPdfBytes: options.maxPdfBytes,
+		env: options.env,
+		createdAt: options.createdAt,
+		assets: options.assets,
+	});
+	if (result.succeeded && !result.syncTexBytes)
+		throw new BeamerWorkflowError(
+			"COMPILE_SYNCTEX_REQUIRED",
+			"Successful Beamer compilation produced no SyncTeX mapping; recompile with SyncTeX enabled",
+		);
+	const syncTexCommand = result.succeeded ? await resolveSyncTexCommand(options.compiler) : undefined;
+	const base = {
+		projectId: options.project.projectId,
+		deckId: options.deck.deckId,
+		deckRevision: options.deck.revision,
+		sourceHash: options.deck.sourceHash,
+		compiler: result.compiler,
+		arguments: result.arguments,
+		succeeded: result.succeeded,
+		exitCode: result.exitCode,
+		pageCount: result.pageCount,
+		pdfHash: result.pdfHash,
+		logHash: result.logHash,
+		diagnostics: result.diagnostics,
+		createdAt: result.createdAt,
+	};
+	const receiptId = deterministicId("beamer-compile", base, 40);
 	const receipt: BeamerCompileReceipt = {
-		receiptId: deterministicId("beamer-compile", base, 40),
+		receiptId,
 		...base,
-		contentHash: contentHash({ receiptId: deterministicId("beamer-compile", base, 40), ...base }),
+		contentHash: contentHash({ receiptId, ...base }),
 	};
 	return {
 		receipt,
-		artifact: pdfBytes ? { receiptId: receipt.receiptId, pdfBytes } : null,
-		log,
+		artifact: result.pdfBytes
+			? {
+				receiptId,
+				pdfBytes: result.pdfBytes,
+				...(result.succeeded
+					? { syncTexBytes: result.syncTexBytes, syncTexCommand }
+					: {}),
+			}
+			: null,
+		log: result.log,
 	};
 }
 

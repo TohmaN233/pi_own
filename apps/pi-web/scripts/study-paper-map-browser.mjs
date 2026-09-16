@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {readFile,writeFile} from 'node:fs/promises';
+import {join,resolve} from 'node:path';
+import {createJiti} from 'jiti';
+const directory=resolve('../../.artifacts/study-research/sr-diag'),out=resolve('../../.artifacts/study-research/paper-map-browser');mkdirSync(out,{recursive:true});
+Object.assign(process.env,{PI_CODING_AGENT_DIR:join(directory,'agent'),PI_CODING_AGENT_SESSION_DIR:join(directory,'sessions'),PI_LEARNING_HARNESS_DIR:join(directory,'data'),PI_MODE_PACK_STORE_PATH:join(directory,'packs.json')});
+const jiti=createJiti(import.meta.url,{tsconfigPaths:true});const {getLearningHarness}=await jiti.import('../lib/harness-server.ts');const {ModePackStore}=await jiti.import('../lib/mode-pack-store.ts');const {createPersistedGenericSession}=await jiti.import('../lib/rpc-manager.ts');const {reviseModePackSettings}=await jiti.import('../../../packages/profile-resource-host/src/index.ts');const {sha256Hex}=await jiti.import('../../../packages/harness-core/src/index.ts');
+const harness=getLearningHarness(),cwd=join(out,'paper');mkdirSync(cwd,{recursive:true});
+const resolved=await new ModePackStore().resolve('study-research.study',cwd),snapshot=reviseModePackSettings(resolved.snapshot,{provider:'study-local-fixture',model:'reading-fixture',thinkingLevel:'off'},resolved.inventory.catalog);
+const projectId=`map-browser-${Date.now()}`;harness.projectWorkspaces.create({id:projectId,title:'全文地图离线协议验收',cwd,defaults:snapshot,courseProjectId:null});const sessionId=createPersistedGenericSession(cwd,'全文地图实际后台流程',snapshot);harness.projectWorkspaces.move(sessionId,projectId);harness.studyResearch.bindSession(projectId,sessionId);
+const chunks=Array.from({length:65},(_,i)=>({ordinal:i+1,locator:JSON.stringify({kind:'tex-lines',startLine:i+1,endLine:i+1}),text:`Synthetic section ${i+1}: finite expectation alone does not guarantee finite variance. This is engineering material, not an actual paper.`}));const text=chunks.map(c=>c.text).join('\n');writeFileSync(join(cwd,'map-fixture.tex'),text);
+const source=harness.studyResearch.registerSource({projectId,sessionId,expectedPhaseRevision:1},{sourceRoot:cwd,relativePath:'map-fixture.tex',kind:'tex',sourceRole:'primary',diagnostics:[],contentHash:`sha256:${sha256Hex(text)}`,parser:'synthetic-map-fixture',chunks},0);harness.close();globalThis.__piLearningHarness=undefined;
+const require=createRequire(import.meta.url),{chromium}=require(process.env.PI_PLAYWRIGHT_MODULE||'playwright');const browser=await chromium.launch({channel:'msedge',headless:true}),page=await browser.newPage({viewport:{width:1600,height:1100}});page.setDefaultTimeout(45000);const errors=[];page.on('pageerror',e=>errors.push(e.message));const base='http://127.0.0.1:30185';const evidence={startedAt:new Date().toISOString(),projectId,sessionId,sourceId:source.sourceId,qualification:'Synthetic local provider protocol evidence only; no academic quality claim'};
+try{
+ await page.goto(`${base}/study?sessionId=${sessionId}`,{waitUntil:'domcontentloaded'});await page.getByRole('heading',{name:'Study 论文工作区'}).waitFor();
+ const card=page.locator('#sources article').filter({has:page.getByRole('heading',{name:'map-fixture.tex',exact:true})});await card.getByRole('button').click();
+ const admitted=page.waitForResponse(r=>r.url().includes('/api/study-research/reading')&&r.request().method()==='POST');await page.getByRole('button',{name:'开始后台阅读',exact:true}).click();const response=await admitted;assert.equal(response.status(),200,await response.text());const initial=await response.json();assert.equal(initial.tasks.length,9);evidence.readingTaskIds=initial.tasks.map(t=>t.taskId);
+ await page.reload({waitUntil:'domcontentloaded'});
+ let state;
+ for(const deadline=Date.now()+240000;Date.now()<deadline;){const r=await page.request.get(`${base}/api/study-research/reading?sessionId=${sessionId}`);assert.equal(r.status(),200,await r.text());state=await r.json();if(state.maps.some(m=>m.map?.paperMap?.final))break;await page.waitForTimeout(1000);}
+ assert.equal(state.tasks.filter(t=>t.status==='succeeded').length,9,JSON.stringify(state));
+ const map=state.maps.find(m=>m.map?.paperMap?.final);assert.ok(map,JSON.stringify(state));assert.equal(map.map.paperMap.level,1);assert.equal(map.map.paperMap.coverage.completedReadingTaskIds.length,9);assert.equal(map.map.paperMap.coverage.unavailableReadingTasks.length,0);assert.equal(map.map.task.report.outcome,'inconclusive');assert.equal(map.plan.sourceCurrent,true);
+ await page.reload({waitUntil:'domcontentloaded'});await page.getByText('已覆盖本次所有阅读报告。',{exact:true}).waitFor();for(const label of ['核心问题','主要贡献','假设与符号','论证与依赖','限制与未解决问题'])await page.getByText(label,{exact:true}).click();
+ assert.deepEqual(errors,[]);evidence.state=state;evidence.errors=errors;evidence.finishedAt=new Date().toISOString();await writeFile(join(out,'browser-evidence.json'),JSON.stringify(evidence,null,2));await page.screenshot({path:join(out,'browser.png'),fullPage:true});console.log(JSON.stringify({readings:9,mapLevel:1,sourceCurrent:true,academicStatus:'inconclusive',errors}));
+}catch(e){await writeFile(join(out,'failure.json'),JSON.stringify({...evidence,error:String(e)},null,2));await page.screenshot({path:join(out,'failure.png'),fullPage:true});throw e;}finally{await browser.close();}

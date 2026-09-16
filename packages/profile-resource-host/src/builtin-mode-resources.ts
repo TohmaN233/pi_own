@@ -131,31 +131,35 @@ const CREATIVE_WORKFLOW = [
 	"Workflow creative: capture canon, audience, voice, and non-negotiable constraints; draft; run a consistency and intent review; revise only the defects found; preserve deliberate ambiguity.",
 ];
 
-export const BUILTIN_MODE_RESOURCES: readonly BuiltinModeResource[] = deepFreeze([
-	resource("prompt", "education.tutor", TUTOR_PROMPT),
-	resource("prompt", "education.practice", PRACTICE_PROMPT),
-	resource("prompt", "education.teach-back", TEACH_BACK_PROMPT),
-	resource("prompt", "coding.core", CODING_PROMPT),
-	resource("prompt", "creative.core", CREATIVE_PROMPT),
-	resource("prompt", "general.core", GENERAL_PROMPT),
-	resource("prompt", "teacher.prep", TEACHER_PROMPT),
-	skillResource("education.lesson-blueprint"),
-	skillResource("education.learning-to-learn"),
-	skillResource("education.feynman-teach-back"),
-	skillResource("education.evidence-ledger"),
-	skillResource("education.curriculum-continuity"),
-	skillResource("shared.revision-discipline"),
-	skillResource("education.learn-by-doing"),
-	skillResource("shared.personal-skill-builder"),
-	skillResource("education.visual-explanation"),
-	skillResource("teacher.course-planning-beamer"),
-	resource("prompt", "workflow:tutor", TUTOR_WORKFLOW),
-	resource("prompt", "workflow:practice", PRACTICE_WORKFLOW),
-	resource("prompt", "workflow:teach-back", TEACH_BACK_WORKFLOW),
-	resource("prompt", "workflow:visual-lab", VISUAL_WORKFLOW),
-	resource("prompt", "workflow:coding", CODING_WORKFLOW),
-	resource("prompt", "workflow:creative", CREATIVE_WORKFLOW),
-]);
+export function createBuiltinModeResources(): readonly BuiltinModeResource[] {
+	return deepFreeze([
+		resource("prompt", "education.tutor", TUTOR_PROMPT),
+		resource("prompt", "education.practice", PRACTICE_PROMPT),
+		resource("prompt", "education.teach-back", TEACH_BACK_PROMPT),
+		resource("prompt", "coding.core", CODING_PROMPT),
+		resource("prompt", "creative.core", CREATIVE_PROMPT),
+		resource("prompt", "general.core", GENERAL_PROMPT),
+		resource("prompt", "teacher.prep", TEACHER_PROMPT),
+		skillResource("education.lesson-blueprint"),
+		skillResource("education.learning-to-learn"),
+		skillResource("education.feynman-teach-back"),
+		skillResource("education.evidence-ledger"),
+		skillResource("education.curriculum-continuity"),
+		skillResource("shared.revision-discipline"),
+		skillResource("education.learn-by-doing"),
+		skillResource("shared.personal-skill-builder"),
+		skillResource("education.visual-explanation"),
+		skillResource("teacher.course-planning-beamer"),
+		resource("prompt", "workflow:tutor", TUTOR_WORKFLOW),
+		resource("prompt", "workflow:practice", PRACTICE_WORKFLOW),
+		resource("prompt", "workflow:teach-back", TEACH_BACK_WORKFLOW),
+		resource("prompt", "workflow:visual-lab", VISUAL_WORKFLOW),
+		resource("prompt", "workflow:coding", CODING_WORKFLOW),
+		resource("prompt", "workflow:creative", CREATIVE_WORKFLOW),
+	]);
+}
+
+export const BUILTIN_MODE_RESOURCES: readonly BuiltinModeResource[] = createBuiltinModeResources();
 
 export const MODE_PACK_COMPONENT_OPTIONS: readonly ModePackComponentOption[] = deepFreeze([
 	{

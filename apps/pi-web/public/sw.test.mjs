@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { Script } from "node:vm";
+
+test("server-rendered bootstrap scripts are syntactically valid", () => {
+  const layout=readFileSync(new URL("../app/layout.tsx",import.meta.url),"utf8");
+  const scripts=[...layout.matchAll(/__html: `([^`]+)`/g)];
+  assert.ok(scripts.length >= 2);
+  for(const script of scripts)new Script(script[1]);
+});
 
 const listeners = new Map();
 globalThis.self = {
@@ -12,6 +21,14 @@ globalThis.self = {
 };
 
 await import("./sw.js");
+
+test("Next application chunks bypass service-worker caches even at reused URLs", () => {
+  for (const pathname of ["/_next/static/chunks/editor.js", "/_next/webpack-hmr", "/api/course-builder"]) {
+    let intercepted = false;
+    listeners.get("fetch")({request:{method:"GET",url:`https://pi.test${pathname}`,mode:"cors"},respondWith:()=>{intercepted=true;}});
+    assert.equal(intercepted,false,pathname);
+  }
+});
 
 function dispatchNotificationClick(data) {
   let pending;

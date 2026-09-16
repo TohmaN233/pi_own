@@ -5,6 +5,7 @@ import { MarkdownBody } from "@/components/MarkdownBody";
 import { getFileName } from "@/lib/file-paths";
 import type { WorkspacePreviewTarget } from "@/lib/workspace-preview";
 import { BeamerSourceEditor } from "./BeamerSourceEditor";
+import { TeacherNotesSourceEditor } from "./TeacherNotesSourceEditor";
 import { PdfPreview } from "@/components/PdfPreview";
 
 function CourseArtifactPreview({ target }: { target: Extract<WorkspacePreviewTarget, { kind: "artifact" }> }) {
@@ -44,11 +45,14 @@ export function WorkspaceFilePreview({ target, sessionId, onClose, onOpenFile }:
   const title = target.kind === "file" ? getFileName(target.path) : target.title;
   const artifactQuery = target.kind === "artifact" ? new URL(target.url, "http://localhost").searchParams : null;
   const texDeckId = artifactQuery?.get("kind") === "tex" ? artifactQuery.get("id") : null;
-  return <aside className={`workspace-file-preview${expanded ? " is-expanded" : ""}`} aria-label="文件预览">
+  const teacherNotesId = artifactQuery?.get("kind") === "teacher-notes" ? artifactQuery.get("id") : null;
+  const isTexPreview = Boolean(texDeckId || teacherNotesId);
+  return <aside className={`workspace-file-preview${expanded ? " is-expanded" : ""}${isTexPreview ? " is-tex" : ""}`} aria-label="文件预览">
     <header><strong title={target.kind === "file" ? target.path : title}>{title}</strong><button type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起宽度" : "展开"}</button><button type="button" ref={closeButton} aria-label="关闭文件预览" onClick={onClose}>关闭 ×</button></header>
-    <div className="workspace-preview-body">{target.kind === "file" ? <FileViewer key={target.path} filePath={target.path} cwd={target.cwd} sourceSessionId={sessionId} onOpenFile={onOpenFile}/> : texDeckId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="deck.tex">下载已保存的 TeX</a></div><BeamerSourceEditor key={texDeckId} sessionId={sessionId} deckId={texDeckId}/></> : <CourseArtifactPreview key={target.url} target={target}/>}</div>
+    <div className="workspace-preview-body">{target.kind === "file" ? <FileViewer key={target.path} filePath={target.path} cwd={target.cwd} sourceSessionId={sessionId} onOpenFile={onOpenFile}/> : texDeckId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="deck.tex">下载已保存的 TeX</a></div><BeamerSourceEditor key={texDeckId} sessionId={sessionId} deckId={texDeckId}/></> : teacherNotesId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="teacher-notes.tex">下载已保存的 TeX</a></div><TeacherNotesSourceEditor key={teacherNotesId} sessionId={sessionId} notesId={teacherNotesId}/></> : <CourseArtifactPreview key={target.url} target={target}/>}</div>
     <style>{`
       .workspace-file-preview { position:fixed; z-index:55; inset:0 0 0 auto; width:min(760px,60vw); min-width:440px; display:flex; flex-direction:column; background:var(--bg); color:var(--text); border-left:1px solid var(--border); box-shadow:-14px 0 40px #0002; }
+      .workspace-file-preview.is-tex { width:min(1320px,90vw); }
       .workspace-file-preview.is-expanded { width:calc(100vw - 28px); }
       .workspace-file-preview>header { display:flex; align-items:center; gap:10px; min-height:58px; padding:10px 16px; border-bottom:1px solid var(--border); }
       .workspace-file-preview>header strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -59,7 +63,7 @@ export function WorkspaceFilePreview({ target, sessionId, onClose, onOpenFile }:
       .workspace-preview-document pre { white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.7 var(--font-mono); }
       .workspace-preview-frame { flex:1; width:100%; min-height:0; border:0; background:white; }
       .workspace-preview-error { padding:20px; color:#d06040; overflow-wrap:anywhere; }
-      @media(max-width:680px) { .workspace-file-preview { width:100%; min-width:0; } }
+      @media(max-width:680px) { .workspace-file-preview, .workspace-file-preview.is-tex, .workspace-file-preview.is-expanded { width:100%; min-width:0; } }
     `}</style>
   </aside>;
 }

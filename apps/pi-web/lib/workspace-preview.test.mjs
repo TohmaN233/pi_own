@@ -9,6 +9,8 @@ test("preview uses only this session's same-origin Course Builder artifacts", ()
   assert.equal(resolveCourseArtifactPreview(link, "another-session", "http://localhost:30141"), null);
   assert.equal(resolveCourseArtifactPreview(`https://other.example${link}`, "teacher", "http://localhost:30141"), null);
   assert.equal(resolveCourseArtifactPreview(link.replace("assignment-student", "unknown"), "teacher", "http://localhost:30141"), null);
+  const lecturePdf=resolveCourseArtifactPreview(link.replace("assignment-student","teacher-notes-pdf"),"teacher","http://localhost:30141");
+  assert.equal(lecturePdf.format,"pdf");assert.equal(lecturePdf.title,"teacher-notes.pdf");
 });
 
 test("inert Windows hrefs round trip without turning paths into protocols", () => {

@@ -42,8 +42,16 @@ export async function scanCourseBuilderDirectory(
 	const paths: string[] = [];
 	await collectFiles(root, root, paths);
 	if (paths.length === 0) throw new Error("所选文件夹中没有资料文件。");
-	return Promise.all(paths.map(async (sourcePath) => {
+	return Promise.all(paths.map((sourcePath) => describeCourseBuilderLocalFile(root, sourcePath, scope)));
+}
+
+/** Describe one new reference without rescanning or replacing the rest of a library. */
+export async function describeCourseBuilderLocalFile(root: string, sourcePath: string, scope: CourseBuilderMaterialScope = {kind:"course"}): Promise<CourseBuilderMaterialInput> {
+	root = await realpath(root);
+	sourcePath = await realpath(sourcePath);
+	if (!isInside(root, sourcePath)) throw new Error("Material escaped its selected folder");
 		const sourceStat = await stat(sourcePath);
+		if (!sourceStat.isFile()) throw new Error("Material must be a file");
 		const relativePath = portableRelativePath(root, sourcePath);
 		const marker = JSON.stringify({
 			version: 1,
@@ -74,7 +82,6 @@ export async function scanCourseBuilderDirectory(
 				readMode: "on-demand",
 			},
 		};
-	}));
 }
 
 function linkedSource(material: CourseBuilderMaterialInput | CourseBuilderMaterial): { root: string; path: string; size: number; modifiedAtMs: number } {
@@ -87,7 +94,12 @@ function linkedSource(material: CourseBuilderMaterialInput | CourseBuilderMateri
 
 export async function readLinkedCourseBuilderMaterial(material: CourseBuilderMaterialInput | CourseBuilderMaterial): Promise<string> {
 	const source = linkedSource(material);
-	const [root, filePath] = await Promise.all([realpath(source.root), realpath(source.path)]);
+	let root: string, filePath: string;
+	try { [root, filePath] = await Promise.all([realpath(source.root), realpath(source.path)]); }
+	catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		throw new Error(`Linked material is missing on disk: ${material.name} (${source.path}). The registration remains but the file was moved or removed. Inspect state.workspace.materialAvailability; use an available replacement only after checking its content, or restore/reimport the user's file with add_material in the existing material folder. Do not retry the same stale ID or silently substitute a source.`, {cause:error});
+	}
 	if (!isInside(root, filePath)) throw new Error(`Linked material escaped its selected folder: ${material.name}`);
 	const current = await stat(filePath);
 	if (!current.isFile()) throw new Error(`Linked material is no longer a file: ${material.name}`);
@@ -95,4 +107,20 @@ export async function readLinkedCourseBuilderMaterial(material: CourseBuilderMat
 	if (current.size > MAX_ON_DEMAND_BYTES) throw new Error(`Linked material exceeds the 64 MiB on-demand read budget: ${material.name}`);
 	const bytes = new Uint8Array(await readFile(filePath));
 	return (await extractCourseBuilderMaterial(bytes, material.name)).extractedText;
+}
+
+/** Metadata-only availability check; never fills the model context with file bodies. */
+export async function inspectLinkedCourseBuilderMaterial(material: CourseBuilderMaterial) {
+	if (material.metadata.storage !== "local-link") return {materialId:material.materialId,name:material.name,status:"stored" as const};
+	const source=linkedSource(material);
+	try {
+		const [root,path]=await Promise.all([realpath(source.root),realpath(source.path)]);
+		if (!isInside(root,path)) return {materialId:material.materialId,name:material.name,status:"invalid" as const,reason:"Linked path escaped its material folder"};
+		const current=await stat(path);
+		const valid=current.isFile() && current.size===source.size && Math.trunc(current.mtimeMs)===source.modifiedAtMs;
+		return {materialId:material.materialId,name:material.name,status:valid ? "available" as const : "changed" as const,...(!valid ? {reason:"Relink this changed source before using it; the saved source identity is stale"} : {})};
+	} catch(error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		return {materialId:material.materialId,name:material.name,status:"missing" as const,reason:`File no longer exists at ${source.path}; restore it or explicitly select a verified replacement`};
+	}
 }

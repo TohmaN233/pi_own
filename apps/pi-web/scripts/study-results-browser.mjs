@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { readFile,writeFile } from "node:fs/promises";
+import { join,resolve } from "node:path";
+const require=createRequire(import.meta.url);
+const {chromium}=require(process.env.PI_PLAYWRIGHT_MODULE||"playwright");
+const directory=resolve(process.env.PI_STUDY_FIXTURE_DIR||"../../.artifacts/study-research/sr-diag");
+const seed=JSON.parse(await readFile(join(directory,"seed.json"),"utf8"));
+const base="http://127.0.0.1:30185";
+const browser=await chromium.launch({channel:"msedge",headless:true});
+const page=await browser.newPage({viewport:{width:1600,height:1100}});page.setDefaultTimeout(45000);
+const errors=[];page.on("pageerror",error=>errors.push(error.message));
+const get=async(path)=>{const response=await page.request.get(`${base}${path}?sessionId=${seed.sessionId}`);assert.equal(response.status(),200,await response.text());return response.json();};
+const evidence={...seed,qualification:"Actual UI, persisted native runs and independent faux review protocol; no academic correctness claim."};
+try{
+  await page.goto(`${base}/study?sessionId=${seed.sessionId}`,{waitUntil:"domcontentloaded"});
+  await page.locator("#research-results").waitFor();
+  const results=page.locator("#research-results");
+  await results.getByRole("button",{name:"创建分析草稿",exact:true}).first().waitFor();
+  const before=await get("/api/study-research");assert.equal(before.phase.phase,"research");
+  const summary=`Result protocol fixture ${Date.now()}`;
+  await results.getByRole("button",{name:"创建分析草稿",exact:true}).first().click();
+  await results.getByLabel("判断").selectOption("negative");
+  await results.getByLabel("分析摘要",{exact:true}).fill(summary);
+  await results.getByLabel("限制（每行一项）",{exact:true}).fill("Fixture arithmetic alone does not establish a statistical claim.");
+  await results.getByLabel("明确主张（每行一项）",{exact:true}).fill("No scientific claim confirmed.");
+  const saved=page.waitForResponse(r=>r.url().includes("/api/study-research/results")&&r.request().method()==="POST");
+  await results.getByRole("button",{name:"保存分析草稿",exact:true}).click();
+  assert.equal((await saved).status(),200);
+  const current=await get("/api/study-research/results");const result=current.results.find(item=>item.summary===summary);
+  assert.equal(result.classification,"negative");assert.equal(result.state,"draft");assert.equal(result.origin.kind,"terminal-run");
+  const review=results.locator("details").filter({has:page.locator("summary",{hasText:`独立审查：${summary}`})}).first();
+  await review.locator("summary").first().click();
+  const admitted=page.waitForResponse(r=>r.url().includes("/api/study-research/review")&&r.request().method()==="POST");
+  await review.getByRole("button",{name:"开始独立审查",exact:true}).click();
+  const admission=await admitted;assert.equal(admission.status(),200,await admission.text());const taskId=(await admission.json()).task.taskId;
+  let canonical;
+  for(const deadline=Date.now()+90000;Date.now()<deadline;){
+    const state=await get("/api/study-research/review");canonical=state.reviews.find(item=>item.taskId===taskId);
+    if(canonical)break;
+    const task=state.tasks.find(item=>item.taskId===taskId);if(task&&["failed","needs-input","cancelled"].includes(task.status))throw new Error(JSON.stringify(task));
+    await new Promise(resolveDelay=>setTimeout(resolveDelay,1500));
+  }
+  assert.equal(canonical?.status,"inconclusive");assert.equal(canonical.targetHash,result.contentHash);
+  const entry=results.locator("li").filter({has:page.getByText(summary,{exact:true})}).first();
+  const confirmation=page.waitForResponse(r=>r.url().includes("/api/study-research/results")&&r.request().method()==="POST");
+  await entry.getByRole("button",{name:"正式确认",exact:true}).click();
+  const denied=await confirmation;assert.equal(denied.status(),400,await denied.text());
+  assert.equal((await get("/api/study-research/results")).results.find(item=>item.resultId===result.resultId).state,"draft");
+  await entry.getByRole("button",{name:"理解此结果",exact:true}).click();
+  await page.getByText("前台对话仍可立即响应；这是离线协议测试回复。",{exact:false}).last().waitFor();
+  const after=await get("/api/study-research");assert.equal(after.phase.phase,"research");assert.equal(after.phase.revision,before.phase.revision);
+  await page.reload({waitUntil:"domcontentloaded"});await page.locator("#research-results").getByText(summary,{exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
+  Object.assign(evidence,{checkedAt:new Date().toISOString(),resultId:result.resultId,negativeDraftPersisted:true,independentReview:canonical,confirmationRejected:true,originalConversationLearning:true,phaseUnchanged:true,errors});
+  await page.locator("#research-results").screenshot({path:join(directory,"results-browser.png")});
+  await writeFile(join(directory,"results-browser-evidence.json"),JSON.stringify(evidence,null,2));console.log(JSON.stringify({resultId:result.resultId,review:canonical.status,confirmationRejected:true,phaseUnchanged:true}));
+}catch(error){await page.screenshot({path:join(directory,"results-browser-failure.png"),fullPage:true});await writeFile(join(directory,"results-browser-failure.json"),JSON.stringify({...evidence,error:String(error),errors},null,2));throw error;}finally{await browser.close();}

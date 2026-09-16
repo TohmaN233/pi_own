@@ -1,6 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DirectoryPicker } from "@/components/DirectoryPicker";
@@ -27,6 +27,16 @@ import { courseLessonTasks } from "@/lib/course-builder-lesson-tasks";
 import { CoverageCheckpoints } from "@/components/course-builder/CoverageCheckpoints";
 import styles from "./CourseBuilder.module.css";
 type State = Awaited<ReturnType<typeof courseBuilderWorkspaceState>>;
+type TeacherNotesCompileReceiptView = {
+	receiptId: string;
+	notesId: string;
+	notesRevision: number;
+	sourceHash: string;
+	succeeded: boolean;
+	diagnostics?: Array<{ code?: string; severity?: string; message: string }>;
+	pageCount?: number | null;
+	createdAt?: string;
+};
 type EntryPhase = "checking" | "ready" | "error";
 type MaterialFolderTarget =
 	| { kind: "course"; revision: number }
@@ -34,7 +44,6 @@ type MaterialFolderTarget =
 
 const TEACHER_PROFILE_KEY = "pi-course-builder-teacher-profile-v1";
 const SETUP_DRAFT_KEY = "pi-course-builder-new-course-draft-v1";
-const FLOW = ["课程设置", "连接资料", "Assignment", "学期计划", "教师审批", "单课设计", "课件与可视化", "逐页验收"];
 const WORKSPACE_SECTIONS = [
 	["overview", "课程概览"], ["materials", "课程资料"], ["assignments", "Assignment"],
 	["agent", "Agent 备课"], ["review", "学期计划"], ["lessons", "单课教案"],
@@ -70,10 +79,11 @@ function readableError(value: unknown): string {
 }
 
 function JsonView({ value, label }: { value: unknown; label: string }) {
+	const [open, setOpen] = useState(false);
 	return (
-		<details className={styles.dataDetails}>
+		<details className={styles.dataDetails} onToggle={(event) => setOpen(event.currentTarget.open)}>
 			<summary>{label}</summary>
-			<pre>{JSON.stringify(value, null, 2)}</pre>
+			{open && <pre>{JSON.stringify(value, null, 2)}</pre>}
 		</details>
 	);
 }
@@ -95,6 +105,45 @@ function Field({ label, hint, wide = false, children }: {
 
 function StatusBadge({ status }: { status: string }) {
 	return <span className={styles.statusBadge}>{STATUS_LABELS[status] ?? status}</span>;
+}
+
+function recentFirst<T>(items: readonly T[]): T[] {
+	return items.map((item, index) => {
+		const identity = item && typeof item === "object" ? item as { createdAt?: unknown; updatedAt?: unknown } : {};
+		const time = typeof identity.updatedAt === "string" ? identity.updatedAt : typeof identity.createdAt === "string" ? identity.createdAt : "";
+		return { item, index, time };
+	})
+		.sort((left, right) => right.time.localeCompare(left.time) || right.index - left.index)
+		.map(({ item }) => item);
+}
+
+function ProgressiveList<T>({
+	items, label, unit, className, as = "div", getKey, searchText, renderItem,
+}: {
+	items: readonly T[];
+	label: string;
+	unit: string;
+	className?: string;
+	as?: "div" | "ul";
+	getKey: (item: T) => string;
+	searchText: (item: T) => string;
+	renderItem: (item: T) => ReactNode;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const [query, setQuery] = useState("");
+	const ordered = recentFirst(items);
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+	const visible = expanded
+		? ordered.filter((item) => !normalizedQuery || searchText(item).toLocaleLowerCase().includes(normalizedQuery))
+		: ordered.slice(0, 3);
+	const hiddenCount = Math.max(0, ordered.length - 3);
+	const Container = as;
+	return <>
+		{expanded && ordered.length > 3 && <label className={styles.historySearch}><span>搜索{label}</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`按标题或状态搜索全部 ${ordered.length} 项`}/></label>}
+		<Container className={className}>{visible.map((item) => <Fragment key={getKey(item)}>{renderItem(item)}</Fragment>)}</Container>
+		{expanded && visible.length === 0 && <div className={styles.emptyState}>没有匹配的{label}。</div>}
+		{hiddenCount > 0 && <button className={styles.historyToggle} type="button" onClick={() => { setExpanded((value) => !value); setQuery(""); }} aria-expanded={expanded}>{expanded ? `收起过往 ${hiddenCount} ${unit}${label}` : `查看过往 ${hiddenCount} ${unit}${label}`}</button>}
+	</>;
 }
 
 function PageFrame({ sessionId, semesterRevision, navigation, children }: { sessionId: string; semesterRevision?: number; navigation?: ReactNode; children: ReactNode }) {
@@ -142,9 +191,6 @@ function Intro({ sessionId }: { sessionId: string }) {
 				</div>
 				{sessionId && <span className={styles.sessionBadge} title={sessionId}>会话 {sessionId}</span>}
 			</div>
-			<ol className={styles.flow} aria-label="备课流程">
-				{FLOW.map((step, index) => <li key={step}><span className={styles.flowNumber}>0{index + 1}</span>{step}</li>)}
-			</ol>
 		</>
 	);
 }
@@ -171,11 +217,13 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 	const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
 	const [semesterNote, setSemesterNote] = useState("");
 	const [selectedSlot, setSelectedSlot] = useState("");
+	const [includeTeacherNotes, setIncludeTeacherNotes] = useState(false);
 	const [assignmentTitle, setAssignmentTitle] = useState("");
 	const [assignmentBrief, setAssignmentBrief] = useState("");
 	const [visualChecked, setVisualChecked] = useState<Record<string, boolean>>({});
 	const [activeSection, setActiveSection] = useState("overview");
 	const [materialFolderTarget, setMaterialFolderTarget] = useState<MaterialFolderTarget | null>(null);
+	const [materialDestination, setMaterialDestination] = useState("");
 	const operation = useRef(false);
 	const refreshRequest = useRef<AbortController | null>(null);
 
@@ -263,7 +311,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 	}
 
 	async function post(body: Record<string, unknown>) {
-		const startsAgent = body.action === "prompt" || body.action === "lesson_task" || body.action === "command" || body.decision === "request-changes";
+		const startsAgent = body.action === "prompt" || body.action === "lesson_task" || body.action === "teacher_notes_task" || body.action === "command" || body.decision === "request-changes";
 		if (startsAgent) await ensureAgentRuntime();
 		const response = await fetch("/api/course-builder", {
 			method: "POST",
@@ -315,11 +363,12 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 		const prepared = prepareCourseBuilderUpload(files);
 		const form = new FormData();
 		form.set("expectedRevision", String(state.project.revision));
+		if(materialDestination) form.set("root",materialDestination);
 		for (const item of prepared.items) form.append("files", item.file, item.uploadName);
 		const response = await fetch(`/api/course-builder/import?sessionId=${encodeURIComponent(sid)}`, { method: "POST", body: form });
 		const value = await response.json() as { error?: string };
 		if (!response.ok) throw new Error(value.error ?? "资料导入失败");
-		setNotice(`已上传 ${prepared.items.length} 个文件副本。新增资料会使旧计划过期，需要重新生成并审批。`);
+		setNotice(`已将 ${prepared.items.length} 个文件保存到课程已链接的素材文件夹，并登记为按需读取的资料。已批准的课程计划保持有效。`);
 		await refresh();
 	}
 
@@ -380,6 +429,8 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 
 	const state = data?.snapshot;
 	const slot = state?.semesterPlan?.sessions.find((item) => `${item.week}:${item.session}` === selectedSlot);
+	const selectedLesson = state?.lessonPlans.filter((item) => item.week === slot?.week && item.session === slot?.session).sort((left, right) => right.revision - left.revision)[0];
+	const selectedDeck = selectedLesson ? state?.decks.find((item) => item.lessonPlanId === selectedLesson.lessonPlanId) : undefined;
 	const lessonTasks = courseLessonTasks(state?.semesterPlan ?? null, state?.lessonPlans ?? [], slot?.week ?? 0, slot?.session ?? 0, state?.project ?? null);
 	const workspaceProjectId = state?.project.projectId;
 	useEffect(() => {
@@ -521,11 +572,11 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 							<h3>继续已有课程</h3>
 							<p>直接回到课程原有会话与已保存进度，不创建空对话。</p>
 						</div>
-						{data.projects.length > 0 ? <div className={styles.projectList}>{data.projects.map((project) => (
+						{data.projects.length > 0 ? <ProgressiveList items={data.projects} label="课程" unit="门" className={styles.projectList} getKey={(project) => project.projectId} searchText={(project) => `${project.title} ${project.beamerProfile.author} ${project.audience}`} renderItem={(project) => (
 							<button className={styles.projectButton} type="button" key={project.projectId} disabled={busy || (!sid && !data.projectSessions[project.projectId]?.length) || (!!state && !data.projectSessions[project.projectId]?.length)} onClick={() => { const previous = data.projectSessions[project.projectId]?.[0]; if (previous) { setEditRevision(null); router.push(`/course-builder?sessionId=${encodeURIComponent(previous)}`); } else void perform(() => post({ action: "bind", projectId: project.projectId })); }}>
 								<span><strong>{project.title}</strong><small>{project.beamerProfile.author || "未填写教师"} · {project.audience}</small></span><span aria-hidden="true">→</span>
 							</button>
-						))}</div> : <div className={styles.emptyState}>还没有已有课程。完成左侧表单即可开始。</div>}
+						)} /> : <div className={styles.emptyState}>还没有已有课程。完成左侧表单即可开始。</div>}
 						<div className={styles.features}>
 							<h4>进入后可以做什么</h4>
 							<ul>
@@ -553,8 +604,9 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 						<div className={styles.sections}>
 							<section className={styles.workspaceSection} id="materials" tabIndex={-1}>
 								<span className={styles.sectionNumber}>STEP 01</span>
-								<h3>连接课程资料</h3>
-								<p className={styles.sectionIntro}>优先链接本机资料文件夹。系统记录文件清单与来源身份，Agent 只在任务需要时通过受限接口读取相关内容，不会把整个文件夹塞进上下文。</p>
+								<h3>教师选择文件夹中的参考资料</h3>
+								<p className={styles.sectionIntro}>这里仅列出教师选择的素材文件夹参考。系统会从已存储的文件夹按需爬取并读取内容，保留来源身份；生成的课件资产不会混入这份参考清单。</p>
+								<Field label="新增素材保存位置"><select value={materialDestination} onChange={event=>setMaterialDestination(event.target.value)}><option value="">使用唯一已链接的素材文件夹</option>{[...new Set(state.materials.flatMap(m=>m.source.storage==="local-link" && m.source.sourceRoot ? [m.source.sourceRoot] : []))].map(root=><option key={root} value={root}>{root}</option>)}</select></Field>
 								<div className={styles.upload}>
 									<span><strong>本地资料库</strong><br/><small>不按扩展名过滤；未知格式会保留在清单中，实际读取时再报告解析能力。</small></span>
 									<div className={styles.uploadActions}>
@@ -565,7 +617,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 										</label>
 									</div>
 								</div>
-								{state.materials.length > 0 ? <ul className={styles.materialList}>{state.materials.map((material) => <li key={material.materialId}><strong>{material.name}</strong> · {material.kind} · {material.source.storage === "local-link" ? "本地链接，按需读取" : "已保存副本"}</li>)}</ul> : <div className={styles.emptyState}>尚未连接资料。你也可以先让 Agent 按课程目标规划，但引用与事实依据会较少。</div>}
+								{state.materials.length > 0 ? <ProgressiveList items={state.materials} label="课程资料" unit="份" as="ul" className={styles.materialList} getKey={(material) => material.materialId} searchText={(material) => `${material.name} ${material.kind}`} renderItem={(material) => <li><strong>{material.name}</strong> · {material.kind} · 教师选择文件夹，按需读取</li>} /> : <div className={styles.emptyState}>尚未连接教师选择的资料文件夹。你也可以先让 Agent 按课程目标规划，但引用与事实依据会较少。</div>}
 								<JsonView label="查看资料分析与来源身份" value={{ materials: state.materials, analysis: state.materialAnalysis }}/>
 							</section>
 
@@ -583,7 +635,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 									<div className={styles.buttonRow}><button className={styles.primaryButton} type="button" disabled={busy || !assignmentTitle.trim() || !assignmentBrief.trim()} onClick={() => void perform(createAssignment)}>建立 Assignment</button></div>
 								</div>
 								{state.assignments.length === 0 && <div className={styles.emptyState}>尚未建立 Assignment。建立后先为它选择专属文件夹，再启动 Agent 生成作业、提交要求、评分标准和解题提示。</div>}
-								<div className={styles.assignmentList}>{state.assignments.map((assignment) => {
+								<ProgressiveList items={state.assignments} label="Assignment" unit="个" className={styles.assignmentList} getKey={(assignment) => assignment.assignmentId} searchText={(assignment) => `${assignment.title} ${assignment.brief} ${assignment.status}`} renderItem={(assignment) => {
 									const key = reviewKey("review_assignment", assignment.assignmentId, assignment.revision);
 									const note = reviewNotes[key] ?? "";
 									const setNote = (value: string) => setReviewNotes((current) => ({ ...current, [key]: value }));
@@ -616,7 +668,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 										<JsonView label="查看 Assignment 草案与独立来源" value={{ assignmentId: assignment.assignmentId, materials: assignment.materials, draft: assignment.draft, review: assignment.review }}/>
 										{assignment.status === "draft" && <><Field label="本次 Assignment 审查意见" hint="批准时可留空；要求修改时必须说明原因。" wide><textarea className={styles.reviewBox} rows={2} value={note} onChange={(event) => setNote(event.target.value)}/></Field><div className={styles.buttonRow}><button className={styles.primaryButton} type="button" disabled={busy} onClick={() => approve("review_assignment", assignment.assignmentId, assignment.revision, "approve")}>批准当前 Assignment</button><button className={styles.secondaryButton} type="button" disabled={busy || !note.trim()} onClick={() => approve("review_assignment", assignment.assignmentId, assignment.revision, "request-changes")}>要求修改</button></div></>}
 									</article>
-								); })}</div>
+								); }} />
 							</section>
 
 							<section className={styles.workspaceSection} id="agent" tabIndex={-1}>
@@ -635,11 +687,19 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 									</select>
 								</Field>
 								<div className={styles.taskGrid}>{(["plan", "beamer"] as const).map((kind) => <div key={kind}>
-									<button className={styles.taskButton} type="button" disabled={busy || Boolean(lessonTasks[kind].disabledReason)} onClick={() => void perform(async () => { await post({ action: "lesson_task", task: kind, week: slot!.week, session: slot!.session, additionalRequirements: message }); setNotice(`${lessonTasks.label}：${kind === "plan" ? "单课计划" : "Beamer 课件"}生成任务已发送到 Pi。`); })}>
+									<button className={styles.taskButton} type="button" disabled={busy || Boolean(lessonTasks[kind].disabledReason)} onClick={() => void perform(async () => { await post({ action: "lesson_task", task: kind, week: slot!.week, session: slot!.session, additionalRequirements: message, ...(kind === "beamer" ? { teacherNotes: includeTeacherNotes } : {}) }); setNotice(`${lessonTasks.label}：${kind === "plan" ? "单课计划" : "Beamer 课件"}生成任务已发送到 Pi。`); })}>
 										<strong>{kind === "plan" ? "生成所选课次计划" : "生成所选课次 Beamer"}</strong><small>{lessonTasks.label}</small>
 									</button>
+									{kind === "beamer" && <label className={styles.checkbox}><input aria-label="同时生成教师讲稿（TeX）" type="checkbox" checked={includeTeacherNotes} onChange={(event) => setIncludeTeacherNotes(event.target.checked)}/><span>同时生成教师讲稿（TeX）</span></label>}
 									{lessonTasks[kind].disabledReason && <p className={styles.hint}>{lessonTasks[kind].disabledReason}</p>}
-								</div>)}</div>
+								</div>)}
+								<div>
+									<button className={styles.taskButton} type="button" disabled={busy || !selectedDeck} onClick={() => void perform(async () => { await post({ action: "teacher_notes_task", deckId: selectedDeck!.deckId, additionalRequirements: message }); setNotice(`${lessonTasks.label}：教师讲稿（TeX）生成任务已发送到 Pi。`); })}>
+										<strong>生成教师讲稿（TeX）</strong><small>{selectedDeck ? `基于 ${selectedDeck.title} · r${selectedDeck.revision}` : "请先生成所选课次的 Beamer"}</small>
+									</button>
+									{!selectedDeck && <p className={styles.hint}>只需要已有课件，不需要额外的学期计划或单课审批。</p>}
+								</div>
+								</div>
 								<Field label="额外要求" hint="点击上方生成任务时，会把这里的要求一起发送。直接点击“发送给 Agent”则只发送这里的内容。" wide>
 									<textarea className={styles.messageBox} rows={4} value={message} onChange={(event) => setMessage(event.target.value)}/>
 								</Field>
@@ -651,11 +711,11 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 								<h3>教师审批</h3>
 								<p className={styles.sectionIntro}>Agent 不能替你批准计划。要求修改时必须填写意见，所有审批都绑定到当前版本与内容 Hash。</p>
 								{data.deliveryTask && data.deliveryTask.status !== "question" && <article className={styles.reviewArticle} aria-label="当前交付任务"><h4>交付进度：{{routing:"正在确认完整要求",active:"持续处理中",completed:"交付检查通过",blocked:"未完成，需要处理阻碍",cancelled:"已停止"}[data.deliveryTask.status]}</h4><p>已自动续跑 {data.deliveryTask.rounds} 次。{data.deliveryTask.reason}</p><ul>{data.deliveryTask.requirements.map((item)=><li key={item.id}>{data.deliveryTask?.status === "completed" ? "✓ " : "待交付核对："}{item.text}</li>)}</ul></article>}
-								{(data.revisionTasks ?? []).length > 0 && <div aria-label="Agent 修改进度">{data.revisionTasks.slice(-8).reverse().map((task) => <article className={styles.reviewArticle} key={task.requestId}>
+								{(data.revisionTasks ?? []).length > 0 && <div aria-label="Agent 修改进度"><ProgressiveList items={data.revisionTasks ?? []} label="修改记录" unit="条" getKey={(task) => task.requestId} searchText={(task) => `${task.note} ${task.action} ${task.status}`} renderItem={(task) => <article className={styles.reviewArticle}>
 									<strong>{task.action === "review_semester" ? "学期计划" : task.action === "review_lesson" ? "单课计划" : "Assignment"} · {task.status === "completed" ? `已完成修改 · r${task.completedRevision}` : task.status === "failed" ? "发送失败" : task.running ? "已发送 · Agent 运行中" : "修改尚未完成"}</strong>
 									<p>{task.note}</p>{task.error && <p role="alert">{task.error}</p>}
 									{task.status !== "completed" && !task.running && <button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => approve(task.action, task.targetId, task.baseRevision, "request-changes", task.note)}>重新发送修改要求</button>}
-								</article>)}</div>}
+								</article>} /></div>}
 								{state.semesterPlan ? <article className={styles.reviewArticle} id="semester-plan" tabIndex={-1}>
 									<h4>学期计划 · r{state.semesterPlan.revision}<StatusBadge status={state.semesterPlan.status}/></h4>
 									<SemesterPlanReview key={`${state.semesterPlan.semesterPlanId}:${state.semesterPlan.revision}`} plan={state.semesterPlan} materials={state.materials}/>
@@ -667,7 +727,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 								<div id="lessons" tabIndex={-1} className={styles.outputArticle}>
 								<h4>单课教案</h4>
 								{state.lessonPlans.length === 0 && <p className={styles.sectionIntro}>尚未生成单课教案。批准学期计划后，选择课次并生成。</p>}
-								{state.lessonPlans.map((plan) => {
+								<ProgressiveList items={state.lessonPlans} label="单课教案" unit="份" getKey={(plan) => plan.lessonPlanId} searchText={(plan) => `${plan.title} ${plan.week} ${plan.session} ${plan.status}`} renderItem={(plan) => {
 									const key = reviewKey("review_lesson", plan.lessonPlanId, plan.revision);
 									const note = reviewNotes[key] ?? "";
 									const setNote = (value: string) => setReviewNotes((current) => ({ ...current, [key]: value }));
@@ -676,7 +736,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 									<p><Link className={styles.downloadLink} href={`/course-builder/lesson?sessionId=${encodeURIComponent(sid)}&lessonPlanId=${encodeURIComponent(plan.lessonPlanId)}`} target="_blank">打开教案 · 阅读、编辑与审批 →</Link></p>
 									<Field label="单课计划审查意见" wide><textarea className={styles.reviewBox} rows={2} value={note} onChange={(event) => setNote(event.target.value)}/></Field>
 									<div className={styles.buttonRow}><button className={styles.primaryButton} type="button" disabled={busy} onClick={() => approve("review_lesson", plan.lessonPlanId, plan.revision, "approve")}>批准当前单课计划</button><button className={styles.secondaryButton} type="button" disabled={busy || !note.trim()} onClick={() => approve("review_lesson", plan.lessonPlanId, plan.revision, "request-changes")}>要求修改</button></div>
-								</article>; })}
+								</article>; }} />
 								</div>
 							</section>
 
@@ -689,9 +749,12 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 								<h3>课件、可视化与最终验收</h3>
 								<p className={styles.sectionIntro}>源码和日志检查只能发现结构问题。接受版本前，请打开 PDF，逐页检查字号、公式、图表、溢出和教学节奏。</p>
 								{state.decks.length === 0 && <div className={styles.emptyState}>尚未生成 Beamer 课件。先批准单课计划，再让 Agent 生成课件。</div>}
-								{state.decks.map((deck) => {
+								<ProgressiveList items={state.decks} label="课件" unit="份" getKey={(deck) => deck.deckId} searchText={(deck) => `${deck.title} ${deck.status} ${deck.revision}`} renderItem={(deck) => {
 									const receipt = state.compileReceipts.filter((item) => item.deckId === deck.deckId && item.deckRevision === deck.revision && item.sourceHash === deck.sourceHash).at(-1);
 									const review = state.deckReviews.filter((item) => item.deckId === deck.deckId && item.deckRevision === deck.revision && item.sourceHash === deck.sourceHash && item.compileReceiptId === (receipt?.receiptId ?? null)).at(-1);
+									const notes = (state.teacherNotes ?? []).find((item) => item.deckId === deck.deckId);
+									const notesReceipts = notes ? (((state as State["snapshot"] & { teacherNotesCompileReceipts?: TeacherNotesCompileReceiptView[] }).teacherNotesCompileReceipts ?? []).filter((item) => item.notesId === notes.notesId && item.notesRevision === notes.revision && item.sourceHash === notes.sourceHash).sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""))) : [];
+									const notesReceipt = notesReceipts.at(-1);
 									const key = `${deck.deckId}:${deck.revision}:${receipt?.receiptId}`;
 									const accepted = deck.status === "accepted" && deck.acceptedReceiptId === receipt?.receiptId;
 									const acceptanceReason = accepted ? "当前版本已验收。"
@@ -703,7 +766,8 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 									return <article className={styles.outputArticle} key={deck.deckId}>
 										<h4>{deck.title} · r{deck.revision}<StatusBadge status={deck.status}/></h4>
 										<div className={styles.downloadRow}><a className={styles.downloadLink} href={download("tex", deck.deckId)}>编辑 .tex</a>{receipt?.pdfHash && <a className={styles.downloadLink} href={download("pdf", receipt.receiptId)} target="_blank">打开 PDF</a>}{receipt && <a className={styles.downloadLink} href={download("log", receipt.receiptId)}>预览编译日志</a>}</div>
-										<div className={styles.buttonRow}><button className={styles.secondaryButton} type="button" disabled={busy || !data.compilerEnabled} onClick={() => void perform(() => post({ action: "command", command: { action: "compile", id: deck.deckId, expectedRevision: deck.revision } }))}>编译当前源码</button><button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void perform(() => post({ action: "command", command: { action: "review_deck", id: deck.deckId } }))}>检查源码和日志</button></div>
+										<div className={styles.downloadRow}>{notes ? <><span>教师讲稿 · r{notes.revision} · 来源课件 r{notes.deckRevision}{(notes.staleReasons ?? []).length > 0 ? ` · ${(notes.staleReasons ?? []).join("；")}` : ""}{notesReceipt ? notesReceipt.succeeded ? " · PDF 已编译" : " · PDF 编译失败" : " · 尚未编译 PDF"}</span><a className={styles.downloadLink} href={download("teacher-notes", notes.notesId)}>打开 / 编辑教师讲稿 .tex</a>{notesReceipt?.succeeded && <a className={styles.downloadLink} href={download("teacher-notes-pdf", notesReceipt.receiptId)}>打开教师讲稿 PDF</a>}{notesReceipt && <a className={styles.downloadLink} href={download("teacher-notes-log", notesReceipt.receiptId)}>预览讲稿编译日志</a>}</> : <span>尚未生成教师讲稿（TeX）</span>}</div>
+										<div className={styles.buttonRow}><button className={styles.secondaryButton} type="button" disabled={busy || !data.compilerEnabled} onClick={() => void perform(() => post({ action: "command", command: { action: "compile", id: deck.deckId, expectedRevision: deck.revision } }))}>编译当前源码</button><button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void perform(() => post({ action: "command", command: { action: "review_deck", id: deck.deckId } }))}>检查源码和日志</button><button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void perform(async () => { await post({ action: "teacher_notes_task", deckId: deck.deckId, additionalRequirements: message }); setNotice("教师讲稿（TeX）生成/更新任务已发送到 Pi。"); })}>生成/更新教师讲稿（TeX）</button></div>
 										<JsonView label="Frame 大纲与版本身份" value={deck}/><JsonView label="实际编译回执" value={receipt ?? "当前版本尚未编译。"}/><JsonView label="源码与日志检查" value={review ?? "当前版本尚未检查源码和日志。"}/>
 										<div className={styles.acceptanceStatus} id={`acceptance-${deck.deckId}`} role="status">
 											<p>{busy ? "正在处理工作区操作，请稍候。" : acceptanceReason ?? "检查已完成，可以接受当前版本。"}</p>
@@ -713,11 +777,11 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 										<div className={styles.buttonRow}><button className={styles.primaryButton} type="button" aria-describedby={`acceptance-${deck.deckId}`} disabled={busy || acceptanceReason !== null} onClick={() => void perform(() => post({ action: "accept", id: deck.deckId, expectedRevision: deck.revision, compileReceiptId: receipt?.receiptId, reviewId: review?.reviewId, visualChecked: true }))}>{accepted ? "当前版本已验收" : "接受当前有据版本"}</button>{deck.status === "accepted" && <button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void perform(() => post({ action: "revoke_acceptance", id: deck.deckId, expectedRevision: deck.revision }))}>取消验收</button>}</div>
 										<p>可随时取消验收，也可直接编辑 .tex 或告诉 Agent 修改要求；修改会保存为新草稿，保留已有版本。</p>
 									</article>;
-								})}
+								}} />
 								<div className={styles.outputArticle} id="visuals" tabIndex={-1}>
 									<h4>教学可视化</h4>
 									<p className={styles.sectionIntro}>可视化由固定渲染器生成，不会自动塞进课件。请打开检查标签、比例、边界情况和学习目标。</p>
-									{state.visuals.length > 0 ? <div className={styles.visualList}>{state.visuals.map((visual) => <div className={styles.visualItem} key={visual.visualId}><p>{visual.learningPurpose}</p><a className={styles.downloadLink} href={download("visual", visual.visualId)} target="_blank" rel="noreferrer">打开可视化</a></div>)}</div> : <div className={styles.emptyState}>还没有单独生成的可视化。可在上方修订框说明“学生操作什么、观察什么、由此理解什么”。</div>}
+									{state.visuals.length > 0 ? <ProgressiveList items={state.visuals} label="可视化" unit="个" className={styles.visualList} getKey={(visual) => visual.visualId} searchText={(visual) => visual.learningPurpose} renderItem={(visual) => <div className={styles.visualItem}><p>{visual.learningPurpose}</p><a className={styles.downloadLink} href={download("visual", visual.visualId)} target="_blank" rel="noreferrer">打开可视化</a></div>} /> : <div className={styles.emptyState}>还没有单独生成的可视化。可在上方修订框说明“学生操作什么、观察什么、由此理解什么”。</div>}
 									<JsonView label="查看可视化规格与生成记录" value={state.visuals}/>
 								</div>
 							</section>

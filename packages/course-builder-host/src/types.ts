@@ -278,6 +278,8 @@ export interface CourseBuilderState {
 }
 
 export interface CourseBuilderSnapshot {
+	teacherNotes: import("./teacher-notes.ts").TeacherNotesView[];
+	teacherNotesCompileReceipts: import("./teacher-notes-compilation.ts").TeacherNotesCompileReceipt[];
 	materialAnalysis: MaterialAnalysis | null;
 	project: CourseBuilderProject;
 	materials: CourseBuilderMaterial[];
@@ -293,6 +295,10 @@ export interface CourseBuilderSnapshot {
 export interface BeamerCompiledArtifact {
 	receiptId: string;
 	pdfBytes: Uint8Array;
+	/** The exact compressed map emitted alongside this receipt's PDF. */
+	syncTexBytes?: Uint8Array;
+	/** Resolved once while compiling, then persisted with the map for later lookup. */
+	syncTexCommand?: string;
 }
 
 export interface MaterialAnalysis {

@@ -2,11 +2,14 @@ import { getLearningHarness } from "./harness-server";
 import { courseBuilderView, parseCourseBuilderProjectInput, runCourseBuilderCommand, type CourseBuilderCommand } from "../../../packages/course-builder-host/src/index.ts";
 import { isDeepStrictEqual } from "node:util";
 import { createPersistedGenericSession } from "./rpc-manager";
-import { readLinkedCourseBuilderMaterial } from "./course-builder-local-materials";
+import { readLinkedCourseBuilderMaterial, inspectLinkedCourseBuilderMaterial } from "./course-builder-local-materials";
 import { readChatAttachment } from "./chat-attachments";
 import { readSessionHeader, resolveSessionPath } from "./session-reader";
 import { listAllSessions } from "./session-reader";
 import { readCourseRevisionTasks, readCourseDeliveryTask } from "./course-builder-revisions";
+import { join } from "node:path";
+import { importCourseGeneratedAsset } from "./course-builder-generated-assets";
+import { addCourseMaterial, courseMaterialRoots } from "./course-builder-material-library";
 
 export function getCourseBuilderHost() { return getLearningHarness().courseBuilder; }
 export function assertCourseBuilderSession(sessionId: string): void {
@@ -55,14 +58,27 @@ export async function courseBuilderWorkspaceState(sessionId: string | null) {
   const project = host.getProjectForSession(session.id);
   if (project) (projectSessions[project.projectId] ??= []).push(session.id);
  }
- return { projects: host.listProjects(), snapshot: sessionId ? courseBuilderView(host, sessionId) : null, projectSessions, revisionTasks: sessionId ? await readCourseRevisionTasks(sessionId) : [], deliveryTask: sessionId ? await readCourseDeliveryTask(sessionId) : null, compilerEnabled: process.env.PI_COURSE_BUILDER_TRUSTED_TEX === "1" };
+ return { projects: host.listProjects(), snapshot: sessionId ? courseBuilderView(host, sessionId) : null, projectSessions, revisionTasks: sessionId ? await readCourseRevisionTasks(sessionId) : [], deliveryTask: sessionId ? await readCourseDeliveryTask(sessionId,host) : null, compilerEnabled: process.env.PI_COURSE_BUILDER_TRUSTED_TEX === "1" };
 }
 export async function courseBuilderCommand(sessionId: string, command: CourseBuilderCommand, assertActive?:()=>void|Promise<void>) {
  assertCourseBuilderSession(sessionId);
- const result = await runCourseBuilderCommand(getCourseBuilderHost(),sessionId,command,{trustedTex:process.env.PI_COURSE_BUILDER_TRUSTED_TEX==="1",assertActive,readLinkedMaterial:readLinkedCourseBuilderMaterial,readAttachment:async(id)=>{
+ const sessionCwd = async () => {
+  const path = await resolveSessionPath(sessionId), header = path ? readSessionHeader(path) : null;
+  if (!header) throw new Error("Course Builder conversation unavailable");
+  return header.cwd;
+ };
+ const result = await runCourseBuilderCommand(getCourseBuilderHost(),sessionId,command,{trustedTex:process.env.PI_COURSE_BUILDER_TRUSTED_TEX==="1",assertActive,readLinkedMaterial:readLinkedCourseBuilderMaterial,addMaterial:(spec,revision)=>addCourseMaterial(getCourseBuilderHost(),sessionId,spec,revision,assertActive),importGeneratedAsset:async(spec,expectedRevision)=>importCourseGeneratedAsset(getCourseBuilderHost(),sessionId,await sessionCwd(),spec,expectedRevision,assertActive),readAttachment:async(id)=>{
   const path=await resolveSessionPath(sessionId), header=path ? readSessionHeader(path) : null;
   if(!header)throw new Error("Attachment conversation unavailable");
   return readChatAttachment(header.cwd,id,{sessionId,assignmentId:getCourseBuilderHost().getAgentAssignmentScope(sessionId)});
  }});
+ if (command.action === "state" && result) {
+  const project = getCourseBuilderHost().getProjectForSession(sessionId);
+  if (!project) throw new Error("Course binding changed while reading state");
+  const cwd = await sessionCwd();
+  const materialAvailability = await Promise.all(getCourseBuilderHost().getSnapshotForSession(sessionId)!.materials.filter(material=>material.metadata.materialScope !== "assignment" && material.metadata.storage === "local-link").map(inspectLinkedCourseBuilderMaterial));
+  await assertActive?.();
+  return {...result as object, workspace:{cwd,materialAvailability,materialDirectories:courseMaterialRoots(getCourseBuilderHost(),sessionId),addMaterialAction:"add_material",outputDirectory:join(cwd,".pi","course-builder",project.projectId),generatedAssetAction:"import_generated_asset"}};
+ }
  return result;
 }

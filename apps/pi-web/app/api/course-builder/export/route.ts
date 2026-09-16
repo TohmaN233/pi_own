@@ -26,6 +26,9 @@ export async function GET(request:Request) {
   if(kind==="pdf") {bytes=host.getCompiledPdf(sid,id);filename="deck.pdf";type="application/pdf";disposition=q.get("download")==="1"?"attachment":"inline";}
   else if(kind==="log") {bytes=host.getCompileLog(sid,id);filename="compile.log";type="text/plain";}
   else if(kind==="tex") {const d=host.getSnapshotForSession(sid)?.decks.find(d=>d.deckId===id);if(!d)throw new Error("No deck in this project");bytes=d.source;filename="deck.tex";type="text/plain";}
+  else if(kind==="teacher-notes") {const notes=host.getTeacherNotes(sid,id);bytes=notes.source;filename="teacher-notes.tex";type="text/plain; charset=utf-8";}
+  else if(kind==="teacher-notes-pdf") {bytes=host.getTeacherNotesPdf(sid,id);filename="teacher-notes.pdf";type="application/pdf";disposition=q.get("download")==="1"?"attachment":"inline";}
+  else if(kind==="teacher-notes-log") {bytes=host.getTeacherNotesCompileLog(sid,id);filename="teacher-notes-compile.log";type="text/plain; charset=utf-8";}
   else if(kind==="visual") {const v=host.getSnapshotForSession(sid)?.visuals.find(v=>v.visualId===id);if(!v)throw new Error("No visual in this project");bytes=v.artifact.html;filename="visual.html";type="text/html; charset=utf-8";disposition="inline";}
   else if(kind==="assignment-student"||kind==="assignment-teacher") {const a=host.getAssignment(sid,id);bytes=assignmentMarkdown(a,kind==="assignment-teacher");filename=kind==="assignment-teacher"?"assignment-teacher.md":"assignment-student.md";type="text/markdown; charset=utf-8";}
   else throw new Error("Unknown export kind");

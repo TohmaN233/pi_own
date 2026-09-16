@@ -4,6 +4,7 @@ export * from "./commands.ts";
 export * from "./coverage.ts";
 export * from "./host.ts";
 export * from "./planning.ts";
-
 export { extractPptx } from "./pptx.ts";
+export * from "./teacher-notes.ts";
+export * from "./teacher-notes-compilation.ts";
 export * from "./types.ts";

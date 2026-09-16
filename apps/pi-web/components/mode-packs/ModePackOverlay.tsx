@@ -9,6 +9,7 @@ import {
 } from "@/lib/mode-pack-client";
 import styles from "./ModePackOverlay.module.css";
 import { subscribeSessionConfiguration } from "@/lib/session-configuration-events";
+import { studyModePhase } from "@/lib/study-mode-policy";
 
 export type ModePackStatusKind = ModePackStatusResponse["kind"] | null;
 
@@ -18,7 +19,7 @@ export function ModePackOverlay({ onStatusKind }: { onStatusKind?: (kind: ModePa
   return <SessionModePackOverlay key={sessionId} sessionId={sessionId} onStatusKind={onStatusKind} />;
 }
 
-function SessionModePackOverlay({ sessionId, onStatusKind }: {
+export function SessionModePackOverlay({ sessionId, onStatusKind }: {
   sessionId: string;
   onStatusKind?: (kind: ModePackStatusKind) => void;
 }) {
@@ -128,6 +129,7 @@ function SessionModePackOverlay({ sessionId, onStatusKind }: {
         ))}
       </select>
       <a className={styles.link} href={`/mode-packs?sessionId=${encodeURIComponent(sessionId)}`}>Customize</a>
+      {studyModePhase(status.currentModePackId ?? "") && <a className={`${styles.link} ${styles.workspaceLink}`} href={`/study?sessionId=${encodeURIComponent(sessionId)}`}>打开学习与研究工作区</a>}
       <a
         className={`${styles.link} ${styles.workspaceLink}`}
         href={`/course-builder?sessionId=${encodeURIComponent(sessionId)}`}

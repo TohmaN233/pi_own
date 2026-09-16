@@ -20,6 +20,28 @@ let resizeTimer;
 let disposed = false;
 const tasks = new Set();
 const pageViews = [];
+const fileIdentity = new URLSearchParams(location.search).get("file");
+const sourceSync = new URLSearchParams(location.search).get("sourceSync") === "1";
+let sourceLocation;
+function markSource(view) {
+  view.element.querySelector(".source-location")?.remove();
+  if (!sourceLocation || sourceLocation.page !== view.number) return;
+  const marker = document.createElement("div");
+  marker.className = "source-location";
+  marker.setAttribute("aria-label", "对应源码位置");
+  Object.assign(marker.style, { position: "absolute", pointerEvents: "none", background: "#ffc10755", outline: "2px solid #d58b00", left: `${sourceLocation.x * view.scale}px`, top: `${sourceLocation.y * view.scale}px`, width: `${Math.max(8, sourceLocation.width * view.scale)}px`, height: `${Math.max(8, sourceLocation.height * view.scale)}px` });
+  view.element.append(marker);
+}
+window.addEventListener("message", (event) => {
+  const value = event.data;
+  if (!sourceSync || !pdf || event.source !== parent || event.origin !== location.origin || value?.type !== "pi-pdf-jump" || value.file !== fileIdentity) return;
+  if (!Number.isSafeInteger(value.page) || value.page < 1 || value.page > pdf.numPages || ![value.x, value.y, value.width, value.height].every(Number.isFinite)) return;
+  sourceLocation = value;
+  for (const view of pageViews) markSource(view);
+  const view = pageViews[value.page - 1];
+  pages.scrollTo({ top: view.element.offsetTop - pages.offsetTop + value.y * view.scale - pages.clientHeight / 3 });
+  updatePage(value.page);
+});
 
 function fail(error) {
   if (disposed) return;
@@ -48,6 +70,12 @@ async function draw(view, epoch) {
   canvas.width = Math.ceil(viewport.width * ratio);
   canvas.height = Math.ceil(viewport.height * ratio);
   view.element.replaceChildren(canvas);
+  markSource(view);
+  if (sourceSync) canvas.addEventListener("dblclick", (event) => {
+    const bounds = canvas.getBoundingClientRect();
+    const natural = view.page.getViewport({ scale: 1 });
+    parent.postMessage({ type: "pi-pdf-source-location", file: fileIdentity, page: view.number, x: (event.clientX - bounds.left) * natural.width / bounds.width, y: (event.clientY - bounds.top) * natural.height / bounds.height }, location.origin);
+  });
   const task = view.page.render({ canvas, viewport, transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0] });
   tasks.add(task);
   try {
@@ -77,6 +105,7 @@ function layout() {
     view.element.dataset.rendered = "false";
     view.element.replaceChildren();
     const label = document.createElement("span"); label.className = "page-label"; label.textContent = `第 ${view.number} 页`; view.element.append(label);
+    markSource(view);
     observer.observe(view.element);
   }
   document.getElementById("zoom-label").textContent = `${Math.round(zoom * 100)}%`;
@@ -85,7 +114,7 @@ async function open() {
   const file = new URLSearchParams(location.search).get("file");
   if (!file) throw new Error("缺少 PDF 地址");
   const url = new URL(file, location.origin);
-  if (url.origin !== location.origin || !(url.pathname === "/api/course-builder/export" || url.pathname.startsWith("/api/files/"))) throw new Error("只允许预览本机工作区文件");
+  if (url.origin !== location.origin || !(url.pathname === "/api/course-builder/export" || url.pathname === "/api/study-research/source" || url.pathname === "/api/study-research/execution/artifact" || url.pathname.startsWith("/api/files/"))) throw new Error("只允许预览本机工作区文件");
   // Native download managers may hijack even fetch(application/pdf), replacing
   // its response with 204 and launching a download. Only JSON crosses the network.
   const response = await fetch(`/api/pdf-content?file=${encodeURIComponent(url.pathname + url.search)}`, { cache: "no-store" });
@@ -111,6 +140,7 @@ async function open() {
   }
   for (const control of [pageNumber, zoomIn, zoomOut, fit]) control.disabled = false;
   updatePage(1); layout();
+  parent.postMessage({ type: "pi-pdf-ready", file: fileIdentity }, location.origin);
 }
 previous.onclick = () => goToPage(Number(pageNumber.value) - 1);
 next.onclick = () => goToPage(Number(pageNumber.value) + 1);

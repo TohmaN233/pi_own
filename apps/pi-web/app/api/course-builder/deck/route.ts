@@ -13,10 +13,13 @@ export async function GET(request: Request) {
     const sessionId = builderString(query.get("sessionId"));
     const deckId = builderString(query.get("id"));
     await requireCourseBuilderWorkspace(sessionId);
-    const deck = getCourseBuilderHost().getSnapshotForSession(sessionId)?.decks.find((item) => item.deckId === deckId);
+    const snapshot = getCourseBuilderHost().getSnapshotForSession(sessionId);
+    const deck = snapshot?.decks.find((item) => item.deckId === deckId);
     if (!deck) return Response.json({ error: "当前课程没有这份课件。" }, { status: 404 });
     if (typeof deck.source !== "string" || !deck.source.trim()) throw new Error(`Saved TeX source is missing: ${deckId} r${deck.revision}`);
     console.info("[course-builder] read editable TeX", { sessionId, deckId, revision: deck.revision, sourceCharacters: deck.source.length });
-    return Response.json({ deck, compilerEnabled: process.env.PI_COURSE_BUILDER_TRUSTED_TEX === "1" }, { headers: { "cache-control": "no-store" } });
+    const compileReceipt = snapshot!.compileReceipts.filter(item => item.deckId === deckId && item.deckRevision === deck.revision && item.sourceHash === deck.sourceHash).at(-1) ?? null;
+    const sourceSyncAvailable = !!compileReceipt?.succeeded && getCourseBuilderHost().hasBeamerSyncTex(sessionId, compileReceipt.receiptId);
+    return Response.json({ deck, compileReceipt, compilerEnabled: process.env.PI_COURSE_BUILDER_TRUSTED_TEX === "1", sourceSyncAvailable }, { headers: { "cache-control": "no-store" } });
   } catch (error) { return builderError(error); }
 }

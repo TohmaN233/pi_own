@@ -2,7 +2,7 @@ export type WorkspacePreviewTarget =
   | { kind: "file"; path: string; cwd?: string }
   | { kind: "artifact"; url: string; title: string; format: "markdown" | "text" | "pdf" | "html" };
 
-const FORMATS = { "assignment-student": "markdown", "assignment-teacher": "markdown", tex: "text", log: "text", pdf: "pdf", visual: "html" } as const;
+const FORMATS = { "assignment-student": "markdown", "assignment-teacher": "markdown", "teacher-notes":"text", "teacher-notes-pdf":"pdf", "teacher-notes-log":"text", tex: "text", log: "text", pdf: "pdf", visual: "html" } as const;
 
 /** Only this session's actual Host exports are previewable as course artifacts. */
 export function resolveCourseArtifactPreview(href: string, sessionId: string, origin: string): WorkspacePreviewTarget | null {
@@ -12,6 +12,6 @@ export function resolveCourseArtifactPreview(href: string, sessionId: string, or
   const kind = url.searchParams.get("kind");
   if (!kind || !Object.hasOwn(FORMATS, kind)) return null;
   const format = FORMATS[kind as keyof typeof FORMATS];
-  const title = kind === "assignment-student" ? "assignment-student.md" : kind === "assignment-teacher" ? "assignment-teacher.md" : kind === "tex" ? "deck.tex" : kind === "log" ? "compile.log" : kind === "pdf" ? "deck.pdf" : "visual.html";
+  const title = kind === "teacher-notes" ? "teacher-notes.tex" : kind === "teacher-notes-pdf" ? "teacher-notes.pdf" : kind === "teacher-notes-log" ? "teacher-notes-compile.log" : kind === "assignment-student" ? "assignment-student.md" : kind === "assignment-teacher" ? "assignment-teacher.md" : kind === "tex" ? "deck.tex" : kind === "log" ? "compile.log" : kind === "pdf" ? "deck.pdf" : "visual.html";
   return { kind: "artifact", url: url.pathname + url.search, title, format };
 }
