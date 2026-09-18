@@ -1,10 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { contentHash } from "../../../packages/harness-core/src/index.ts";
 import { modeSystemPrompt, reviseModePackSettings } from "../../../packages/profile-resource-host/src/index.ts";
 import { getLearningHarness } from "./harness-server";
-import { createPersistedGenericSession, getGenericModePackStatus, getRpcSession, resolveSavedModeSettings } from "./rpc-manager";
+import { activateGenericModePack, createPersistedGenericSession, getGenericModePackStatus, getRpcSession, resolveSavedModeSettings } from "./rpc-manager";
 import { listAllSessions, resolveSessionPath, invalidateSessionListCache } from "./session-reader";
 import { ModePackStore } from "./mode-pack-store";
 import { buildModePackRuntimePlanFromInventory } from "./mode-pack-inventory";
@@ -105,11 +106,34 @@ export async function saveProjectDefaults(projectId: string, sourceSessionId: st
   return { revision: result.revision };
 }
 
-export async function moveProjectConversation(sessionId: string, projectId: string | null) {
+export async function moveProjectConversation(sessionId: string, projectId: string | null): Promise<{ href?: string }> {
   const harness = getLearningHarness();
   if (!await resolveSessionPath(sessionId)) throw new Error("Session not found");
   if (harness.courseBuilder.getProjectForSession(sessionId) || harness.findCurrentSession(sessionId)) throw new Error("课程对话包含课程绑定，请保留在原课程中；可在外面新建独立对话。");
-  if (projectId && (await ensureProject(projectId)).courseProjectId) throw new Error("请使用课程内的新建对话，避免把其他任务的历史混入课程。");
+  const project = projectId ? await ensureProject(projectId) : null;
+  if (project?.courseProjectId) {
+    const current = await getGenericModePackStatus(sessionId);
+    const ready = current.runtime.live && current.runtime.verified && current.runtime.binding?.snapshot.profileId === "course-builder";
+    if (!ready) {
+      if (current.runtime.busy) throw new Error("Pi 正在处理消息，请等待当前回复完成后再移入课程。");
+      await activateGenericModePack({
+        sessionId,
+        modePackId: "course-builder",
+        expectedSnapshotId: current.runtime.binding?.snapshot.resourceSnapshotId ?? null,
+        idempotencyKey: randomUUID(),
+      });
+    }
+    const activated = await getGenericModePackStatus(sessionId);
+    if (!activated.runtime.verified || activated.runtime.binding?.snapshot.profileId !== "course-builder") {
+      throw new Error(activated.runtime.diagnostic ?? "备课模式启动核验失败，对话尚未移入课程。");
+    }
+    harness.courseBuilder.bindSession(sessionId, project.courseProjectId);
+    harness.projectWorkspaces.move(sessionId, project.id);
+    invalidateSessionListCache();
+    console.info("[projects] moved existing conversation into course", { sessionId, projectId: project.id, resourceSnapshotId: activated.runtime.binding.snapshot.resourceSnapshotId });
+    return { href: projectConversationHref(sessionId, true) };
+  }
   harness.projectWorkspaces.move(sessionId, projectId);
   console.info("[projects] moved conversation", { sessionId, projectId });
+  return {};
 }

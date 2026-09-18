@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) throw new Error("Expected project revision is required");
         return Response.json(await saveProjectDefaults(text(body.projectId, "projectId"), text(body.sessionId, "sessionId"), body.expectedRevision));
       }
-      case "move": await moveProjectConversation(text(body.sessionId, "sessionId"), body.projectId === null ? null : text(body.projectId, "projectId")); return Response.json({ success: true });
+      case "move": return Response.json({ success: true, ...await moveProjectConversation(text(body.sessionId, "sessionId"), body.projectId === null ? null : text(body.projectId, "projectId")) });
       default: throw new Error("Unknown project action");
     }
   } catch (error) { return failure(error); }
