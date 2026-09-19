@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { isApiRequestAllowed } from "@/lib/request-security";
 import { GET as readCourseExport } from "../course-builder/export/route";
+import { GET as readAssignmentAsset } from "../course-builder/assignment-assets/route";
 import { GET as readWorkspaceFile } from "../files/[...path]/route";
 import { GET as readStudySource } from "../study-research/source/route";
 import { readStudyExecutionArtifact } from "@/lib/study-execution-service";
@@ -24,6 +25,8 @@ export async function GET(request: Request) {
     let response: Response;
     if (source.pathname === "/api/course-builder/export" && ["pdf","teacher-notes-pdf"].includes(source.searchParams.get("kind") ?? "")) {
       response = await readCourseExport(new Request(source, { headers }));
+    } else if (source.pathname === "/api/course-builder/assignment-assets" && source.searchParams.get("type") === "pdf") {
+      response = await readAssignmentAsset(new Request(source, { headers }));
     } else if (source.pathname === "/api/study-research/source") {
       response = await readStudySource(new Request(source, { headers }));
     } else if (source.pathname === "/api/study-research/execution/artifact") {
@@ -41,6 +44,7 @@ export async function GET(request: Request) {
     if (response.headers.get("content-type") !== "application/pdf") throw new Error("PDF reader returned an unexpected content type");
     const bytes = Buffer.from(await response.arrayBuffer());
     if (!bytes.length) throw new Error("PDF source is empty");
+    if (bytes.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("PDF source has an invalid signature");
     console.info("[pdf-preview] read content", { bytes: bytes.length, source: source.pathname.startsWith("/api/files/") ? "workspace" : source.pathname.startsWith("/api/study-research/") ? "study" : "course" });
     return Response.json({ data: bytes.toString("base64"), byteLength: bytes.length }, { headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
   } catch (error) {

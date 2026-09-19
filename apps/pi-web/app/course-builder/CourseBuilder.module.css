@@ -705,6 +705,16 @@
 	font-size: 15px;
 }
 
+.assignmentMarkdownReview {
+	max-height: 34rem;
+	margin-top: 12px;
+	padding: 14px 16px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--bg);
+}
+
 .assignmentDraft > p {
 	margin-top: 6px;
 	color: var(--text-muted);

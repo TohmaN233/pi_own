@@ -9,6 +9,7 @@ import { contentHash, sha256Hex } from '../packages/harness-core/src/index.ts';
 export const projectInput = {
   courseId: 'linear-algebra', title: 'Linear algebra', weeks: 2, sessionsPerWeek: 1,
   minutesPerSession: 50, audience: 'Undergraduate', language: 'English', goals: ['Explain linearity'],
+  assignmentPreamble: '',
   beamerProfile: { aspectRatio: '169', fontSize: 11, theme: 'default', author: 'Teacher', institute: 'Department', language: 'English', overlayPolicy: 'allow', referencesPolicy: 'optional', backupSlides: 0, speakerNotes: false, preamble: null },
 };
 const source = String.raw`\documentclass[aspectratio=169,11pt]{beamer}
@@ -154,6 +155,46 @@ test('PR #7: revision conflicts still protect writes while cosmetic edits preser
   assert.equal(second.getProject(f.project.projectId).title, 'Changed title');
   assert.equal(second.getDeckForCompile('teacher', f.deck.deckId).deck.deckId, f.deck.deckId);
   f.db.close();
+});
+
+test('teacher approval prunes superseded plan, deck, receipt and review history', () => {
+  const f = setup();
+  try {
+    const plan1 = f.host.saveSemesterPlan('teacher', semesterDraft(f.material.materialId), 0);
+    f.host.reviewSemesterPlan('teacher', plan1.semesterPlanId, 1, 'request-changes', 'Revise rationale');
+    const plan2 = f.host.saveSemesterPlan('teacher', { ...semesterDraft(f.material.materialId), rationale: 'Revised rationale' }, 1);
+    f.host.reviewSemesterPlan('teacher', plan2.semesterPlanId, 2, 'approve', 'Approved');
+    assert.deepEqual(f.host.exportState().semesterPlans.map((plan) => plan.revision), [2]);
+
+    const lesson1 = f.host.saveLessonPlan('teacher', lessonDraft(f.material.materialId), 0, 2);
+    f.host.reviewLessonPlan('teacher', lesson1.lessonPlanId, 1, 'request-changes', 'Revise example');
+    const lesson2 = f.host.saveLessonPlan('teacher', { ...lessonDraft(f.material.materialId), examples: ['Revised example'] }, 1, 2);
+    f.host.reviewLessonPlan('teacher', lesson2.lessonPlanId, 2, 'approve', 'Approved');
+    assert.deepEqual(f.host.exportState().lessonPlans.map((lesson) => lesson.revision), [2]);
+
+    const deck1 = f.host.saveBeamerDeck('teacher', { lessonPlanId: lesson2.lessonPlanId, title: 'Linearity', source, frameOutline: ['Goal', 'Example'], assetMaterialIds: [] }, 0, 2);
+    const record = (deck, suffix) => {
+      const pdf = new Uint8Array(Buffer.from('%PDF-1.4\n%%EOF'));
+      const log = `compile ${suffix}`;
+      const base = { receiptId: `receipt-${suffix}`, projectId: f.project.projectId, deckId: deck.deckId, deckRevision: deck.revision, sourceHash: deck.sourceHash, compiler: 'fixture', arguments: [], succeeded: true, exitCode: 0, pageCount: 2, pdfHash: `sha256:${sha256Hex(pdf)}`, logHash: `sha256:${sha256Hex(log)}`, diagnostics: [], createdAt: new Date().toISOString() };
+      const receipt = { ...base, contentHash: contentHash(base) };
+      f.host.recordCompile('teacher', receipt, { receiptId: receipt.receiptId, pdfBytes: pdf, syncTexBytes: new Uint8Array(gzipSync('SyncTeX Version:1\n')), syncTexCommand: 'synctex.exe' }, log);
+      const review = reviewBeamer({ project: f.project, deck, compileReceipt: receipt });
+      assert.equal(review.status, 'pass', JSON.stringify(review.issues));
+      f.host.recordDeckReview('teacher', review);
+      return { receipt, review };
+    };
+    const old = record(deck1, 'old');
+    const deck2 = f.host.saveBeamerDeck('teacher', { lessonPlanId: lesson2.lessonPlanId, title: 'Linearity', source: source.replace('Learning goal', 'Current learning goal'), frameOutline: ['Goal', 'Example'], assetMaterialIds: [] }, 1, 2);
+    const current = record(deck2, 'current');
+    f.host.acceptDeck('teacher', deck2.deckId, 2, current.receipt.receiptId, current.review.reviewId);
+    const state = f.host.exportState();
+    assert.deepEqual(state.decks.map((deck) => deck.revision), [2]);
+    assert.deepEqual(state.compileReceipts.map((receipt) => receipt.receiptId), [current.receipt.receiptId]);
+    assert.deepEqual(state.deckReviews.map((review) => review.reviewId), [current.review.reviewId]);
+    assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM course_builder_pdf WHERE receipt_id=?').get(old.receipt.receiptId).count, 0);
+    assert.equal(f.db.prepare('SELECT COUNT(*) AS count FROM course_builder_log WHERE receipt_id=?').get(old.receipt.receiptId).count, 0);
+  } finally { f.db.close(); }
 });
 
 test('reference imports preserve semester approval and downstream work; planning changes invalidate it', () => {

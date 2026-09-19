@@ -17,6 +17,7 @@ test("teacher TeX edits save new shared drafts without a runtime; PDF previews a
   const workspace = await jiti.import("../app/api/course-builder/route.ts");
   const exports = await jiti.import("../app/api/course-builder/export/route.ts");
   const deckRoute = await jiti.import("../app/api/course-builder/deck/route.ts");
+  const assignmentAssets = await jiti.import("../app/api/course-builder/assignment-assets/route.ts");
   const pdfContent = await jiti.import("../app/api/pdf-content/route.ts");
   const { encodeFilePathForApi } = await jiti.import("./file-paths.ts");
   const host = getCourseBuilderHost();
@@ -47,6 +48,18 @@ test("teacher TeX edits save new shared drafts without a runtime; PDF previews a
   const deniedDeck = await deckRoute.GET(new Request(`http://127.0.0.1:30141/api/course-builder/deck?sessionId=${unbound}&id=${deck.deckId}`, { headers: { host: "127.0.0.1:30141" } }));
   assert.equal(deniedDeck.status, 404);
   assert.equal((await workspace.POST(req({ ...body, sessionId: unbound, expectedRevision: 2 }))).status, 400);
+  const assignment = host.createAssignment(sid, { title: "Editable Assignment", brief: "Fixture" });
+  const assignmentDirectory = join(cwd, ".pi", "course-builder", project.projectId, "assignments", assignment.assignmentId);
+  mkdirSync(assignmentDirectory, { recursive: true });
+  const rmdPath = join(assignmentDirectory, "Solution.Rmd");
+  writeFileSync(rmdPath, "# Original\n");
+  const assignmentQuery = `sessionId=${second}&assignmentId=${assignment.assignmentId}&path=Solution.Rmd`;
+  const loadedSourceResponse = await assignmentAssets.GET(new Request(`http://127.0.0.1:30141/api/course-builder/assignment-assets?${assignmentQuery}`, { headers: { host: "127.0.0.1:30141" } }));
+  const loadedSource = await loadedSourceResponse.json();
+  const longSource = `  # Revised without trimming\n\n${"A".repeat(400)}\n`;
+  const sourceSaveResponse = await assignmentAssets.POST(req({ sessionId: second, assignmentId: assignment.assignmentId, path: "Solution.Rmd", source: longSource, expectedHash: loadedSource.sourceHash, compile: false }));
+  assert.equal(sourceSaveResponse.status, 200, await sourceSaveResponse.text());
+  assert.equal(await import("node:fs/promises").then(({ readFile }) => readFile(rmdPath, "utf8")), longSource, "Assignment source saves preserve whitespace and may exceed identifier length");
   // Checkpoint writes use the same dormant teacher workspace, with independent revisions.
   const [reference] = host.importMaterials(sid, [{ name: "example.R", kind: "text", sourceBytes: Buffer.from("x <- 1\nx + 1\n"), extractedText: "x <- 1\nx + 1\n" }], 1);
   const coverageBody = { sessionId: second, action: "save_checkpoint", expectedRevision: 0, draft: { lessonPlanId: lesson.lessonPlanId, lessonRevision: 1, deckId: deck.deckId, deckRevision: 2, coverage: [{ materialId: reference.materialId, sourceHash: reference.sourceHash, unit: "lines", start: 1, end: 2, summary: "Assignment and arithmetic" }], completed: ["Predict R output"], remaining: ["Functions"], nextLesson: "Begin with functions after a brief recall question." } };
@@ -76,7 +89,9 @@ test("teacher TeX edits save new shared drafts without a runtime; PDF previews a
     const coursePdf = `/api/course-builder/export?sessionId=${second}&kind=pdf&id=fixture-receipt`;
     const localPdf = join(cwd, "fixture.pdf"); writeFileSync(localPdf, "%PDF-1.4\n%%EOF");
     const filePdf = `/api/files/${encodeFilePathForApi(localPdf)}?type=read&sessionId=${second}`;
-    for (const file of [coursePdf, filePdf]) {
+    const assignmentPdfPath = join(assignmentDirectory, "Assignment.pdf"); writeFileSync(assignmentPdfPath, "%PDF-1.4\n%%EOF");
+    const assignmentPdf = `/api/course-builder/assignment-assets?sessionId=${second}&assignmentId=${assignment.assignmentId}&path=Assignment.pdf&type=pdf`;
+    for (const file of [coursePdf, filePdf, assignmentPdf]) {
       const output = await pdfContent.GET(new Request(`http://127.0.0.1:30141/api/pdf-content?file=${encodeURIComponent(file)}`, { headers: { host: "127.0.0.1:30141" } }));
       assert.equal(output.status, 200); assert.match(output.headers.get("content-type"), /^application\/json/);
       assert.equal(output.headers.get("content-disposition"), null, "preview must not expose PDF/download response headers to native download managers");

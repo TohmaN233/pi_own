@@ -215,6 +215,7 @@ export function parseCourseBuilderProjectInput(value: unknown): CourseBuilderPro
 			"audience",
 			"language",
 			"goals",
+			"assignmentPreamble",
 			"beamerProfile",
 		],
 		"project",
@@ -231,6 +232,17 @@ export function parseCourseBuilderProjectInput(value: unknown): CourseBuilderPro
 		audience: stringValue(input.audience, "project.audience", 2_000),
 		language: stringValue(input.language, "project.language", 64),
 		goals: unique(stringArray(input.goals, "project.goals", 100), "project.goals"),
+		assignmentPreamble:
+			input.assignmentPreamble === undefined
+				? ""
+				: typeof input.assignmentPreamble === "string" && input.assignmentPreamble.length <= 50_000
+				? input.assignmentPreamble.trim()
+				: (() => {
+						throw new CourseBuilderError(
+							"INVALID_INPUT",
+							"project.assignmentPreamble must be text with at most 50000 characters",
+						);
+					})(),
 		beamerProfile: parseBeamerProfile(input.beamerProfile),
 	};
 }
@@ -1194,9 +1206,8 @@ export class CourseBuilderHost {
 		};
 		const next: SemesterPlan = { ...base, contentHash: contentHash(base) };
 		this.mutate(() =>
-			this.semesterPlans.set(project.projectId, [
-				...history.filter((item) => item.revision !== current.revision),
-				next,
+			this.semesterPlans.set(project.projectId, decision === "approve" ? [next] : [
+				...history.filter((item) => item.revision !== current.revision), next,
 			]),
 		);
 		return clone(next);
@@ -1289,7 +1300,7 @@ export class CourseBuilderHost {
 		};
 		const next: LessonPlan = { ...base, contentHash: contentHash(base) };
 		this.mutate(() =>
-			this.lessonPlans.set(lessonPlanId, [...history.filter((item) => item.revision !== current.revision), next]),
+			this.lessonPlans.set(lessonPlanId, decision === "approve" ? [next] : [...history.filter((item) => item.revision !== current.revision), next]),
 		);
 		return clone(next);
 	}
@@ -1481,7 +1492,6 @@ export class CourseBuilderHost {
 		)
 			throw new CourseBuilderError("VALID_REVIEW_REQUIRED", "A passing current deck review is required");
 		timestamp(acceptedAt, "acceptedAt");
-		const history = this.decks.get(deckId) ?? [];
 		const base: Omit<BeamerDeck, "contentHash"> = {
 			...withoutHash(deck),
 			status: "accepted",
@@ -1490,9 +1500,15 @@ export class CourseBuilderHost {
 			updatedAt: acceptedAt,
 		};
 		const accepted: BeamerDeck = { ...base, contentHash: contentHash(base) };
-		this.mutate(() =>
-			this.decks.set(deckId, [...history.filter((item) => item.revision !== deck.revision), accepted]),
-		);
+		const obsoleteReceiptIds = [...this.compileReceipts.values()]
+			.filter((item) => item.deckId === deckId && item.receiptId !== receipt.receiptId)
+			.map((item) => item.receiptId);
+		this.mutate(() => {
+			this.decks.set(deckId, [accepted]);
+			for (const obsoleteId of obsoleteReceiptIds) this.compileReceipts.delete(obsoleteId);
+			for (const [storedReviewId, storedReview] of this.deckReviews)
+				if (storedReview.deckId === deckId && storedReviewId !== review.reviewId) this.deckReviews.delete(storedReviewId);
+		}, undefined, [], undefined, [], undefined, obsoleteReceiptIds);
 		return clone(accepted);
 	}
 
@@ -1991,11 +2007,12 @@ export class CourseBuilderHost {
 		compileLog?: { receiptId: string; log: string },
 		removedMaterialIds: readonly string[] = [],
 		syncTex?: BeamerSyncTexArtifact,
+		removedReceiptIds: readonly string[] = [],
 	): void {
 		const before = this.exportState();
 		try {
 			change();
-			this.persist(artifact, sources, compileLog, removedMaterialIds, syncTex);
+			this.persist(artifact, sources, compileLog, removedMaterialIds, syncTex, removedReceiptIds);
 		} catch (error) {
 			this.loadState(before);
 			this.refresh();
@@ -2009,6 +2026,7 @@ export class CourseBuilderHost {
 		compileLog?: { receiptId: string; log: string },
 		removedMaterialIds: readonly string[] = [],
 		syncTex?: BeamerSyncTexArtifact,
+		removedReceiptIds: readonly string[] = [],
 	): void {
 		const json = stableStringify(this.exportState());
 		if (Buffer.byteLength(json) > 128 * 1024 * 1024)
@@ -2022,6 +2040,11 @@ export class CourseBuilderHost {
 				throw new CourseBuilderError("REVISION_CONFLICT", "Concurrent Course Builder writer detected; reload");
 			for (const id of removedMaterialIds)
 				this.database.prepare("DELETE FROM course_builder_source WHERE material_id = ?").run(id);
+			for (const id of removedReceiptIds) {
+				this.database.prepare("DELETE FROM course_builder_log WHERE receipt_id = ?").run(id);
+				this.database.prepare("DELETE FROM course_builder_pdf WHERE receipt_id = ?").run(id);
+				this.database.prepare("DELETE FROM course_builder_teacher_notes_compile_synctex WHERE receipt_id = ?").run(id);
+			}
 			for (const source of sources)
 				this.database
 					.prepare(
@@ -2119,6 +2142,14 @@ export class CourseBuilderHost {
 		}
 		const result = state as unknown as CourseBuilderState;
 		for (const project of result.projects) {
+			// Version-1 projects created before course-level Assignment defaults used
+			// the same state envelope. Migrate them before hash validation.
+			const storedProject = project as CourseBuilderProject & { assignmentPreamble?: string };
+			if (storedProject.assignmentPreamble === undefined) {
+				storedProject.assignmentPreamble = "";
+				const { contentHash: _legacyHash, ...migrated } = storedProject;
+				storedProject.contentHash = contentHash(migrated);
+			}
 			const { contentHash: _hash, ...payload } = project;
 			assertHash(project, payload, `Project ${project.projectId}`);
 		}

@@ -72,6 +72,24 @@ export function normalizeDisplayMath(markdown: string): string {
       continue;
     }
 
+    const latexEnvironmentStart = line.match(/^([ ]{0,3})\\begin\{(align\*?|equation\*?|gather\*?)\}[ \t]*$/);
+    if (latexEnvironmentStart) {
+      const closingIndex = findLatexEnvironmentClose(lines, index + 1, latexEnvironmentStart[2]);
+      if (closingIndex !== -1) {
+        const indent = latexEnvironmentStart[1];
+        const environment = latexEnvironmentStart[2].replace(/\*/gu, "");
+        const content = lines.slice(index + 1, closingIndex).map((mathLine) => indentDisplayMathContent(mathLine, indent));
+        if (environment === "align" || environment === "gather") {
+          const inner = environment === "align" ? "aligned" : "gathered";
+          normalized.push(`${indent}$$`, `${indent}\\begin{${inner}}`, ...content, `${indent}\\end{${inner}}`, `${indent}$$`);
+        } else {
+          normalized.push(`${indent}$$`, ...content, `${indent}$$`);
+        }
+        index = closingIndex;
+        continue;
+      }
+    }
+
     const bracketDisplayOneLine = line.match(/^([ ]{0,3})\\\[[ \t]*(.+?)[ \t]*\\\][ \t]*$/);
     if (bracketDisplayOneLine) {
       const math = bracketDisplayOneLine[2].trim();
@@ -291,6 +309,16 @@ function findBracketDisplayClose(lines: string[], startIndex: number): number {
     }
   }
 
+  return -1;
+}
+
+function findLatexEnvironmentClose(lines: string[], startIndex: number, environment: string): number {
+  const escaped = environment.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const closing = new RegExp(`^ {0,3}\\\\end\\{${escaped}\\}[ \\t]*$`, "u");
+  for (let index = startIndex; index < lines.length; index++) {
+    if (closing.test(lines[index])) return index;
+    if (/^ {0,3}(`{3,}|~{3,})/.test(lines[index])) return -1;
+  }
   return -1;
 }
 

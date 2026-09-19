@@ -8,10 +8,16 @@ import { readSessionHeader, resolveSessionPath } from "./session-reader";
 import { listAllSessions } from "./session-reader";
 import { readCourseRevisionTasks, readCourseDeliveryTask } from "./course-builder-revisions";
 import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { importCourseGeneratedAsset } from "./course-builder-generated-assets";
 import { addCourseMaterial, courseMaterialRoots } from "./course-builder-material-library";
 
 export function getCourseBuilderHost() { return getLearningHarness().courseBuilder; }
+export async function courseBuilderSessionCwd(sessionId: string): Promise<string> {
+ const path = await resolveSessionPath(sessionId), header = path ? readSessionHeader(path) : null;
+ if (!header) throw new Error("Course Builder conversation unavailable");
+ return header.cwd;
+}
 export function assertCourseBuilderSession(sessionId: string): void {
  if (!sessionId || getLearningHarness().findCurrentSession(sessionId)) throw new Error("Course Builder requires a non-student Pi session");
 }
@@ -63,15 +69,24 @@ export async function courseBuilderWorkspaceState(sessionId: string | null) {
 export async function courseBuilderCommand(sessionId: string, command: CourseBuilderCommand, assertActive?:()=>void|Promise<void>) {
  assertCourseBuilderSession(sessionId);
  const sessionCwd = async () => {
-  const path = await resolveSessionPath(sessionId), header = path ? readSessionHeader(path) : null;
-  if (!header) throw new Error("Course Builder conversation unavailable");
-  return header.cwd;
+  return courseBuilderSessionCwd(sessionId);
  };
  const result = await runCourseBuilderCommand(getCourseBuilderHost(),sessionId,command,{trustedTex:process.env.PI_COURSE_BUILDER_TRUSTED_TEX==="1",assertActive,readLinkedMaterial:readLinkedCourseBuilderMaterial,addMaterial:(spec,revision)=>addCourseMaterial(getCourseBuilderHost(),sessionId,spec,revision,assertActive),importGeneratedAsset:async(spec,expectedRevision)=>importCourseGeneratedAsset(getCourseBuilderHost(),sessionId,await sessionCwd(),spec,expectedRevision,assertActive),readAttachment:async(id)=>{
   const path=await resolveSessionPath(sessionId), header=path ? readSessionHeader(path) : null;
   if(!header)throw new Error("Attachment conversation unavailable");
   return readChatAttachment(header.cwd,id,{sessionId,assignmentId:getCourseBuilderHost().getAgentAssignmentScope(sessionId)});
  }});
+ if (command.action === "assignment_state" && result) {
+  const project = getCourseBuilderHost().getProjectForSession(sessionId);
+  if (!project) throw new Error("Course binding changed while reading Assignment state");
+  const assignmentId = typeof command.assignmentId === "string" ? command.assignmentId : "";
+  if (!assignmentId) throw new Error("Assignment ID is required");
+  const cwd = await sessionCwd();
+  const outputDirectory = join(cwd,".pi","course-builder",project.projectId,"assignments",assignmentId);
+  await mkdir(outputDirectory,{recursive:true});
+  await assertActive?.();
+  return {...result as object,workspace:{cwd,outputDirectory}};
+ }
  if (command.action === "state" && result) {
   const project = getCourseBuilderHost().getProjectForSession(sessionId);
   if (!project) throw new Error("Course binding changed while reading state");

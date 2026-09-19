@@ -114,7 +114,7 @@ async function open() {
   const file = new URLSearchParams(location.search).get("file");
   if (!file) throw new Error("缺少 PDF 地址");
   const url = new URL(file, location.origin);
-  if (url.origin !== location.origin || !(url.pathname === "/api/course-builder/export" || url.pathname === "/api/study-research/source" || url.pathname === "/api/study-research/execution/artifact" || url.pathname.startsWith("/api/files/"))) throw new Error("只允许预览本机工作区文件");
+  if (url.origin !== location.origin || !(url.pathname === "/api/course-builder/export" || url.pathname === "/api/course-builder/assignment-assets" || url.pathname === "/api/study-research/source" || url.pathname === "/api/study-research/execution/artifact" || url.pathname.startsWith("/api/files/"))) throw new Error("只允许预览本机工作区文件");
   // Native download managers may hijack even fetch(application/pdf), replacing
   // its response with 204 and launching a download. Only JSON crosses the network.
   const response = await fetch(`/api/pdf-content?file=${encodeURIComponent(url.pathname + url.search)}`, { cache: "no-store" });

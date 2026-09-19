@@ -27,6 +27,8 @@ export interface CourseBuilderProjectInput {
 	audience: string;
 	language: string;
 	goals: string[];
+	/** Stable instructions prepended to every Assignment in this course. */
+	assignmentPreamble: string;
 	beamerProfile: BeamerProfile;
 }
 

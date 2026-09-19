@@ -7,6 +7,7 @@ import type { WorkspacePreviewTarget } from "@/lib/workspace-preview";
 import { BeamerSourceEditor } from "./BeamerSourceEditor";
 import { TeacherNotesSourceEditor } from "./TeacherNotesSourceEditor";
 import { PdfPreview } from "@/components/PdfPreview";
+import { AssignmentPdfPreview, AssignmentSourceEditor } from "./AssignmentSourceEditor";
 
 function CourseArtifactPreview({ target }: { target: Extract<WorkspacePreviewTarget, { kind: "artifact" }> }) {
   const [content, setContent] = useState<string | null>(null);
@@ -46,10 +47,10 @@ export function WorkspaceFilePreview({ target, sessionId, onClose, onOpenFile }:
   const artifactQuery = target.kind === "artifact" ? new URL(target.url, "http://localhost").searchParams : null;
   const texDeckId = artifactQuery?.get("kind") === "tex" ? artifactQuery.get("id") : null;
   const teacherNotesId = artifactQuery?.get("kind") === "teacher-notes" ? artifactQuery.get("id") : null;
-  const isTexPreview = Boolean(texDeckId || teacherNotesId);
+  const isTexPreview = Boolean(texDeckId || teacherNotesId || target.kind === "assignment-asset");
   return <aside className={`workspace-file-preview${expanded ? " is-expanded" : ""}${isTexPreview ? " is-tex" : ""}`} aria-label="文件预览">
     <header><strong title={target.kind === "file" ? target.path : title}>{title}</strong><button type="button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起宽度" : "展开"}</button><button type="button" ref={closeButton} aria-label="关闭文件预览" onClick={onClose}>关闭 ×</button></header>
-    <div className="workspace-preview-body">{target.kind === "file" ? <FileViewer key={target.path} filePath={target.path} cwd={target.cwd} sourceSessionId={sessionId} onOpenFile={onOpenFile}/> : texDeckId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="deck.tex">下载已保存的 TeX</a></div><BeamerSourceEditor key={texDeckId} sessionId={sessionId} deckId={texDeckId}/></> : teacherNotesId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="teacher-notes.tex">下载已保存的 TeX</a></div><TeacherNotesSourceEditor key={teacherNotesId} sessionId={sessionId} notesId={teacherNotesId}/></> : <CourseArtifactPreview key={target.url} target={target}/>}</div>
+    <div className="workspace-preview-body">{target.kind === "file" ? <FileViewer key={target.path} filePath={target.path} cwd={target.cwd} sourceSessionId={sessionId} onOpenFile={onOpenFile}/> : target.kind === "assignment-asset" ? target.format === "pdf" ? <AssignmentPdfPreview sessionId={sessionId} assignmentId={target.assignmentId} path={target.path}/> : <AssignmentSourceEditor key={`${target.assignmentId}:${target.path}`} sessionId={sessionId} assignmentId={target.assignmentId} path={target.path} pdfPath={target.pdfPath}/> : texDeckId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="deck.tex">下载已保存的 TeX</a></div><BeamerSourceEditor key={texDeckId} sessionId={sessionId} deckId={texDeckId}/></> : teacherNotesId ? <><div className="workspace-preview-toolbar"><a href={`${target.url}&download=1`} download="teacher-notes.tex">下载已保存的 TeX</a></div><TeacherNotesSourceEditor key={teacherNotesId} sessionId={sessionId} notesId={teacherNotesId}/></> : <CourseArtifactPreview key={target.url} target={target}/>}</div>
     <style>{`
       .workspace-file-preview { position:fixed; z-index:55; inset:0 0 0 auto; width:min(760px,60vw); min-width:440px; display:flex; flex-direction:column; background:var(--bg); color:var(--text); border-left:1px solid var(--border); box-shadow:-14px 0 40px #0002; }
       .workspace-file-preview.is-tex { width:min(1320px,90vw); }

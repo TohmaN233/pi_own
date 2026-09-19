@@ -400,7 +400,18 @@ export async function runCourseBuilderCommand(
 				(item) => item.assignmentId === assignmentId,
 			);
 			if (!assignment) throw new CourseBuilderError("ASSIGNMENT_NOT_FOUND", "Assignment is unavailable");
-			return { project: { projectId: state.project.projectId, title: state.project.title }, assignment };
+			return {
+				project: {
+					projectId: state.project.projectId,
+					title: state.project.title,
+					assignmentPreamble: state.project.assignmentPreamble,
+				},
+				assignment,
+				deliveryContract: {
+					plan: "Save the structured review plan with save_assignment.",
+					files: "Write current student/teacher .tex, .Rmd, .md and compiled .pdf files into workspace.outputDirectory. Revise existing files in place unless the teacher explicitly abandons them.",
+				},
+			};
 		}
 		case "visual_templates":
 			return courseBuilderVisualTemplates(state.project.projectId);

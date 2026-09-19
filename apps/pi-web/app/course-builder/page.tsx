@@ -25,6 +25,9 @@ import { ensureCourseBuilderRuntime } from "@/lib/course-builder-runtime-client"
 import { notifySessionConfiguration } from "@/lib/session-configuration-events";
 import { courseLessonTasks } from "@/lib/course-builder-lesson-tasks";
 import { CoverageCheckpoints } from "@/components/course-builder/CoverageCheckpoints";
+import { MarkdownBody } from "@/components/MarkdownBody";
+import { assignmentMarkdown } from "@/lib/course-builder-assignment-markdown";
+import { AssignmentAssets } from "@/components/course-builder/AssignmentAssets";
 import styles from "./CourseBuilder.module.css";
 type State = Awaited<ReturnType<typeof courseBuilderWorkspaceState>>;
 type TeacherNotesCompileReceiptView = {
@@ -491,7 +494,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 					<form className={styles.formPanel} onSubmit={(event) => { event.preventDefault(); void perform(createProject); }}>
 						<div className={styles.panelHeading}>
 							<h3>{editRevision !== null ? "编辑课程设置" : "建立课程"}</h3>
-							<p>{editRevision !== null ? "编辑已保存的课程。修改教学约束后，已有计划需要重新生成并审批。" : "填写教学约束即可；也可以直接选择右侧已有课程继续。"}</p>
+							<p>{editRevision !== null ? "编辑已保存的课程。只有课程目标、课时等教学约束变化才要求调整计划；Assignment 固定格式和课件偏好不会使学期计划失效。" : "填写教学约束即可；也可以直接选择右侧已有课程继续。"}</p>
 							{!sid && <p>填好后直接创建课程，系统会为这门课建立会话；点击 Agent 任务后才调用模型。填写内容会在当前标签页自动保存。</p>}
 							<div className={styles.buttonRow}><button className={styles.secondaryButton} type="button" onClick={exportSetupDraft}>保存草稿文件</button><label className={styles.secondaryButton}>载入草稿文件<input className={styles.fileInput} type="file" aria-label="载入草稿文件" disabled={busy || editRevision !== null} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void perform(async () => { if (file.size > 1024 * 1024) throw new Error("草稿文件超过 1 MiB。"); setSetup(parseCourseSetupDraft(await file.text())); creationTime.current = new Date().toISOString(); setNotice("已载入填写内容，尚未创建课程。请核对后点击创建。"); }); }}/></label></div>
 						</div>
@@ -532,6 +535,14 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 								</Field>
 								<Field label="课程目标" hint="每行一个。Agent 会据此安排活动和理解证据。" wide>
 									<textarea required rows={4} value={setup.goalsText} onChange={(event) => updateSetup("goalsText", event.target.value)}/>
+								</Field>
+							</div>
+						</fieldset>
+						<fieldset className={styles.fieldset}>
+							<legend className={styles.legend}>Assignment 固定格式</legend>
+							<div className={styles.fieldGrid}>
+								<Field label="每份 Assignment 共用的前缀 / 注意事项" hint="保存在课程中；以后生成每份 Assignment 时自动读取，无需重复发送给 Agent。" wide>
+									<textarea rows={5} value={setup.assignmentPreamble} onChange={(event) => updateSetup("assignmentPreamble", event.target.value)} placeholder="例如：提交时间、合作规则、允许使用的工具、统一排版与署名要求。"/>
 								</Field>
 							</div>
 						</fieldset>
@@ -649,22 +660,17 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 										<div className={styles.buttonRow}>
 											<button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => setMaterialFolderTarget({ kind: "assignment", assignmentId: assignment.assignmentId, title: assignment.title, revision: assignment.revision })}>{assignment.materials.length > 0 ? "重新索引专属文件夹" : "选择专属资料文件夹"}</button>
 											<button className={styles.primaryButton} type="button" disabled={busy} onClick={() => void perform(async () => {
-												await post({ action: "prompt", assignmentId: assignment.assignmentId, message: `Create the actual Assignment ${assignment.assignmentId} (${assignment.title}), not just an analysis of existing materials. First call assignment_state with assignmentId \"${assignment.assignmentId}\". Work only inside its brief and scope. Read sources only with read_assignment_material using that same assignmentId. Design complete student-facing tasks and deliverables, an observable rubric, and teacher-facing solution notes. Then call save_assignment with overview, tasks, deliverables, rubric, solutionNotes, materialIds, and the observed Assignment revision. Never use course materials or another Assignment's materials. Stop for teacher review and do not approve it.` });
+												await post({ action: "prompt", assignmentId: assignment.assignmentId, message: `Complete Assignment ${assignment.assignmentId}. Read assignment_state first and follow its saved brief, fixed preamble, material scope, output directory and delivery contract. Preserve existing correct assets when revising. Save the structured plan and current output files, then stop for teacher review.` });
 												setNotice(`“${assignment.title}”已发送到 Pi；Agent 只能读取这个 Assignment 的资料作用域。`);
 											})}>启动 Assignment Agent</button>
 										</div>
 										{assignment.materials.length > 0 ? <ul className={styles.materialList}>{assignment.materials.map((material) => <li key={material.materialId}><strong>{material.name}</strong> · {material.kind} · 专属本地链接，按需读取</li>)}</ul> : <div className={styles.emptyState}>尚未选择专属资料文件夹。该 Assignment 仍可按上方要求生成，但不会获得课程或其他作业的资料。</div>}
 										{assignment.draft && <div className={styles.assignmentDraft}>
-											<h5>已创建的 Assignment</h5>
-											<p>{assignment.draft.overview}</p>
-											<div className={styles.assignmentDraftGrid}>
-												<section><h6>学生任务</h6><ol>{assignment.draft.tasks.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ol></section>
-												<section><h6>提交内容</h6><ul>{assignment.draft.deliverables.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul></section>
-												<section><h6>评分标准</h6><ul>{assignment.draft.rubric.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul></section>
-												<section><h6>教师用解题提示</h6><ul>{assignment.draft.solutionNotes.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul></section>
-											</div>
+											<h5>Assignment 计划与教师审阅稿</h5>
+											<div className={styles.assignmentMarkdownReview}><MarkdownBody>{assignmentMarkdown(assignment, true, state.project)}</MarkdownBody></div>
 											<div className={styles.downloadRow}><a className={styles.downloadLink} href={download("assignment-student", assignment.assignmentId)}>预览学生版 .md</a><a className={styles.downloadLink} href={download("assignment-teacher", assignment.assignmentId)}>预览教师版 .md</a></div>
 										</div>}
+										<AssignmentAssets sessionId={sid} assignmentId={assignment.assignmentId} revision={assignment.revision}/>
 										<JsonView label="查看 Assignment 草案与独立来源" value={{ assignmentId: assignment.assignmentId, materials: assignment.materials, draft: assignment.draft, review: assignment.review }}/>
 										{assignment.status === "draft" && <><Field label="本次 Assignment 审查意见" hint="批准时可留空；要求修改时必须说明原因。" wide><textarea className={styles.reviewBox} rows={2} value={note} onChange={(event) => setNote(event.target.value)}/></Field><div className={styles.buttonRow}><button className={styles.primaryButton} type="button" disabled={busy} onClick={() => approve("review_assignment", assignment.assignmentId, assignment.revision, "approve")}>批准当前 Assignment</button><button className={styles.secondaryButton} type="button" disabled={busy || !note.trim()} onClick={() => approve("review_assignment", assignment.assignmentId, assignment.revision, "request-changes")}>要求修改</button></div></>}
 									</article>
@@ -775,7 +781,7 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 										</div>
 										<label className={styles.checkbox}><input type="checkbox" checked={visualChecked[key] ?? false} onChange={(event) => setVisualChecked((current) => ({ ...current, [key]: event.target.checked }))}/><span>我已打开当前 PDF，逐页检查视觉效果和教学内容。</span></label>
 										<div className={styles.buttonRow}><button className={styles.primaryButton} type="button" aria-describedby={`acceptance-${deck.deckId}`} disabled={busy || acceptanceReason !== null} onClick={() => void perform(() => post({ action: "accept", id: deck.deckId, expectedRevision: deck.revision, compileReceiptId: receipt?.receiptId, reviewId: review?.reviewId, visualChecked: true }))}>{accepted ? "当前版本已验收" : "接受当前有据版本"}</button>{deck.status === "accepted" && <button className={styles.secondaryButton} type="button" disabled={busy} onClick={() => void perform(() => post({ action: "revoke_acceptance", id: deck.deckId, expectedRevision: deck.revision }))}>取消验收</button>}</div>
-										<p>可随时取消验收，也可直接编辑 .tex 或告诉 Agent 修改要求；修改会保存为新草稿，保留已有版本。</p>
+										<p>可随时取消验收，也可直接编辑 .tex 或告诉 Agent 修改要求；新草稿完成验收后只保留当前验收版本。</p>
 									</article>;
 								}} />
 								<div className={styles.outputArticle} id="visuals" tabIndex={-1}>

@@ -7,6 +7,7 @@ import { requestCourseRevision, type ReviewAction } from "@/lib/course-builder-r
 import { courseLessonTasks, teacherNotesTask, withCourseTaskRequirements } from "@/lib/course-builder-lesson-tasks";
 import { DELIVERY_REQUEST_ENTRY, deliveryRequest } from "@/lib/course-builder-delivery";
 import type { DeliveryTarget } from "@/lib/course-builder-delivery-target";
+import { cleanupApprovedAssignmentAssets } from "@/lib/course-builder-assignment-assets";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
 
@@ -137,7 +138,13 @@ export async function POST(request:Request) {
     }
     if(action==="review_semester")host.reviewSemesterPlan(sid,id,rev,b.decision,b.note);
     else if(action==="review_lesson")host.reviewLessonPlan(sid,id,rev,b.decision,b.note);
-    else host.reviewAssignment(sid,id,rev,b.decision,b.note);
+    else {
+     const current=host.getAssignment(sid,id);
+     if(current.revision!==rev || current.status!=="draft" || !current.draft)throw new Error("Assignment changed or is not ready for approval; reload before approving");
+     const removed=await cleanupApprovedAssignmentAssets(sid,id);
+     host.reviewAssignment(sid,id,rev,b.decision,b.note);
+     console.info("[course-builder] approved Assignment and removed compiler scratch files",{sessionId:sid,assignmentId:id,removed});
+    }
    }
    return Response.json(courseBuilderState(sid));
   }

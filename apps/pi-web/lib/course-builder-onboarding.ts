@@ -20,6 +20,7 @@ export interface CourseBuilderSetup {
 	audience: string;
 	language: string;
 	goalsText: string;
+	assignmentPreamble: string;
 	author: string;
 	institute: string;
 	aspectRatio: "169" | "43";
@@ -98,6 +99,7 @@ export function createCourseBuilderSetup(profileOverrides: Partial<TeacherProfil
 		audience: project.audience,
 		language: profile.language,
 		goalsText: project.goals.join("\n"),
+		assignmentPreamble: project.assignmentPreamble ?? "",
 		author: profile.author,
 		institute: profile.institute,
 		aspectRatio: profile.aspectRatio,
@@ -122,6 +124,7 @@ export function setupFromCourseProject(project: CourseBuilderProjectInput): Cour
 		audience: project.audience,
 		language: project.language,
 		goalsText: project.goals.join("\n"),
+		assignmentPreamble: project.assignmentPreamble ?? "",
 		preamble: project.beamerProfile.preamble ?? "",
 	};
 }
@@ -155,6 +158,7 @@ export function projectFromCourseSetup(setup: CourseBuilderSetup): CourseBuilder
 		audience: required(setup.audience, "学生阶段与基础"),
 		language: required(setup.language, "授课语言"),
 		goals: [...new Set(goals)],
+		assignmentPreamble: setup.assignmentPreamble.trim(),
 		beamerProfile: {
 			aspectRatio: setup.aspectRatio,
 			fontSize: integerInRange(setup.fontSize, "课件字号", 8, 14),

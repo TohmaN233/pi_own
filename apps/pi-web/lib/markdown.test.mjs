@@ -125,4 +125,16 @@ describe("normalizeDisplayMath", () => {
       }
     });
   });
+
+  describe("standalone LaTeX environments", () => {
+    it("normalizes align environments through the shared display-math renderer", () => {
+      const input = "before\n\\begin{align*}\nx &= 1,\\\\\ny &= 2.\n\\end{align*}\nafter";
+      assert.equal(normalizeDisplayMath(input), "before\n$$\n\\begin{aligned}\nx &= 1,\\\\\ny &= 2.\n\\end{aligned}\n$$\nafter");
+    });
+
+    it("leaves environments inside fenced code untouched", () => {
+      const input = "```tex\n\\begin{align*}\nx&=1\n\\end{align*}\n```";
+      assert.equal(normalizeDisplayMath(input), input);
+    });
+  });
 });

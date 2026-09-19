@@ -11,6 +11,9 @@ test("preview uses only this session's same-origin Course Builder artifacts", ()
   assert.equal(resolveCourseArtifactPreview(link.replace("assignment-student", "unknown"), "teacher", "http://localhost:30141"), null);
   const lecturePdf=resolveCourseArtifactPreview(link.replace("assignment-student","teacher-notes-pdf"),"teacher","http://localhost:30141");
   assert.equal(lecturePdf.format,"pdf");assert.equal(lecturePdf.title,"teacher-notes.pdf");
+  const assignmentSource=resolveCourseArtifactPreview("/api/course-builder/assignment-assets?sessionId=teacher&assignmentId=assignment-1&path=Solution1.Rmd","teacher","http://localhost:30141");
+  assert.equal(assignmentSource.kind,"assignment-asset");assert.equal(assignmentSource.format,"markdown");assert.equal(assignmentSource.path,"Solution1.Rmd");
+  assert.equal(resolveCourseArtifactPreview("/api/course-builder/assignment-assets?sessionId=other&assignmentId=assignment-1&path=Solution1.Rmd","teacher","http://localhost:30141"),null);
 });
 
 test("inert Windows hrefs round trip without turning paths into protocols", () => {
