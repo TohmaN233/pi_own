@@ -36,7 +36,7 @@ test("packaged worker starts from an installed node_modules layout without tsx, 
     assert.deepEqual(observation, { observedAt: observation.observedAt, claimedJobId: null, reconciledJobIds: [] });
     // Native Pi is a declared installed dependency of pi-web. Resolve it through the installed
     // package's node_modules, while the worker code itself remains fully relocated.
-    await symlink(resolve("apps/pi-web/node_modules"), join(dirname(runtime), "node_modules"), process.platform === "win32" ? "junction" : "dir");
+    await symlink(resolve("node_modules"), join(dirname(runtime), "node_modules"), process.platform === "win32" ? "junction" : "dir");
     const agent = await execute(process.execPath, [join(runtime, "packages", "study-agent", "src", "study-agent-worker.mjs"),
       "--database", databasePath, "--project", "empty-project", "--agent-dir", join(root, "agent")], { cwd: unrelated, env, timeout: 20000, windowsHide: true });
     assert.match(agent.stdout, /worker drained/);

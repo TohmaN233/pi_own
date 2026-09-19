@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
-import JSZip from "../apps/pi-web/node_modules/jszip/lib/index.js";
+import JSZip from "jszip";
 import { ManuscriptPatchHost, patchDocxDocumentXml, StudyResearchHost } from "../packages/study-research-host/src/index.ts";
 
 const hash = (bytes) => "sha256:" + createHash("sha256").update(bytes).digest("hex");
