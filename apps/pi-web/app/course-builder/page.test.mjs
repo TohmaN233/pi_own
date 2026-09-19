@@ -6,6 +6,7 @@ const page = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./CourseBuilder.module.css", import.meta.url), "utf8");
 const linkRoute = readFileSync(new URL("../api/course-builder/link/route.ts", import.meta.url), "utf8");
 const exportRoute = readFileSync(new URL("../api/course-builder/export/route.ts", import.meta.url), "utf8");
+const modePackInventory = readFileSync(new URL("../../lib/mode-pack-inventory.ts", import.meta.url), "utf8");
 
 // Recovery and activation are exercised through real routes in
 // lib/course-builder-workspace.test.mjs; folder mounting through scripts/course-builder-browser-smoke.mjs.
@@ -30,9 +31,9 @@ test("Course Builder links a local folder for on-demand reads and keeps file cop
 test("Course Builder exposes a separately scoped Assignment workflow", () => {
 	assert.match(page, /Assignment 独立工作链/u);
 	assert.match(page, /create_assignment/u);
-	assert.match(page, /assignment_state/u);
-	assert.match(page, /read_assignment_material/u);
-	assert.match(page, /save_assignment/u);
+	assert.match(modePackInventory, /assignment_state/u);
+	assert.match(modePackInventory, /read_assignment_material/u);
+	assert.match(modePackInventory, /save_assignment/u);
 	assert.match(page, /review_assignment/u);
 	assert.match(linkRoute, /syncAssignmentMaterials/u);
 	assert.match(linkRoute, /scope: assignment \? "assignment" : "course"/u);
