@@ -236,13 +236,13 @@ export function parseCourseBuilderProjectInput(value: unknown): CourseBuilderPro
 			input.assignmentPreamble === undefined
 				? ""
 				: typeof input.assignmentPreamble === "string" && input.assignmentPreamble.length <= 50_000
-				? input.assignmentPreamble.trim()
-				: (() => {
-						throw new CourseBuilderError(
-							"INVALID_INPUT",
-							"project.assignmentPreamble must be text with at most 50000 characters",
-						);
-					})(),
+					? input.assignmentPreamble.trim()
+					: (() => {
+							throw new CourseBuilderError(
+								"INVALID_INPUT",
+								"project.assignmentPreamble must be text with at most 50000 characters",
+							);
+						})(),
 		beamerProfile: parseBeamerProfile(input.beamerProfile),
 	};
 }
@@ -1206,9 +1206,10 @@ export class CourseBuilderHost {
 		};
 		const next: SemesterPlan = { ...base, contentHash: contentHash(base) };
 		this.mutate(() =>
-			this.semesterPlans.set(project.projectId, decision === "approve" ? [next] : [
-				...history.filter((item) => item.revision !== current.revision), next,
-			]),
+			this.semesterPlans.set(
+				project.projectId,
+				decision === "approve" ? [next] : [...history.filter((item) => item.revision !== current.revision), next],
+			),
 		);
 		return clone(next);
 	}
@@ -1300,7 +1301,10 @@ export class CourseBuilderHost {
 		};
 		const next: LessonPlan = { ...base, contentHash: contentHash(base) };
 		this.mutate(() =>
-			this.lessonPlans.set(lessonPlanId, decision === "approve" ? [next] : [...history.filter((item) => item.revision !== current.revision), next]),
+			this.lessonPlans.set(
+				lessonPlanId,
+				decision === "approve" ? [next] : [...history.filter((item) => item.revision !== current.revision), next],
+			),
 		);
 		return clone(next);
 	}
@@ -1503,12 +1507,21 @@ export class CourseBuilderHost {
 		const obsoleteReceiptIds = [...this.compileReceipts.values()]
 			.filter((item) => item.deckId === deckId && item.receiptId !== receipt.receiptId)
 			.map((item) => item.receiptId);
-		this.mutate(() => {
-			this.decks.set(deckId, [accepted]);
-			for (const obsoleteId of obsoleteReceiptIds) this.compileReceipts.delete(obsoleteId);
-			for (const [storedReviewId, storedReview] of this.deckReviews)
-				if (storedReview.deckId === deckId && storedReviewId !== review.reviewId) this.deckReviews.delete(storedReviewId);
-		}, undefined, [], undefined, [], undefined, obsoleteReceiptIds);
+		this.mutate(
+			() => {
+				this.decks.set(deckId, [accepted]);
+				for (const obsoleteId of obsoleteReceiptIds) this.compileReceipts.delete(obsoleteId);
+				for (const [storedReviewId, storedReview] of this.deckReviews)
+					if (storedReview.deckId === deckId && storedReviewId !== review.reviewId)
+						this.deckReviews.delete(storedReviewId);
+			},
+			undefined,
+			[],
+			undefined,
+			[],
+			undefined,
+			obsoleteReceiptIds,
+		);
 		return clone(accepted);
 	}
 
@@ -2043,7 +2056,9 @@ export class CourseBuilderHost {
 			for (const id of removedReceiptIds) {
 				this.database.prepare("DELETE FROM course_builder_log WHERE receipt_id = ?").run(id);
 				this.database.prepare("DELETE FROM course_builder_pdf WHERE receipt_id = ?").run(id);
-				this.database.prepare("DELETE FROM course_builder_teacher_notes_compile_synctex WHERE receipt_id = ?").run(id);
+				this.database
+					.prepare("DELETE FROM course_builder_teacher_notes_compile_synctex WHERE receipt_id = ?")
+					.run(id);
 			}
 			for (const source of sources)
 				this.database
