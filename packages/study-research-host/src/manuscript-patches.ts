@@ -740,7 +740,9 @@ export class ManuscriptPatchHost {
 		if (source.hash !== previous.baseFileHash)
 			throw new ManuscriptPatchError("SOURCE_CONFLICT", "Manuscript source changed since the user request");
 		const generated =
-			previous.kind === "tex" ? patchTex(source.bytes, operations) : await this.patchDocx(source.bytes, operations);
+			previous.kind === "tex"
+				? patchTex(source.bytes, operations)
+				: await this.patchDocx(source.bytes, operations, previous.createdAt);
 		const candidateHash = sha256(generated.candidate);
 		const finalFileHash = sha256(generated.clean);
 		const recoveryHash = sha256(source.bytes);
@@ -815,7 +817,7 @@ export class ManuscriptPatchHost {
 		const clean =
 			patch.kind === "tex"
 				? patchTex(original, patch.operations).clean
-				: (await this.patchDocx(original, patch.operations)).clean;
+				: (await this.patchDocx(original, patch.operations, patch.createdAt)).clean;
 		if (sha256(clean) !== patch.finalFileHash)
 			throw new ManuscriptPatchError(
 				"PATCH_CORRUPT",
@@ -1088,10 +1090,11 @@ export class ManuscriptPatchHost {
 	private async patchDocx(
 		bytes: Uint8Array,
 		operations: readonly ManuscriptOperation[],
+		artifactDate: string,
 	): Promise<{ candidate: Uint8Array; clean: Uint8Array }> {
 		if (!this.docxAdapter)
 			throw new ManuscriptPatchError("DOCX_ADAPTER_UNAVAILABLE", "DOCX patch adapter is not configured");
-		const result = await this.docxAdapter(bytes, operations, now(this.clock));
+		const result = await this.docxAdapter(bytes, operations, artifactDate);
 		if (!result || !(result.candidate instanceof Uint8Array) || !(result.clean instanceof Uint8Array)) {
 			throw new ManuscriptPatchError("DOCX_ADAPTER_INVALID", "DOCX patch adapter returned invalid bytes");
 		}

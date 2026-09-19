@@ -16,13 +16,14 @@ const artifactFixtures = join(process.cwd(), ".artifacts", "study-research", "ma
 const hasXelatex = spawnSync("xelatex", ["--version"], { stdio: "ignore", windowsHide: true }).status === 0;
 
 async function docxAdapter(bytes, operations, date) {
+	const artifactDate = new Date(date);
 	const source = await JSZip.loadAsync(bytes, { checkCRC32: true });
 	const document = source.file("word/document.xml");
 	if (!document) throw new Error("DOCX package has no word/document.xml");
 	const changed = patchDocxDocumentXml(await document.async("string"), operations, date);
 	const build = async (xml) => {
 		const target = await JSZip.loadAsync(bytes, { checkCRC32: true });
-		target.file("word/document.xml", xml, { binary: false, compression: "DEFLATE" });
+		target.file("word/document.xml", xml, { binary: false, compression: "DEFLATE", date: artifactDate });
 		return target.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 	};
 	return { candidate: await build(changed.candidateXml), clean: await build(changed.cleanXml) };
@@ -188,7 +189,10 @@ test("TeX candidate uses review colors, clean confirmation, source CAS and durab
 
 test("DOCX candidate preserves unrelated entries and OMML with portable explicit review colors", async () => {
 	const original = await makeDocx();
-	const f = await fixture("docx", original);
+	let clockTick = 0;
+	const f = await fixture("docx", original, {
+		clock: () => new Date(Date.UTC(2026, 8, 19, 12, 0, clockTick++ * 3)),
+	});
 	try {
 		const draft = await requestAndDraft(f);
 		const candidate = await f.patches.readCandidate(f.scope, draft.patchId);

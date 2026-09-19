@@ -150,6 +150,8 @@ function requiredDocxDocument(zip: JSZip): JSZipObject {
  * word/document.xml alone and verify every unrelated ZIP entry's bytes.
  */
 export const studyManuscriptDocxAdapter: ManuscriptDocxAdapter = async (bytes, operations, date) => {
+	const artifactDate = new Date(date);
+	if (!Number.isFinite(artifactDate.getTime())) throw new Error("DOCX artifact date is invalid");
 	const source = await loadBoundedDocx(bytes);
 	requiredDocxDocument(source.zip);
 	const document = source.entries.get("word/document.xml");
@@ -163,7 +165,11 @@ export const studyManuscriptDocxAdapter: ManuscriptDocxAdapter = async (bytes, o
 	const build = async (replacement: string) => {
 		const target = await loadBoundedDocx(bytes);
 		requiredDocxDocument(target.zip);
-		target.zip.file("word/document.xml", replacement, { binary: false, compression: "DEFLATE" });
+		target.zip.file("word/document.xml", replacement, {
+			binary: false,
+			compression: "DEFLATE",
+			date: artifactDate,
+		});
 		const output = await target.zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
 		const verified = await loadBoundedDocx(output);
 		for (const [name, original] of unrelated) {
