@@ -56,6 +56,7 @@
       "lib/draft-store.ts",
       "lib/file-access.ts",
       "lib/file-links.ts",
+      "lib/markdown.test.mjs",
       "lib/markdown.ts",
       "lib/model-discovery.test.mjs",
       "lib/next-config.test.mjs",
