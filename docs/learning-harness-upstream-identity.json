@@ -8,7 +8,7 @@
     "codingAgentVersion": "0.84.4",
     "baselineFingerprints": {
       "README.md": "ef6ed4ba084650320493c6bf566c2ee54f924b7e",
-      "package.json": "e981d3ab5acbd0d682a84d10197ad73f0a85361b",
+      "package.json": "e5316de862ec1f649c6e6bfc1d5dc69f9913c864",
       "tsconfig.base.json": "57e97d6e361d1473ceecc4ce65ea1a7ccb6d94bf",
       "packages/coding-agent/package.json": "8aa47351db845e14d68615a4250705faaf7bdcfb"
     }
