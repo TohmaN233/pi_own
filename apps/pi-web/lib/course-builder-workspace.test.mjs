@@ -182,7 +182,7 @@ test("real workspace routes edit and link a dormant course, then activate the sa
   const { createFauxCore, fauxAssistantMessage, fauxToolCall } = await jiti.import("@earendil-works/pi-ai");
   const faux = createFauxCore({});
   faux.setResponses([
-    fauxAssistantMessage(fauxToolCall("course_builder", { action: "delivery_route", specJson: JSON.stringify({kind:"semester",id:draft.semesterPlanId,requirements:[{id:"revision",text:"Apply the teacher's prerequisite diagnostic"}]}) }), { stopReason: "toolUse" }),
+    fauxAssistantMessage(fauxToolCall("course_builder", { action: "delivery_route", specJson: JSON.stringify({kind:"semester",id:draft.semesterPlanId,requirements:[{id:"revision",text:"Apply the teacher's prerequisite diagnostic",verification:"content"}]}) }), { stopReason: "toolUse" }),
     fauxAssistantMessage(fauxToolCall("course_builder", { action: "save_semester", expectedRevision: 2, draftJson: JSON.stringify({ ...semester, rationale: "Revised by the real SDK tool loop." }) }), { stopReason: "toolUse" }),
     fauxAssistantMessage(fauxToolCall("course_builder", { action: "delivery_finish", specJson: JSON.stringify({id:draft.semesterPlanId,checks:[{requirementId:"revision",quote:"Revised by the real SDK tool loop."}]}) }), { stopReason: "toolUse" }),
     fauxAssistantMessage("Saved revision 3; waiting for teacher review."),

@@ -250,7 +250,7 @@ await writeFile(join(root, "latest-test-evidence.json"), JSON.stringify(evidence
 console.log(JSON.stringify(evidence, null, 2));
 `;
 
-test("Windows runner enforces observed AppContainer, Job Object, and detached-supervisor boundaries", () => {
+test("Windows runner enforces observed AppContainer, Job Object, and detached-supervisor boundaries", { skip: process.platform !== "win32" }, () => {
 	const output = execFileSync(
 		process.execPath,
 		["--experimental-strip-types", "--input-type=module", "--eval", checks],

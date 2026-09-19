@@ -14,8 +14,8 @@ import { detectStudyPlatform } from "../packages/study-execution-host/src/platfo
 const artifactRoot = resolve(".artifacts/study-research/root-exit-diagnostic");
 const runRoot = join(artifactRoot, "runs");
 const sourceRoot = join(runRoot, "source");
-const pythonExecutable = detectStudyPlatform(resolve(".")).executables.python.executablePath;
-assert.ok(pythonExecutable, "Python is required for the Windows runner diagnostic");
+const pythonExecutable = process.platform === "win32" ? detectStudyPlatform(resolve(".")).executables.python.executablePath : null;
+if (process.platform === "win32") assert.ok(pythonExecutable, "Python is required for the Windows runner diagnostic");
 const cscExecutable = "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe";
 
 async function terminal(handle, timeoutMs = 60_000) {
@@ -33,7 +33,7 @@ async function receipt(handle) {
 	return JSON.parse(await readFile(join(handle.controlDirectory, "status.json"), "utf8"));
 }
 
-test("native root exit distinguishes a signaled root accounting lag from a live Job descendant", async () => {
+test("native root exit distinguishes a signaled root accounting lag from a live Job descendant", { skip: process.platform !== "win32" }, async () => {
 	await rm(runRoot, { recursive: true, force: true });
 	await mkdir(sourceRoot, { recursive: true });
 

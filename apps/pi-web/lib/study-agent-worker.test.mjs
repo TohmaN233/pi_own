@@ -34,7 +34,7 @@ test("durable reading uses native Pi reports, commits all source checkpoints, re
   const human = host.getKnowledge(scope()).notes[0];
   const fetchBefore = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("No paid provider or network allowed in this fixture"); };
-  t.after(() => { globalThis.fetch = fetchBefore; database.close(); assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + "\\pi-reading-worker-")); rmSync(directory, { recursive: true, force: true }); });
+  t.after(() => { globalThis.fetch = fetchBefore; database.close(); assert.ok(resolve(directory).startsWith(join(resolve(tmpdir()), "pi-reading-worker-"))); rmSync(directory, { recursive: true, force: true }); });
   const faux = createFauxCore({}), credentials = AuthStorage.inMemory();
   await credentials.modify("faux", async () => ({ type: "api_key", key: "offline" }));
   const runtime = await ModelRuntime.create({ credentials, modelsPath: join(directory, "models.json"), allowModelNetwork: false });

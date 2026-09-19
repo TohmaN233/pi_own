@@ -127,6 +127,10 @@ test("environment package route rejects non-browser requests and the service enf
 	assert.deepEqual((await environmentPackageState({ sessionId })).operations, [], "all rejected requests must precede durable queueing and worker launch");
 
 	const { createProjectPythonEnvironment } = await jiti.import("../../../packages/study-execution-host/src/environments.ts");
+	if (process.platform !== "win32") {
+		await assert.rejects(createProjectPythonEnvironment({ projectDirectory: cwd }), (error) => error?.code === "WINDOWS_REQUIRED");
+		return;
+	}
 	const { planEnvironmentPackageChanges } = await jiti.import("../../../packages/study-execution-host/src/environment-package-changes.ts");
 	const python = await createProjectPythonEnvironment({ projectDirectory: cwd });
 	const wheelDirectory = join(python.venvDirectory, "fixture-wheels");

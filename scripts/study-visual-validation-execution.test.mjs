@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -46,9 +46,9 @@ function runtimeCases(specification) {
 }
 
 function nativeEnvironment() {
-	const executablePath = process.execPath;
+	const executablePath = process.platform === "win32" ? process.execPath : "C:\\fixture\\node.exe";
 	const body = { adapterKind: "native-windows-node-v1", executablePath,
-		files: [{ absolutePath: executablePath, sha256: executionSha256(readFileSync(executablePath)) }] };
+		files: [{ absolutePath: executablePath, sha256: executionSha256(readFileSync(process.execPath)) }] };
 	return { ...body, descriptorHash: frozenEnvironmentDescriptorHash(body) };
 }
 
@@ -65,6 +65,7 @@ function receipt(run, specification, mutate = (observations) => observations) {
 
 function setup(t) {
 	const artifactParent = join(process.cwd(), ".artifacts", "study-research", "visual-validation");
+	mkdirSync(artifactParent, { recursive: true });
 	const root = mkdtempSync(join(artifactParent, "execution-test-"));
 	const databasePath = join(root, "harness.sqlite");
 	let harness = null;
@@ -124,7 +125,9 @@ function setup(t) {
 }
 
 test("generated subject receives only target code and frozen inputs, then returns actual Node observations", async (t) => {
-	const root = mkdtempSync(join(process.cwd(), ".artifacts", "study-research", "visual-validation", "subject-test-"));
+	const parent = join(process.cwd(), ".artifacts", "study-research", "visual-validation");
+	mkdirSync(parent, { recursive: true });
+	const root = mkdtempSync(join(parent, "subject-test-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	const specification = fixtureSpecification(contentHash("target"), "source", contentHash("source"));
 	const key = "subjectreceiptkey1234567890123456";

@@ -156,7 +156,7 @@ function coordinator(f, adapter) {
 		queue: f.queue,
 		coordinatorId: "fixture-coordinator",
 		adapters: [adapter],
-		artifactDirectory: "C:\\coordinator-fixtures",
+		artifactDirectory: resolve(".artifacts/study-research/coordinator-fixtures"),
 	});
 }
 
@@ -477,7 +477,7 @@ test("a frozen learning task remains executable after the interactive phase chan
 	}
 });
 
-test("native adapter has no fallback for an unverified Python or R environment", async () => {
+test("native adapter has no fallback for an unverified Python or R environment", { skip: process.platform !== "win32" }, async () => {
 	const adapter = createNativeWindowsNodeAdapter({ runRootDirectory: "C:\\coordinator-fixtures", cpuRatePercent: 25 });
 	await assert.rejects(
 		() =>

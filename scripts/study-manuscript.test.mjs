@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import JSZip from "../apps/pi-web/node_modules/jszip/lib/index.js";
 import { ManuscriptPatchHost, patchDocxDocumentXml, StudyResearchHost } from "../packages/study-research-host/src/index.ts";
@@ -13,6 +13,7 @@ import { ManuscriptPatchHost, patchDocxDocumentXml, StudyResearchHost } from "..
 const hash = (bytes) => "sha256:" + createHash("sha256").update(bytes).digest("hex");
 const execFileAsync = promisify(execFile);
 const artifactFixtures = join(process.cwd(), ".artifacts", "study-research", "manuscript-fixes", "fixtures");
+const hasXelatex = spawnSync("xelatex", ["--version"], { stdio: "ignore", windowsHide: true }).status === 0;
 
 async function docxAdapter(bytes, operations, date) {
 	const source = await JSZip.loadAsync(bytes, { checkCRC32: true });
@@ -146,7 +147,7 @@ async function requestAndDraft(f) {
 	});
 }
 
-test("TeX candidate uses review colors, clean confirmation, source CAS and durable recovery", async () => {
+test("TeX candidate uses review colors, clean confirmation, source CAS and durable recovery", { skip: !hasXelatex }, async () => {
 	const original = new TextEncoder().encode("\\documentclass{article}\n\\begin{document}\nOld. Anchor. Remove. $x+y$\n\\end{document}\n");
 	const f = await fixture("tex", original);
 	try {

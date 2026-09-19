@@ -6,7 +6,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { contentHash, deterministicId, sha256Hex, stableStringify } from "../../harness-core/src/index.ts";
 import { compileLatexDocument, resolveSyncTexCommand } from "./beamer.ts";
 import type { TeacherNotes } from "./teacher-notes.ts";
-import type { BeamerAsset, BeamerCompileReceipt, BeamerDeck, CompileDiagnostic, CourseBuilderSnapshot } from "./types.ts";
+import type {
+	BeamerAsset,
+	BeamerCompileReceipt,
+	BeamerDeck,
+	CompileDiagnostic,
+	CourseBuilderSnapshot,
+} from "./types.ts";
 
 const MAX_LOG_BYTES = 64 * 1024 * 1024;
 const MAX_PDF_BYTES = 256 * 1024 * 1024;
@@ -136,10 +142,6 @@ interface SyncTexProcessResult {
 	stderr: string;
 	timedOut: boolean;
 	outputLimited: boolean;
-}
-
-function isNodeErrorWithCode(value: unknown, code: string): boolean {
-	return value instanceof Error && "code" in value && (value as NodeJS.ErrnoException).code === code;
 }
 
 function assertStoredSyncTexCommand(command: unknown): string {
@@ -272,7 +274,7 @@ function parseBackwardResult(
 	if (syncTexOutputBlocks(output).some((block) => /^Input:/mu.test(block)))
 		throw new TeacherNotesCompilationError(
 			"SYNCTEX_SOURCE_MISMATCH",
-		`SyncTeX returned a source other than ${expectedSourceName}`,
+			`SyncTeX returned a source other than ${expectedSourceName}`,
 		);
 	throw new TeacherNotesCompilationError("SYNCTEX_RESULT_INVALID", "SyncTeX returned no bounded backward location");
 }
@@ -911,7 +913,10 @@ export class CourseTeacherNotesCompiler {
 		command: string | undefined,
 	): BeamerSyncTexArtifact {
 		if (!receipt.succeeded || receipt.exitCode !== 0 || !receipt.pdfHash)
-			throw new TeacherNotesCompilationError("SYNCTEX_UNAVAILABLE", "A successful Beamer receipt is required for SyncTeX");
+			throw new TeacherNotesCompilationError(
+				"SYNCTEX_UNAVAILABLE",
+				"A successful Beamer receipt is required for SyncTeX",
+			);
 		if (!/^sha256:[0-9a-f]{64}$/u.test(receipt.sourceHash))
 			throw new TeacherNotesCompilationError("SOURCE_HASH_MISMATCH", "Beamer receipt has an invalid source hash");
 		if (!bytes)
@@ -985,7 +990,10 @@ export class CourseTeacherNotesCompiler {
 	): Promise<TeacherNotesSyncTexLocation> {
 		const normalizedQuery = assertSyncTexQuery(query);
 		if (!receipt.succeeded)
-			throw new TeacherNotesCompilationError("SYNCTEX_UNAVAILABLE", "This Beamer compilation failed; recompile before using SyncTeX");
+			throw new TeacherNotesCompilationError(
+				"SYNCTEX_UNAVAILABLE",
+				"This Beamer compilation failed; recompile before using SyncTeX",
+			);
 		const deck = requireReceiptDeck(snapshot, receipt);
 		const mapping = this.readSyncTexById(receipt);
 		if (!mapping)

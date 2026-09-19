@@ -7,7 +7,7 @@ import test from "node:test";
 import { compileStudyCellProgram } from "../packages/study-execution-host/src/cell-program.ts";
 import { detectStudyPlatform } from "../packages/study-execution-host/src/platform.ts";
 
-test("deterministic R/Python cell glue preserves literal parameters, input aliases, errors and actual graphics", (t) => {
+test("deterministic R/Python cell glue preserves literal parameters, input aliases, errors and actual graphics", { skip: process.platform !== "win32" }, (t) => {
 	const directory = mkdtempSync(join(tmpdir(), "study-cell-program-"));
 	t.after(() => rmSync(directory, { recursive: true, force: true }));
 	writeFileSync(join(directory, "input-0.csv"), "1,2,4\n");

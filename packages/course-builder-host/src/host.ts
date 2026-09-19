@@ -9,8 +9,8 @@ import { CourseCoverageLedger } from "./coverage.ts";
 import { coursePlanningSettings, semesterPlanningIssue } from "./planning.ts";
 import { CourseTeacherNotesLedger } from "./teacher-notes.ts";
 import {
-	CourseTeacherNotesCompiler,
 	type BeamerSyncTexArtifact,
+	CourseTeacherNotesCompiler,
 	type TeacherNotesCompileOptions,
 } from "./teacher-notes-compilation.ts";
 import type {
@@ -577,7 +577,11 @@ export class CourseBuilderHost {
 		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
 		return this.teacherNotesCompiler.hasSyncTex(snapshot, receiptId);
 	}
-	async locateTeacherNotes(sessionId: string, receiptId: string, query: { line: number } | { page: number; x: number; y: number }) {
+	async locateTeacherNotes(
+		sessionId: string,
+		receiptId: string,
+		query: { line: number } | { page: number; x: number; y: number },
+	) {
 		const snapshot = this.getSnapshotForSession(sessionId);
 		if (!snapshot) throw new CourseBuilderError("PROJECT_BINDING_REQUIRED", "Open the course first");
 		const receipt = this.teacherNotesCompiler.getReceipt(snapshot, receiptId);
@@ -1651,7 +1655,10 @@ export class CourseBuilderHost {
 		const project = this.requireProjectForSession(sessionId);
 		const receipt = this.compileReceipts.get(receiptId);
 		if (!receipt || receipt.projectId !== project.projectId)
-			throw new CourseBuilderError("COMPILE_RECEIPT_NOT_FOUND", "Beamer compile receipt was not found in this project");
+			throw new CourseBuilderError(
+				"COMPILE_RECEIPT_NOT_FOUND",
+				"Beamer compile receipt was not found in this project",
+			);
 		const snapshot = this.snapshot(project.projectId);
 		const pdf = this.getCompiledPdf(sessionId, receiptId);
 		const result = await this.teacherNotesCompiler.locateBeamer(snapshot, receipt, pdf, query);

@@ -142,6 +142,11 @@ test("Study API persists scoped source and additive notes in the original Pi con
   const executionStateResponse = await executionRoute.GET(new Request(`${executionUrl}?sessionId=${sessionId}`, { headers }));
   const executionState = await executionStateResponse.json();
   assert.equal(executionStateResponse.status, 200); assert.deepEqual(executionState.runs, []);
+  if (process.platform !== "win32") {
+    assert.equal(executionState.capacity, null);
+    assert.match(executionState.capacityError, /Windows/i);
+    return;
+  }
   assert.ok(executionState.capacity.defaults.memoryMiB <= executionState.capacity.maximum.memoryMiB);
   const invalidRun = await executionRoute.POST(new Request(executionUrl, { method: "POST", headers, body: JSON.stringify({ action: "run", sessionId,
     expectedPhaseRevision: state.phase.revision, cellId: cell.cellId, expectedCellRevision: 1, requestId: "invalid-resource-request-001", rPackages: [],

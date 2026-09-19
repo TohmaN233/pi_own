@@ -226,7 +226,7 @@ try {
 }
 `;
 
-test("R 4.5.1 runs inside the AppContainer with an attested path adapter", () => {
+test("R 4.5.1 runs inside the AppContainer with an attested path adapter", { skip: process.platform !== "win32" }, () => {
 	const output = execFileSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "--eval", checks], {
 		cwd: new URL("..", import.meta.url),
 		encoding: "utf8",

@@ -485,10 +485,7 @@ export async function compileLatexDocument(options: CompileLatexDocumentOptions)
 				);
 			const candidate = await readFile(join(directory, `${stem}.synctex.gz`));
 			if (candidate.byteLength < 2 || candidate.byteLength > MAX_SYNCTEX_BYTES)
-				throw new BeamerWorkflowError(
-					"LATEX_SYNCTEX_TOO_LARGE",
-					"Compiler SyncTeX output exceeds its byte budget",
-				);
+				throw new BeamerWorkflowError("LATEX_SYNCTEX_TOO_LARGE", "Compiler SyncTeX output exceeds its byte budget");
 			syncTexBytes = new Uint8Array(candidate);
 		} catch (error) {
 			if (!isNodeErrorWithCode(error, "ENOENT")) throw error;
@@ -579,12 +576,10 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 		receipt,
 		artifact: result.pdfBytes
 			? {
-				receiptId,
-				pdfBytes: result.pdfBytes,
-				...(result.succeeded
-					? { syncTexBytes: result.syncTexBytes, syncTexCommand }
-					: {}),
-			}
+					receiptId,
+					pdfBytes: result.pdfBytes,
+					...(result.succeeded ? { syncTexBytes: result.syncTexBytes, syncTexCommand } : {}),
+				}
 			: null,
 		log: result.log,
 	};

@@ -6,8 +6,7 @@ import { startIsolatedWindowsRun, getIsolatedWindowsRunStatus, cancelIsolatedWin
 
 const root = resolve(".artifacts/study-research/execution-progress/native-progress-test");
 
-test("native runner publishes increasing observed usage while the worker is running", async () => {
-	if (process.platform !== "win32") throw new Error("native progress evidence requires Windows");
+test("native runner publishes increasing observed usage while the worker is running", { skip: process.platform !== "win32" }, async () => {
 	await rm(root, { recursive: true, force: true });
 	const source = join(root, "source");
 	await mkdir(source, { recursive: true });

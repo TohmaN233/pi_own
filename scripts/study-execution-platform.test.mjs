@@ -90,7 +90,7 @@ for (const item of cases) {
 console.log(JSON.stringify(observation, null, 2));
 `;
 
-test("Study execution platform reports observed Windows capabilities and does not claim unverified isolation", () => {
+test("Study execution platform reports observed Windows capabilities and does not claim unverified isolation", { skip: process.platform !== "win32" }, () => {
 	const output = execFileSync(
 		process.execPath,
 		["--experimental-strip-types", "--input-type=module", "--eval", platformChecks],

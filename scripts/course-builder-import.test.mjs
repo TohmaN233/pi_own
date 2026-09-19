@@ -34,13 +34,19 @@ test("actual Course Builder web importer preserves UTF-8 source and metadata typ
   assert.equal(Buffer.from(result[0].sourceBytes).toString("utf8"), content);
 });
 
-test("actual importer rejects path traversal, invalid UTF-8, unsupported batches and forged images", async () => {
+test("actual importer rejects unsafe paths and invalid UTF-8 while retaining arbitrary files with truthful metadata", async () => {
   for (const name of ["../notes.md", "sub/notes.md", "sub\\notes.md"]) {
     await assert.rejects(parseCourseBuilderFiles([new File(["test"], name)]), /Unsafe material filename/);
   }
   await assert.rejects(parseCourseBuilderFiles([new File([new Uint8Array([255, 254])], "bad.txt")]));
-  await assert.rejects(parseCourseBuilderFiles([new File(["ok"], "notes.md"), new File(["bad"], "script.exe")]), /Unsupported file type/);
-  await assert.rejects(parseCourseBuilderFiles([new File(["not an image"], "figure.png")]), /Invalid image asset/);
+  const arbitrary = await parseCourseBuilderFiles([new File(["ok"], "notes.md"), new File(["bad"], "script.exe")]);
+  assert.equal(arbitrary[1].kind, "text");
+  assert.equal(arbitrary[1].extractedText, "bad");
+  assert.equal(arbitrary[1].metadata.declaredExtension, ".exe");
+  assert.equal(arbitrary[1].metadata.extraction, "utf-8-sniffed");
+  const forged = await parseCourseBuilderFiles([new File(["not an image"], "figure.png")]);
+  assert.equal(forged[0].kind, "asset");
+  assert.equal(forged[0].metadata.signatureValid, false);
 });
 
 test("actual importer rejects over-budget files before reading their contents", async () => {

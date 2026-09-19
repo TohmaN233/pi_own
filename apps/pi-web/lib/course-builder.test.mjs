@@ -22,9 +22,9 @@ test.after(()=>{
  else process.env.PI_LEARNING_HARNESS_DIR=previousHarnessDirectory;
  rmSync(dir,{recursive:true,force:true});
 });
-test("Course Builder mode resolves physical plugin and fixed guidance without shell tools",async()=>{
+test("Course Builder mode resolves physical plugin, authoring tools and fixed guidance",async()=>{
  const inventory=await inspectModePackInventory(dir);const definition=inventory.builtinPacks["course-builder"];
- assert.ok(definition);assert.deepEqual(definition.tools,[]);
+ assert.ok(definition);assert.deepEqual(definition.tools,["bash","edit","read","write"]);
  const snapshot=resolveModePackSnapshot({pack:definition,courseVersionId:null,catalog:inventory.catalog});
  const plan=buildModePackRuntimePlanFromInventory({snapshot,inventory,definition});
  assert.equal(plan.extensionPaths.length,1);assert.match(plan.extensionPaths[0],/course-builder-extension\.ts$/);
@@ -54,9 +54,10 @@ test("resource verification rejects empty Skill bodies even when their markers s
  assert.equal(result.verified,false,"a Skill name and snapshot hash cannot prove its body was loaded");
 });
 test("Actual extension registers only a dedicated agent surface, with no teacher approval action",async()=>{
- const tools=[];extension({registerTool:tool=>tools.push(tool)});
+ const tools=[],events=[];extension({registerTool:tool=>tools.push(tool),on:(name,handler)=>events.push({name,handler}),appendEntry:()=>{},sendMessage:()=>{}});
  assert.deepEqual(tools.map(t=>t.name),["course_builder"]);
- const ctx={sessionManager:{getSessionId:()=>"test-unbound-session"}};
+ assert.deepEqual(events.map(event=>event.name),["session_start","before_agent_start","input","agent_end","agent_settled"]);
+ const ctx={sessionManager:{getSessionId:()=>"test-unbound-session",getBranch:()=>[]}};
  const result=await tools[0].execute("call",{action:"state"},new AbortController().signal,undefined,ctx);
  assert.equal(JSON.parse(result.content[0].text),null);
  await assert.rejects(tools[0].execute("call",{action:"accept"},undefined,undefined,ctx),/not available/);

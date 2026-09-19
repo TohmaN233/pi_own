@@ -19,7 +19,8 @@ test("Harness admission atomically freezes code, queue identity and exact payloa
 	const scope = { projectId: "p", sessionId: "s", expectedPhaseRevision: 1 };
 	const cell = harness.studyCells.save(scope, { draft: { title: "Average", purpose: "Understand the mean", language: "python", code: "print(2)", parameters: {}, inputs: [] } });
 	const adapter = { kind: "fixture", prepare: async () => { throw new Error("Saving a run must not launch"); }, launch: async () => { throw new Error("must not launch"); }, poll: async () => { throw new Error("must not poll"); }, cancel: async () => { throw new Error("must not cancel"); }, abandonPrepared: async () => { throw new Error("must not clean"); } };
-	const environmentBody = { adapterKind: "fixture", executablePath: process.execPath, files: [{ absolutePath: process.execPath, sha256: contentHash("fixture runtime; no real execution") }] };
+	const fixtureExecutable = "C:\\fixture\\node.exe";
+	const environmentBody = { adapterKind: "fixture", executablePath: fixtureExecutable, files: [{ absolutePath: fixtureExecutable, sha256: contentHash("fixture runtime; no real execution") }] };
 	const input = { cellId: cell.cellId, expectedCellRevision: 1, dispatchKey: "click-1", intentHash: contentHash("complete UI request"), resources: { cpuMilliCores: 500, memoryMiB: 256, wallTimeMs: 10000, diskBytes: 1024 },
 		quota: { maxRuns: 20, maxCumulativeWallTimeMs: 1000000, maxCumulativeDiskBytes: 1000000, expiresAt: null }, environment: { ...environmentBody, descriptorHash: frozenEnvironmentDescriptorHash(environmentBody) },
 		inputs: [], coordinatorOptions: { coordinatorId: "fixture-coordinator", adapters: [adapter], artifactDirectory: join(root, "artifacts") } };

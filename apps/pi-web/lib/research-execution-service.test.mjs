@@ -45,6 +45,11 @@ test("Research browser scope route creates and revokes a bounded user authorizat
 	const plan = { kind: "theory", detail: { question: "Does the browser approve an explicit scope?", assumptions: [], propositions: ["The scope must be explicit."], proofSteps: [], counterexamples: [], openGaps: [] }, sourceVersionHashes: [source.contentHash], sourceReferences: [{ sourceId: source.sourceId, contentHash: source.contentHash }] };
 	await post({ action: "create-plan", expectedPhaseRevision: state.phaseRevision, expectedProjectRevision: state.projectRevision, plan });
 	state = await get(); assert.equal(state.plans.length, 1); const created = state.plans[0];
+	if (process.platform !== "win32") {
+		assert.equal(state.capacity, null);
+		assert.match(state.capacityError, /Windows/i);
+		return;
+	}
 	const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); const resources = state.capacity.defaults;
 	const headerless = await POST(new Request(url, { method: "POST", headers: { host: headers.host, "content-type": "application/json" }, body: JSON.stringify({ action: "grant", sessionId }) }));
 	assert.equal(headerless.status, 403);

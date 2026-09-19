@@ -193,9 +193,10 @@ test("Harness saves only a real cancelled Research run and retains its exact fro
 		quota: { maxRuns: 1, maxCumulativeWallTimeMs: resources.wallTimeMs, maxCumulativeDiskBytes: resources.diskBytes, expiresAt },
 		changeBoundary: "No execution after cancellation.",
 	});
+	const fixtureExecutable = "C:\\fixture\\results-runner.exe";
 	const environmentBody = {
-		adapterKind: "results-cancel-fixture", executablePath: process.execPath,
-		files: [{ absolutePath: process.execPath, sha256: contentHash("results fixture runtime") }],
+		adapterKind: "results-cancel-fixture", executablePath: fixtureExecutable,
+		files: [{ absolutePath: fixtureExecutable, sha256: contentHash("results fixture runtime") }],
 	};
 	const never = async () => { throw new Error("cancelled fixture must never launch"); };
 	const admitted = harness.admitStudyCellExecution(scope(), {

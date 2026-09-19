@@ -17,8 +17,9 @@ function adapter() {
 }
 
 function environment() {
-	const body = { adapterKind: "research-admission-fixture", executablePath: process.execPath,
-		files: [{ absolutePath: process.execPath, sha256: contentHash("research fixture runtime") }] };
+	const executablePath = "C:\\fixture\\research-runner.exe";
+	const body = { adapterKind: "research-admission-fixture", executablePath,
+		files: [{ absolutePath: executablePath, sha256: contentHash("research fixture runtime") }] };
 	return { ...body, descriptorHash: frozenEnvironmentDescriptorHash(body) };
 }
 

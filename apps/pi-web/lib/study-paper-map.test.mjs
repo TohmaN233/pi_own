@@ -137,7 +137,7 @@ test("paper-map reductions preserve report hashes, explicit partial coverage, an
     database.close();
     if (oldHarnessDirectory === undefined) delete process.env.PI_LEARNING_HARNESS_DIR;
     else process.env.PI_LEARNING_HARNESS_DIR = oldHarnessDirectory;
-    assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + "\\pi-paper-map-"));
+    assert.ok(resolve(directory).startsWith(join(resolve(tmpdir()), "pi-paper-map-")));
     rmSync(directory, { recursive: true, force: true });
   }
 });
@@ -146,7 +146,7 @@ test("versioned paper-map packet accepts only the exact five-section faux report
   const directory = mkdtempSync(join(tmpdir(), "pi-paper-map-agent-"));
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("The paper-map protocol fixture has no network or paid provider"); };
-  t.after(() => { globalThis.fetch = oldFetch; assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + "\\pi-paper-map-agent-")); rmSync(directory, { recursive: true, force: true }); });
+  t.after(() => { globalThis.fetch = oldFetch; assert.ok(resolve(directory).startsWith(join(resolve(tmpdir()), "pi-paper-map-agent-"))); rmSync(directory, { recursive: true, force: true }); });
   const faux = createFauxCore({}), credentials = AuthStorage.inMemory();
   await credentials.modify("faux", async () => ({ type: "api_key", key: "offline" }));
   const runtime = await ModelRuntime.create({ credentials, modelsPath: join(directory, "models.json"), allowModelNetwork: false });
