@@ -2904,12 +2904,12 @@ async function generateModels() {
 		}
 	}
 
-	// Subscription providers are first-party surfaces whose stable model IDs may
-	// disappear temporarily from models.dev. Merge the small reviewed catalog
-	// only for missing IDs; live data remains authoritative for every model it
-	// supplies. Fail loudly if the checked-in contract is absent or malformed.
-	const fallbackPath = join(packageRoot, "scripts/subscription-model-fallbacks.json");
-	if (!existsSync(fallbackPath)) throw new Error("The checked-in subscription model fallback catalog is missing");
+	// Stable model IDs referenced by repository code can disappear temporarily
+	// from live provider catalogs. Merge the small reviewed contract only for
+	// missing IDs; live data remains authoritative for every model it supplies.
+	// Fail loudly if the checked-in contract is absent or malformed.
+	const fallbackPath = join(packageRoot, "scripts/model-contract-fallbacks.json");
+	if (!existsSync(fallbackPath)) throw new Error("The checked-in model contract fallback catalog is missing");
 	const fallbackCatalog = JSON.parse(readFileSync(fallbackPath, "utf8")) as Record<
 		string,
 		Record<string, Record<string, Model<Api>>>
@@ -2917,12 +2917,12 @@ async function generateModels() {
 	for (const [providerId, grouped] of Object.entries(fallbackCatalog)) {
 		const fallback = Object.assign({}, ...Object.values(grouped));
 		if (!Object.keys(fallback).length || Object.values(fallback).some((model) => model.provider !== providerId)) {
-			throw new Error(`The checked-in subscription model fallback for ${providerId} is invalid`);
+			throw new Error(`The checked-in model contract fallback for ${providerId} is invalid`);
 		}
 		providers[providerId] ??= {};
 		const missing = Object.values(fallback).filter((model) => !providers[providerId][model.id]);
 		for (const model of missing) providers[providerId][model.id] = model;
-		if (missing.length) console.warn(`[models] preserving ${missing.length} checked-in ${providerId} subscription models omitted upstream`);
+		if (missing.length) console.warn(`[models] preserving ${missing.length} checked-in ${providerId} contract models omitted upstream`);
 	}
 
 	const sortedProviderIds = Object.keys(providers).sort();
