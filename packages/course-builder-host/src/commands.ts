@@ -30,6 +30,7 @@ export const COURSE_BUILDER_ACTIONS = [
 	"review_deck",
 	"visual_templates",
 	"visual",
+	"interactive_visual",
 ] as const;
 export interface CourseBuilderCommand {
 	action: string;
@@ -47,6 +48,11 @@ function required(value: unknown): string {
 	if (typeof value !== "string" || !value.trim() || value.length > 256)
 		throw new CourseBuilderError("INVALID_ID", "A target id is required");
 	return value;
+}
+function objectValue(value: unknown, label: string): Record<string, unknown> {
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		throw new CourseBuilderError("INVALID_INPUT", `${label} must be an object`);
+	return value as Record<string, unknown>;
 }
 function revision(value: unknown): number {
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
@@ -230,7 +236,7 @@ export function courseBuilderView(host: CourseBuilderHost, sessionId: string) {
 			}),
 		})),
 		decks: s.decks.map(({ source: _source, ...d }) => d),
-		visuals: s.visuals.map(({ artifact, spec: _spec, ...v }) => ({ ...v, artifactId: artifact.artifactId })),
+		visuals: s.visuals.map(({ artifact, spec: _spec, ...v }) => ({ ...v, artifactId: artifact?.artifactId ?? null })),
 	};
 }
 
@@ -261,6 +267,12 @@ export async function runCourseBuilderCommand(
 		readAttachment?: (id: string) => Promise<string>;
 		importGeneratedAsset?: (spec: unknown, expectedProjectRevision: number) => Promise<unknown>;
 		addMaterial?: (spec: unknown, expectedProjectRevision: number) => Promise<unknown>;
+		validateInteractiveVisual?: (material: ReturnType<CourseBuilderHost["getMaterial"]>) => Promise<{
+			title: string;
+			sourceHash: string;
+			hasControls: boolean;
+			hasLiveGraphic: boolean;
+		}>;
 	} = {},
 ): Promise<unknown> {
 	if (!COURSE_BUILDER_ACTIONS.some((a) => a === command.action))
@@ -609,5 +621,21 @@ export async function runCourseBuilderCommand(
 				command.spec,
 				typeof command.purpose === "string" ? command.purpose : "",
 			);
+		case "interactive_visual": {
+			if (!options.validateInteractiveVisual)
+				throw new CourseBuilderError("VISUAL_VALIDATOR_REQUIRED", "Standalone interactive HTML validator unavailable");
+			const spec = objectValue(command.spec, "interactive visual spec");
+			const materialId = required(spec.materialId);
+			const material = host.getMaterial(sessionId, materialId);
+			const validation = await options.validateInteractiveVisual(material);
+			await options.assertActive?.();
+			return host.createInteractiveVisual(
+				sessionId,
+				required(command.id),
+				{ materialId, title: typeof spec.title === "string" && spec.title.trim() ? spec.title : validation.title },
+				typeof command.purpose === "string" ? command.purpose : "",
+				validation,
+			);
+		}
 	}
 }

@@ -356,6 +356,42 @@ test('PR #7: model command surface cannot approve, accept or smuggle private sou
  f.db.close();
 });
 
+test('standalone interactive HTML is a first-class lesson visualization', async () => {
+ const f=planned();
+ try {
+  const [page]=f.host.importMaterials('teacher',[{
+   name:'lcg-explorer.html',kind:'text',sourceBytes:Buffer.from('linked HTML marker'),extractedText:'',
+   metadata:{storage:'local-link',materialScope:'course',sourceRoot:'/teacher-selected',sourcePath:'/teacher-selected/lcg-explorer.html',relativePath:'lcg-explorer.html',sourceSize:123,modifiedAtMs:1},
+  }],2);
+  const visual=await runCourseBuilderCommand(f.host,'teacher',{
+   action:'interactive_visual',id:f.lesson.lessonPlanId,purpose:'Manipulate the LCG parameters and explain the lattice pattern',
+   spec:{materialId:page.materialId,title:'LCG Explorer'},
+  },{validateInteractiveVisual:async()=>({title:'LCG Explorer',sourceHash:'sha256:fixture',hasControls:true,hasLiveGraphic:true})});
+  assert.equal(visual.format,'interactive-html');
+  assert.equal(visual.materialId,page.materialId);
+  assert.equal(visual.lessonPlanId,f.lesson.lessonPlanId);
+  assert.equal(visual.title,'LCG Explorer');
+  assert.equal(visual.artifact,null);
+  assert.equal(f.host.getSnapshotForSession('teacher').visuals.at(-1).visualId,visual.visualId);
+  const reopened=new CourseBuilderHost(f.db);
+  assert.equal(reopened.getSnapshotForSession('teacher').visuals.at(-1).materialId,page.materialId);
+ } finally {f.db.close();}
+});
+
+test('restart accepts contiguous revision history after approved-version cleanup prunes its prefix', () => {
+ const f=planned();
+ try {
+  const current=f.host.saveLessonPlan('teacher',lessonDraft(f.material.materialId),1,1);
+  const row=f.db.prepare('SELECT value FROM course_builder_state').get();
+  const state=JSON.parse(row.value);
+  state.lessonPlans=state.lessonPlans.filter(item=>item.lessonPlanId!==current.lessonPlanId || item.revision===current.revision);
+  state.decks=[];state.compileReceipts=[];state.deckReviews=[];
+  f.db.prepare('UPDATE course_builder_state SET value=?').run(JSON.stringify(state));
+  const reopened=new CourseBuilderHost(f.db);
+  assert.deepEqual(reopened.getSnapshotForSession('teacher').lessonPlans.map(item=>item.revision),[2]);
+ } finally {f.db.close();}
+});
+
 test('PR #7: real composition root owns one shared SQLite connection and restores builder', async()=>{
  const {LearningHarness}=await import('../packages/learning-harness/src/index.ts');
  const harness=new LearningHarness({databasePath:':memory:'});

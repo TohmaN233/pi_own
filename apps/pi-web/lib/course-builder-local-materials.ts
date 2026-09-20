@@ -93,6 +93,11 @@ function linkedSource(material: CourseBuilderMaterialInput | CourseBuilderMateri
 }
 
 export async function readLinkedCourseBuilderMaterial(material: CourseBuilderMaterialInput | CourseBuilderMaterial): Promise<string> {
+	const bytes = await readLinkedCourseBuilderMaterialBytes(material);
+	return (await extractCourseBuilderMaterial(bytes, material.name)).extractedText;
+}
+
+export async function readLinkedCourseBuilderMaterialBytes(material: CourseBuilderMaterialInput | CourseBuilderMaterial): Promise<Uint8Array> {
 	const source = linkedSource(material);
 	let root: string, filePath: string;
 	try { [root, filePath] = await Promise.all([realpath(source.root), realpath(source.path)]); }
@@ -105,8 +110,7 @@ export async function readLinkedCourseBuilderMaterial(material: CourseBuilderMat
 	if (!current.isFile()) throw new Error(`Linked material is no longer a file: ${material.name}`);
 	if (current.size !== source.size || Math.trunc(current.mtimeMs) !== source.modifiedAtMs) throw new Error(`Linked material changed on disk; relink the folder before using it: ${material.name}`);
 	if (current.size > MAX_ON_DEMAND_BYTES) throw new Error(`Linked material exceeds the 64 MiB on-demand read budget: ${material.name}`);
-	const bytes = new Uint8Array(await readFile(filePath));
-	return (await extractCourseBuilderMaterial(bytes, material.name)).extractedText;
+	return new Uint8Array(await readFile(filePath));
 }
 
 /** Metadata-only availability check; never fills the model context with file bodies. */

@@ -1,6 +1,6 @@
 # ADR 0001: Keep Pi native and add a deterministic Harness control plane
 
-- Status: Accepted for V1 implementation
+- Status: Accepted for V1 implementation; amended 2026-09-20
 - Date: 2026-08-29
 - Plan: `docs/PI_LEARNING_HARNESS_DETAILED_PLAN_V001.md`
 
@@ -34,7 +34,7 @@ Each authoritative state family has one writer. Other modules request changes th
 - Resource/profile changes resolve to immutable snapshots.
 - Student answer gating is enforced by Host capability checks, not prompt wording.
 - Course material is data, never executable system instruction.
-- Visual output is derived from a structured spec through fixed renderers and a sandbox.
+- Visual output has two explicit contracts. Fixed-renderer visuals are derived from structured specs. Teacher-authored standalone interactive visuals must be linked course-material HTML, validated before registration and again before serving, and run under a network-denying Content Security Policy.
 - Harness JSONL entries are metadata references only; Pi JSONL remains the transcript source of truth.
 - Contract parsing fails closed on unsupported versions and unknown fields.
 

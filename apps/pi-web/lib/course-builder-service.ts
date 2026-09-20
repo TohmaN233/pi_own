@@ -3,6 +3,7 @@ import { courseBuilderView, parseCourseBuilderProjectInput, runCourseBuilderComm
 import { isDeepStrictEqual } from "node:util";
 import { createPersistedGenericSession } from "./rpc-manager";
 import { readLinkedCourseBuilderMaterial, inspectLinkedCourseBuilderMaterial } from "./course-builder-local-materials";
+import { readValidatedInteractiveVisual, validateLinkedInteractiveVisual } from "./course-builder-interactive-visual";
 import { readChatAttachment } from "./chat-attachments";
 import { readSessionHeader, resolveSessionPath } from "./session-reader";
 import { listAllSessions } from "./session-reader";
@@ -71,7 +72,7 @@ export async function courseBuilderCommand(sessionId: string, command: CourseBui
  const sessionCwd = async () => {
   return courseBuilderSessionCwd(sessionId);
  };
- const result = await runCourseBuilderCommand(getCourseBuilderHost(),sessionId,command,{trustedTex:process.env.PI_COURSE_BUILDER_TRUSTED_TEX==="1",assertActive,readLinkedMaterial:readLinkedCourseBuilderMaterial,addMaterial:(spec,revision)=>addCourseMaterial(getCourseBuilderHost(),sessionId,spec,revision,assertActive),importGeneratedAsset:async(spec,expectedRevision)=>importCourseGeneratedAsset(getCourseBuilderHost(),sessionId,await sessionCwd(),spec,expectedRevision,assertActive),readAttachment:async(id)=>{
+ const result = await runCourseBuilderCommand(getCourseBuilderHost(),sessionId,command,{trustedTex:process.env.PI_COURSE_BUILDER_TRUSTED_TEX==="1",assertActive,readLinkedMaterial:readLinkedCourseBuilderMaterial,validateInteractiveVisual:validateLinkedInteractiveVisual,addMaterial:(spec,revision)=>addCourseMaterial(getCourseBuilderHost(),sessionId,spec,revision,assertActive),importGeneratedAsset:async(spec,expectedRevision)=>importCourseGeneratedAsset(getCourseBuilderHost(),sessionId,await sessionCwd(),spec,expectedRevision,assertActive),readAttachment:async(id)=>{
   const path=await resolveSessionPath(sessionId), header=path ? readSessionHeader(path) : null;
   if(!header)throw new Error("Attachment conversation unavailable");
   return readChatAttachment(header.cwd,id,{sessionId,assignmentId:getCourseBuilderHost().getAgentAssignmentScope(sessionId)});
@@ -96,4 +97,14 @@ export async function courseBuilderCommand(sessionId: string, command: CourseBui
   return {...result as object, workspace:{cwd,materialAvailability,materialDirectories:courseMaterialRoots(getCourseBuilderHost(),sessionId),addMaterialAction:"add_material",outputDirectory:join(cwd,".pi","course-builder",project.projectId),generatedAssetAction:"import_generated_asset"}};
  }
  return result;
+}
+
+export async function courseBuilderInteractiveVisual(sessionId: string, visualId: string) {
+	assertCourseBuilderSession(sessionId);
+	const host=getCourseBuilderHost(), visual=host.getSnapshotForSession(sessionId)?.visuals.find(item=>item.visualId===visualId);
+	if (!visual || visual.format!=="interactive-html" || !visual.materialId || !visual.validation) throw new Error("Interactive visualization is unavailable in this course");
+	const material=host.getMaterial(sessionId,visual.materialId);
+	const result=await readValidatedInteractiveVisual(material,visual.validation.sourceHash);
+	console.info("[course-builder] served interactive visualization",{sessionId,visualId,materialId:material.materialId,sourceHash:result.validation.sourceHash});
+	return result.bytes;
 }

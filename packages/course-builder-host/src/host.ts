@@ -1589,12 +1589,64 @@ export class CourseBuilderHost {
 		const base = {
 			projectId: project.projectId,
 			lessonPlanId,
+			format: "fixed-renderer" as const,
+			title: spec.title,
 			spec,
 			artifact: published,
+			materialId: null,
 			learningPurpose: purpose,
 			createdAt,
 		};
 		const identified = { visualId: deterministicId("course-builder-visual", base, 40), ...base };
+		const visual: CourseBuilderVisual = { ...identified, contentHash: contentHash(identified) };
+		this.mutate(() => this.visuals.set(visual.visualId, visual));
+		return clone(visual);
+	}
+
+	createInteractiveVisual(
+		sessionId: string,
+		lessonPlanId: string,
+		specValue: unknown,
+		learningPurpose: string,
+		validationValue: unknown,
+		createdAt = new Date().toISOString(),
+	): CourseBuilderVisual {
+		this.refresh();
+		const project = this.requireProjectForSession(sessionId);
+		const lesson = this.currentLessonPlan(lessonPlanId);
+		if (!lesson || lesson.projectId !== project.projectId)
+			throw new CourseBuilderError("LESSON_PLAN_NOT_FOUND", "Interactive visual Lesson Plan was not found");
+		const spec = requireRecord(specValue, "interactiveVisual");
+		const materialId = stringValue(spec.materialId, "interactiveVisual.materialId", 256);
+		const title = stringValue(spec.title, "interactiveVisual.title", 500);
+		const material = this.materials.get(materialId);
+		if (!material || material.projectId !== project.projectId || assignmentScopeId(material) !== null)
+			throw new CourseBuilderError("MATERIAL_SCOPE_MISMATCH", "Interactive visual must use a course material in this project");
+		if (material.metadata.storage !== "local-link" || !/\.html?$/iu.test(material.name))
+			throw new CourseBuilderError("INVALID_INTERACTIVE_VISUAL", "Interactive visual must be a linked .html file in a selected course material folder");
+		const checked = requireRecord(validationValue, "interactiveVisual.validation");
+		const validation = {
+			sourceHash: stringValue(checked.sourceHash, "interactiveVisual.validation.sourceHash", 256),
+			hasControls: checked.hasControls === true,
+			hasLiveGraphic: checked.hasLiveGraphic === true,
+		};
+		if (!validation.hasControls || !validation.hasLiveGraphic)
+			throw new CourseBuilderError("INVALID_INTERACTIVE_VISUAL", "Interactive visual requires controls and a live Canvas or SVG graphic");
+		const purpose = stringValue(learningPurpose, "learningPurpose", 10_000);
+		timestamp(createdAt, "createdAt");
+		const base = {
+			projectId: project.projectId,
+			lessonPlanId,
+			format: "interactive-html" as const,
+			title,
+			spec: null,
+			artifact: null,
+			materialId,
+			validation,
+			learningPurpose: purpose,
+			createdAt,
+		};
+		const identified = { visualId: deterministicId("course-builder-interactive-visual", base, 40), ...base };
 		const visual: CourseBuilderVisual = { ...identified, contentHash: contentHash(identified) };
 		this.mutate(() => this.visuals.set(visual.visualId, visual));
 		return clone(visual);
@@ -2290,9 +2342,12 @@ export class CourseBuilderHost {
 				)
 					throw new CourseBuilderError("CORRUPT_STATE", "Course planning history crossed a material scope");
 			}
-			for (const history of revisions.values())
-				if (history.sort((a, b) => a - b).some((n, i) => n !== i + 1))
+			for (const history of revisions.values()) {
+				const ordered = history.sort((a, b) => a - b);
+				const first = ordered[0] ?? 0;
+				if (first < 1 || ordered.some((n, i) => n !== first + i))
 					throw new CourseBuilderError("CORRUPT_STATE", "Broken revision sequence");
+			}
 		}
 		for (const lesson of result.lessonPlans)
 			if (

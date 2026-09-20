@@ -112,7 +112,7 @@ export function mergeDeliveryTarget(current: DeliveryTarget | undefined, next: D
 }
 
 export function deliveryWriteKind(action: string): DeliveryKind | undefined {
-  return ({ save_semester: "semester", save_lesson: "lesson", save_deck: "deck", patch_deck: "deck", save_assignment: "assignment", visual: "visual", add_material:"materials",save_teacher_notes:"teacher-notes",patch_teacher_notes:"teacher-notes" } as Record<string, DeliveryKind>)[action];
+  return ({ save_semester: "semester", save_lesson: "lesson", save_deck: "deck", patch_deck: "deck", save_assignment: "assignment", visual: "visual", interactive_visual:"visual", add_material:"materials",save_teacher_notes:"teacher-notes",patch_teacher_notes:"teacher-notes" } as Record<string, DeliveryKind>)[action];
 }
 
 /** Validate/inject identity before a write. Revision guards remain caller-observed. */
@@ -147,7 +147,7 @@ export function prepareDeliveryCommand(snapshot: DeliverySnapshot, target: Deliv
     selector = { kind, week: draft.week as number | undefined ?? target.week, session: draft.session as number | undefined ?? target.session };
   } else if (command.action === "save_deck" && draft) {
     selector = { kind, lessonPlanId: draft.lessonPlanId as string | undefined ?? target.lessonPlanId };
-  } else if (command.action === "visual") {
+  } else if (command.action === "visual" || command.action === "interactive_visual") {
     selector = { kind, lessonPlanId: command.id ?? target.lessonPlanId };
   } else if (command.action === "save_assignment") {
     selector = { kind, id: command.assignmentId ?? target.id };
@@ -160,6 +160,6 @@ export function prepareDeliveryCommand(snapshot: DeliverySnapshot, target: Deliv
   if (command.action === "save_deck" && draft) next.draft = { ...draft, lessonPlanId: resolved.lessonPlanId };
   if (command.action === "patch_deck") next.id = resolved.id;
   if (command.action === "save_assignment") next.assignmentId = resolved.id;
-  if (command.action === "visual") next.id = resolved.lessonPlanId;
+  if (command.action === "visual" || command.action === "interactive_visual") next.id = resolved.lessonPlanId;
   return { target: resolved, command: next };
 }

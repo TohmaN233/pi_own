@@ -226,8 +226,17 @@ export interface CourseBuilderVisual {
 	visualId: string;
 	projectId: string;
 	lessonPlanId: string;
-	spec: VisualizationSpec;
-	artifact: VisualArtifact;
+	/** Old persisted visuals have no format and are treated as fixed-renderer. */
+	format?: "fixed-renderer" | "interactive-html";
+	title?: string;
+	spec: VisualizationSpec | null;
+	artifact: VisualArtifact | null;
+	materialId?: string | null;
+	validation?: {
+		sourceHash: string;
+		hasControls: boolean;
+		hasLiveGraphic: boolean;
+	};
 	learningPurpose: string;
 	createdAt: string;
 	contentHash: string;

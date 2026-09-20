@@ -62,3 +62,9 @@ test("Course Builder removes the decorative workflow strip and lazily renders hi
 		assert.match(page, new RegExp(`label=["']${label}["']`, "u"));
 	}
 });
+
+test("teaching visualizations expose standalone interactive pages", () => {
+	assert.match(page, /独立交互网页/u);
+	assert.match(page, /visual\.format === "interactive-html"/u);
+	assert.match(page, /打开交互网页/u);
+});

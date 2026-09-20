@@ -158,7 +158,7 @@ function PageFrame({ sessionId, semesterRevision, navigation, children }: { sess
 		<main className={styles.page} onClick={(event) => {
 			if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 			const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-			if (!link || link.hasAttribute("download") || link.closest('[aria-label="文件预览"]')) return;
+			if (!link || link.hasAttribute("download") || link.hasAttribute("data-standalone-visual") || link.closest('[aria-label="文件预览"]')) return;
 			const target = resolveCourseArtifactPreview(link.getAttribute("href")!, sessionId, window.location.origin);
 			if (target) { event.preventDefault(); setPreview(target); }
 		}}>
@@ -786,8 +786,8 @@ function Workspace({ sessionId: sid }: { sessionId: string }) {
 								}} />
 								<div className={styles.outputArticle} id="visuals" tabIndex={-1}>
 									<h4>教学可视化</h4>
-									<p className={styles.sectionIntro}>可视化由固定渲染器生成，不会自动塞进课件。请打开检查标签、比例、边界情况和学习目标。</p>
-									{state.visuals.length > 0 ? <ProgressiveList items={state.visuals} label="可视化" unit="个" className={styles.visualList} getKey={(visual) => visual.visualId} searchText={(visual) => visual.learningPurpose} renderItem={(visual) => <div className={styles.visualItem}><p>{visual.learningPurpose}</p><a className={styles.downloadLink} href={download("visual", visual.visualId)} target="_blank" rel="noreferrer">打开可视化</a></div>} /> : <div className={styles.emptyState}>还没有单独生成的可视化。可在上方修订框说明“学生操作什么、观察什么、由此理解什么”。</div>}
+									<p className={styles.sectionIntro}>课堂用可视化应生成保存在课程素材目录里的独立交互网页：有真实控件，参数变化时实时重画，并可单独开一页上课使用。固定渲染器仅保留给明确需要的静态、确定性图示。</p>
+									{state.visuals.length > 0 ? <ProgressiveList items={state.visuals} label="可视化" unit="个" className={styles.visualList} getKey={(visual) => visual.visualId} searchText={(visual) => `${visual.title ?? ""} ${visual.learningPurpose}`} renderItem={(visual) => <div className={styles.visualItem}><p><strong>{visual.title ?? "教学可视化"}</strong>{visual.format === "interactive-html" && " · 独立交互网页"}</p><p>{visual.learningPurpose}</p><a className={styles.downloadLink} href={download("visual", visual.visualId)} target="_blank" rel="noreferrer" {...(visual.format === "interactive-html" ? {"data-standalone-visual": true} : {})}>{visual.format === "interactive-html" ? "打开交互网页" : "打开固定图示"}</a></div>} /> : <div className={styles.emptyState}>还没有单独生成的可视化。可在上方额外要求里说明“学生操作什么、实时观察哪张图、由此理解什么”，再让 Agent 生成独立 HTML。</div>}
 									<JsonView label="查看可视化规格与生成记录" value={state.visuals}/>
 								</div>
 							</section>
