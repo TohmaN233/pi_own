@@ -623,7 +623,10 @@ export async function runCourseBuilderCommand(
 			);
 		case "interactive_visual": {
 			if (!options.validateInteractiveVisual)
-				throw new CourseBuilderError("VISUAL_VALIDATOR_REQUIRED", "Standalone interactive HTML validator unavailable");
+				throw new CourseBuilderError(
+					"VISUAL_VALIDATOR_REQUIRED",
+					"Standalone interactive HTML validator unavailable",
+				);
 			const spec = objectValue(command.spec, "interactive visual spec");
 			const materialId = required(spec.materialId);
 			const material = host.getMaterial(sessionId, materialId);

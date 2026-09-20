@@ -1621,9 +1621,15 @@ export class CourseBuilderHost {
 		const title = stringValue(spec.title, "interactiveVisual.title", 500);
 		const material = this.materials.get(materialId);
 		if (!material || material.projectId !== project.projectId || assignmentScopeId(material) !== null)
-			throw new CourseBuilderError("MATERIAL_SCOPE_MISMATCH", "Interactive visual must use a course material in this project");
+			throw new CourseBuilderError(
+				"MATERIAL_SCOPE_MISMATCH",
+				"Interactive visual must use a course material in this project",
+			);
 		if (material.metadata.storage !== "local-link" || !/\.html?$/iu.test(material.name))
-			throw new CourseBuilderError("INVALID_INTERACTIVE_VISUAL", "Interactive visual must be a linked .html file in a selected course material folder");
+			throw new CourseBuilderError(
+				"INVALID_INTERACTIVE_VISUAL",
+				"Interactive visual must be a linked .html file in a selected course material folder",
+			);
 		const checked = requireRecord(validationValue, "interactiveVisual.validation");
 		const validation = {
 			sourceHash: stringValue(checked.sourceHash, "interactiveVisual.validation.sourceHash", 256),
@@ -1631,7 +1637,10 @@ export class CourseBuilderHost {
 			hasLiveGraphic: checked.hasLiveGraphic === true,
 		};
 		if (!validation.hasControls || !validation.hasLiveGraphic)
-			throw new CourseBuilderError("INVALID_INTERACTIVE_VISUAL", "Interactive visual requires controls and a live Canvas or SVG graphic");
+			throw new CourseBuilderError(
+				"INVALID_INTERACTIVE_VISUAL",
+				"Interactive visual requires controls and a live Canvas or SVG graphic",
+			);
 		const purpose = stringValue(learningPurpose, "learningPurpose", 10_000);
 		timestamp(createdAt, "createdAt");
 		const base = {
