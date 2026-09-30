@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getModel } from "../src/compat.ts";
+import { getModel, getModels } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 
 const originalTogetherApiKey = process.env.TOGETHER_API_KEY;
@@ -13,33 +13,21 @@ afterEach(() => {
 });
 
 describe("Together models", () => {
-	it("registers the default Kimi K2.6 model via OpenAI-compatible Chat Completions API", () => {
-		const model = getModel("together", "moonshotai/Kimi-K2.6");
-
-		expect(model).toBeDefined();
-		expect(model.api).toBe("openai-completions");
-		expect(model.provider).toBe("together");
-		expect(model.baseUrl).toBe("https://api.together.ai/v1");
-		expect(model.reasoning).toBe(true);
-		expect(model.thinkingLevelMap).toEqual({ minimal: null, low: null, medium: null });
-		expect(model.input).toEqual(["text", "image"]);
-		expect(model.contextWindow).toBe(262144);
-		expect(model.maxTokens).toBe(131000);
-		expect(model.cost).toEqual({
-			input: 1.2,
-			output: 4.5,
-			cacheRead: 0.2,
-			cacheWrite: 0,
-		});
-		expect(model.compat).toEqual({
-			supportsStore: false,
-			supportsDeveloperRole: false,
-			supportsReasoningEffort: false,
-			maxTokensField: "max_tokens",
-			thinkingFormat: "together",
-			supportsStrictMode: false,
-			supportsLongCacheRetention: false,
-		});
+	it("registers the current catalog via OpenAI-compatible Chat Completions API", () => {
+		const models = getModels("together");
+		expect(models.length).toBeGreaterThan(0);
+		for (const model of models) {
+			expect(model.api).toBe("openai-completions");
+			expect(model.provider).toBe("together");
+			expect(model.baseUrl).toBe("https://api.together.ai/v1");
+			expect(model.compat).toMatchObject({
+				supportsStore: false,
+				supportsDeveloperRole: false,
+				maxTokensField: "max_tokens",
+				supportsStrictMode: false,
+				supportsLongCacheRetention: false,
+			});
+		}
 	});
 
 	it("models Together reasoning controls from the Together API surface", () => {

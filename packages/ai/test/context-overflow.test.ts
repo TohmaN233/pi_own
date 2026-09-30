@@ -1,3 +1,4 @@
+import { getTogetherTestModel } from "./together-test-model.ts";
 /**
  * Test context overflow error handling across providers.
  *
@@ -338,8 +339,8 @@ describe("Context overflow error handling", () => {
 	// =============================================================================
 
 	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI", () => {
-		it("Kimi-K2.6 - should detect overflow via isContextOverflow", async () => {
-			const model = getModel("together", "moonshotai/Kimi-K2.6");
+		it("current reasoning/vision model - should detect overflow via isContextOverflow", async () => {
+			const model = getTogetherTestModel();
 			const result = await testContextOverflow(model, process.env.TOGETHER_API_KEY!);
 			logResult(result);
 

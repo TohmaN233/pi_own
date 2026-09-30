@@ -3,9 +3,11 @@ import type { AddressInfo } from "node:net";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
-import { getModel, streamSimple } from "../src/compat.ts";
+import { getModel, getModels, streamSimple } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
+import { hasApi } from "../src/models.ts";
 import type { Context, Model, Tool } from "../src/types.ts";
+import { historicalFireworksGlm, historicalFireworksKimi } from "./historical-models.ts";
 
 const originalFireworksApiKey = process.env.FIREWORKS_API_KEY;
 
@@ -18,39 +20,49 @@ afterEach(() => {
 });
 
 describe("Fireworks models", () => {
-	it("registers the default Kimi K2.6 model via Anthropic-compatible Messages API", () => {
-		const model = getModel("fireworks", "accounts/fireworks/models/kimi-k2p6");
-
-		expect(model).toBeDefined();
-		expect(model.api).toBe("anthropic-messages");
-		expect(model.provider).toBe("fireworks");
-		expect(model.baseUrl).toBe("https://api.fireworks.ai/inference");
-		expect(model.reasoning).toBe(true);
-		expect(model.input).toEqual(["text", "image"]);
-		expect(model.contextWindow).toBe(262000);
-		expect(model.maxTokens).toBe(262000);
-		expect(model.cost).toEqual({
-			input: 0.95,
-			output: 4,
-			cacheRead: 0.16,
-			cacheWrite: 0,
-		});
+	it("registers current models with the endpoint for their API", () => {
+		const models = getModels("fireworks");
+		expect(models.length).toBeGreaterThan(0);
+		for (const model of models) {
+			expect(model.provider).toBe("fireworks");
+			expect(["anthropic-messages", "openai-completions"]).toContain(model.api);
+			expect(model.baseUrl).toBe(
+				model.api === "anthropic-messages"
+					? "https://api.fireworks.ai/inference"
+					: "https://api.fireworks.ai/inference/v1",
+			);
+		}
 	});
 
-	it("aligns GLM 5.2 Fast with GLM 5.2's OpenAI-compatible config", () => {
-		const base = getModel("fireworks", "accounts/fireworks/models/glm-5p2");
-		const fast = getModel("fireworks", "accounts/fireworks/routers/glm-5p2-fast");
-
-		expect(fast.api).toBe(base.api);
-		expect(fast.baseUrl).toBe(base.baseUrl);
-		expect(fast.compat).toEqual(base.compat);
-		expect(fast.thinkingLevelMap).toEqual(base.thinkingLevelMap);
+	it("serializes historical GLM 5.2 and Fast with the same OpenAI-compatible controls", async () => {
+		const base = historicalFireworksGlm["accounts/fireworks/models/glm-5p2"];
+		const fast = historicalFireworksGlm["accounts/fireworks/routers/glm-5p2-fast"];
+		const payloads: Record<string, unknown>[] = [];
+		for (const model of [base, fast]) {
+			await streamSimple(
+				model,
+				{ messages: [{ role: "user", content: "test", timestamp: 0 }] },
+				{
+					apiKey: "test-fireworks-key",
+					reasoning: "max",
+					onPayload: (payload) => {
+						payloads.push(payload as Record<string, unknown>);
+						throw new Error("payload captured");
+					},
+				},
+			).result();
+		}
+		expect(payloads).toHaveLength(2);
+		const { model: _baseId, ...basePayload } = payloads[0];
+		const { model: _fastId, ...fastPayload } = payloads[1];
+		expect(fastPayload).toEqual(basePayload);
+		expect(basePayload.reasoning_effort).toBe("max");
 	});
 
 	it.each(["accounts/fireworks/models/glm-5p2", "accounts/fireworks/routers/glm-5p2-fast"] as const)(
 		"omits unsupported long cache retention for %s",
 		async (modelId) => {
-			const model = getModel("fireworks", modelId);
+			const model = historicalFireworksGlm[modelId];
 			let payload: Record<string, unknown> | undefined;
 			const response = streamSimple(
 				model,
@@ -129,13 +141,15 @@ describe("Fireworks models", () => {
 	});
 
 	it("sets Fireworks-specific compat for session affinity and unsupported tool fields", () => {
-		const model = getModel("fireworks", "accounts/fireworks/models/kimi-k2p6");
-
-		expect(model.compat).toBeDefined();
-		expect(model.compat?.sendSessionAffinityHeaders).toBe(true);
-		expect(model.compat?.supportsEagerToolInputStreaming).toBe(false);
-		expect(model.compat?.supportsCacheControlOnTools).toBe(false);
-		expect(model.compat?.supportsLongCacheRetention).toBe(false);
+		const models = getModels("fireworks").filter((model) => hasApi(model, "anthropic-messages"));
+		expect(models.length).toBeGreaterThan(0);
+		for (const model of models) {
+			expect(model.compat).toBeDefined();
+			expect(model.compat?.sendSessionAffinityHeaders).toBe(true);
+			expect(model.compat?.supportsEagerToolInputStreaming).toBe(false);
+			expect(model.compat?.supportsCacheControlOnTools).toBe(false);
+			expect(model.compat?.supportsLongCacheRetention).toBe(false);
+		}
 	});
 });
 
@@ -163,16 +177,8 @@ function createFireworksModel(
 	compat: Model<"anthropic-messages">["compat"] = FIREWORKS_ANTHROPIC_COMPAT,
 ): Model<"anthropic-messages"> {
 	return {
-		id: "accounts/fireworks/models/kimi-k2p6",
-		name: "Kimi K2.6",
-		api: "anthropic-messages",
-		provider: "fireworks",
+		...historicalFireworksKimi,
 		baseUrl: "http://127.0.0.1:0", // overridden by captureAnthropicRequest
-		reasoning: true,
-		input: ["text", "image"],
-		cost: { input: 0.95, output: 4, cacheRead: 0.16, cacheWrite: 0 },
-		contextWindow: 262000,
-		maxTokens: 262000,
 		compat,
 	};
 }
