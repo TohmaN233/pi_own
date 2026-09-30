@@ -10,6 +10,8 @@ Typecheck: `node_modules/.bin/tsc --noEmit`
 Lint: `npm run lint`
 **Never run `next build` during dev** — pollutes `.next/` and breaks `npm run dev`.
 
+Pi Web has an independent npm lockfile outside the root workspace audit. Run its production audit separately. The SDK security tarball in `third_party/pi-web-sdk` preserves the upstream unbundled runtime and replaces vulnerable metadata/bundles; rebuild with `python scripts/vendor-pi-web-sdk.py`, update the outer lock with `--refresh-lock`, refresh app metadata with ordinary `npm install --package-lock-only --ignore-scripts`, and verify with `--check`. Preserve `hasShrinkwrap` and the SDK dependency graph; a direct tarball install can discard that boundary. Registry signatures cover registry dependencies; the local tarball has separately recorded source/artifact integrity. See root `docs/DEPENDENCY_AUDIT_20260930.md` for evidence. Published Pi Web packages bundle the installed SDK closure because its source tarball is repo-local.
+
 ### Dev server troubleshooting
 
 - Before starting a server, run `lsof -nP -iTCP:30141 -sTCP:LISTEN` and reuse the existing Pi Web process when it is healthy. A second `next dev` for the same checkout cannot use a different port as a workaround because both processes contend for `.next/dev/lock`.

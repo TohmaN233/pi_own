@@ -1,6 +1,15 @@
 name: npm audit
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/npm-shrinkwrap.json'
+      - 'third_party/pi-web-sdk/**'
+      - 'scripts/vendor-pi-web-sdk*'
+      - '.github/workflows/npm-audit.yml'
   schedule:
     - cron: '37 7 * * *'
   workflow_dispatch:
@@ -29,3 +38,44 @@ jobs:
 
       - name: Verify registry signatures
         run: npm audit signatures --omit=dev
+
+  pi-web-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/pi-web/package-lock.json
+      - name: Verify vendored SDK bytes and patch scope
+        run: python scripts/vendor-pi-web-sdk.py --check
+      - name: SDK archive integrity regressions
+        run: python scripts/vendor-pi-web-sdk-test.py
+      - name: Install Pi Web without lifecycle scripts
+        run: npm ci --prefix apps/pi-web --ignore-scripts --no-audit --no-fund
+      - name: Audit Pi Web production dependencies
+        working-directory: apps/pi-web
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Verify Pi Web registry dependency signatures
+        working-directory: apps/pi-web
+        run: npm audit signatures --omit=dev
+      - name: Verify SDK CLI, RPC, extension loading and HTTP proxy
+        working-directory: apps/pi-web
+        run: node --test --test-force-exit lib/vendored-sdk.test.mjs lib/http-dispatcher.test.mjs
+      - name: Verify normal install keeps the repaired lock
+        run: npm install --prefix apps/pi-web --ignore-scripts --no-audit --no-fund
+      - name: Recheck audit after normal install
+        working-directory: apps/pi-web
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Verify SDK identity and dependency graph after normal install
+        run: python scripts/vendor-pi-web-sdk.py --check
+      - name: Verify normal install did not change the lock
+        working-directory: apps/pi-web
+        run: git diff --exit-code -- package-lock.json
