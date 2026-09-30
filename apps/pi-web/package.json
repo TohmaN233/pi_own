@@ -12,8 +12,10 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.19.0",
+    "npm": ">=11.11.0"
   },
+  "packageManager": "npm@11.12.1",
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
