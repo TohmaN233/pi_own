@@ -720,14 +720,12 @@ describe("default model selection", () => {
 		expect(defaultModelPerProvider["ant-ling"]).toBe("Ring-2.6-1T");
 	});
 
-	test("built-in defaults exist in generated provider catalogs", () => {
-		for (const provider of getBuiltinProviders()) {
-			const defaultId = defaultModelPerProvider[provider];
-			expect(
-				getBuiltinModels(provider).some((model) => model.id === defaultId),
-				`${provider} default ${defaultId} should exist in its generated catalog`,
-			).toBe(true);
-		}
+	test.each(getBuiltinProviders())("%s default exists in its generated provider catalog", (provider) => {
+		const defaultId = defaultModelPerProvider[provider];
+		expect(
+			getBuiltinModels(provider).some((model) => model.id === defaultId),
+			`${provider} default ${defaultId} should exist in its generated catalog`,
+		).toBe(true);
 	});
 
 	test("ai-gateway default tracks current model", () => {

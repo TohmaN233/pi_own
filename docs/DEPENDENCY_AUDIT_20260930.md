@@ -16,6 +16,8 @@ The [first repair CI](https://github.com/TohmaN233/pi_own/actions/runs/367317629
 
 Commit `734f5d1ca` separates historical compatibility fixtures from the live catalog. Offline regressions use typed snapshots validated by the production schema. Together live tests select a current model with required reasoning, vision and API capabilities, and fail explicitly if none exists. Current-catalog registration tests retain API/endpoint checks. Production generation and removal of discontinued models remain intact. With fresh model data, `npm run check` passes; eight targeted offline files pass 132 tests with four credential-gated cases skipped.
 
+The subsequent full root test run also exposed three actual stale defaults: Fireworks, Together and OpenCode Go still selected removed Kimi K2.6 entries. Their defaults now select each provider's catalog-present Kimi K3 entry. The default-presence test remains coupled to the real generated catalogs and reports every provider separately, so one missing model no longer hides further failures. OpenRouter override-composition regressions use two fixed test models through the real provider/runtime path, leaving current catalog validation independent.
+
 ## Independent Pi Web installation
 
 Pi Web has its own lock outside the root workspace. Direct pins use Next.js/eslint-config-next 16.3.7, undici 8.11.2 and js-yaml 5.4.2, with related sharp and brace-expansion updates.
@@ -31,3 +33,7 @@ Five archive integrity/scope regressions pass. SDK imports, CLI help/version, na
 The audit workflow now runs on relevant pushes and schedules. It checks the independent Pi Web installation, archive integrity, SDK entrypoints, registry signatures and repeat-install stability on Windows and Linux. Remote CI provides final platform acceptance evidence.
 
 The first matrix run exposed an installation-toolchain mismatch: Node 22's bundled npm removed `libc` lock metadata on Linux, while Windows' prefix-based install entered the repository's prepare flow. Pi Web now declares npm 11.12.1 (minimum 11.11.0); its audit matrix installs that exact version and runs app installs from the app directory. The strict lock stability and script-disabled installation gates remain enabled. See [npm's libc lockfile bug](https://github.com/npm/cli/issues/8514) and the [install command's explicit global-install guard](https://github.com/npm/cli/blob/v11.12.1/lib/commands/install.js).
+
+Commit `18db38146` passes the [complete Windows/Linux audit matrix](https://github.com/TohmaN233/pi_own/actions/runs/36739117037): zero production vulnerabilities in root and both app installations; three SDK/proxy runtime tests per platform; unchanged locks after normal installation. Registry signatures/attestations verify for root (144/21), Linux app (384/102) and Windows app (383/101). The [Mode Pack P1 gate](https://github.com/TohmaN233/pi_own/actions/runs/36739117223) passes its host/runtime tests, full Pi Web suite, typecheck, lint and production build.
+
+The same commit passes [Course Builder CI](https://github.com/TohmaN233/pi_own/actions/runs/36739116983), including real XeLaTeX regressions, fresh production model generation, root checks with an unchanged checkout, all Pi Web regressions and the actual route's production build.
