@@ -258,3 +258,5 @@ Attribution:
 If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.
 
 - Course delivery evidence is explicitly typed. `delivery_status` is the authoritative requirement/finish contract; compile/review/checkpoint/import proof comes from Host records, while content quotes use saved source or actual read_material windows. Never replace operational proof with an unrelated artifact substring or silently classify legacy requirements. Keep checkpoint revisions scoped per lesson and expose local-link availability without eager content ingestion.
+
+GitHub production dependency audits use scripts/audit-production.mjs at the monorepo root. Preserve complete findings and registry signature verification. Only the exact reviewed, unfixable Gondolin example advisory documented in docs/DEPENDENCY_AUDIT.md is nonblocking; new advisories, consumers or available fixes still fail. Pi Web uses the ordinary npm audit command and a registry-signed source-map-js 1.2.2 lock entry.
