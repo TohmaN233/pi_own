@@ -1,4 +1,5 @@
 import type { CourseBuilderHost, CourseBuilderCommand } from "../../../packages/course-builder-host/src/index.ts";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export type DeliverySnapshot = NonNullable<ReturnType<CourseBuilderHost["getSnapshotForSession"]>>;
 export type DeliveryKind = "semester" | "lesson" | "deck" | "assignment" | "visual" | "materials" | "teacher-notes";
@@ -109,6 +110,33 @@ export function mergeDeliveryTarget(current: DeliveryTarget | undefined, next: D
     if (current[field] !== undefined && next[field] !== undefined && current[field] !== next[field]) throw new Error(`Finish the active delivery before changing its product target (${field})`);
   }
   return { ...current, ...Object.fromEntries(Object.entries(next).filter(([, value]) => value !== undefined)) };
+}
+
+/** Recover only a save proven by this task's native tool call/result and the
+ * persisted Host artifact. Never pick another conversation's latest visual. */
+export function recoverFailedVisualBinding(snapshot: DeliverySnapshot, taskId: string, target: DeliveryTarget, entries: readonly SessionEntry[]): DeliveryTarget | undefined {
+  if (target.kind !== "visual" || !target.id || !target.lessonPlanId) return undefined;
+  const start = entries.findIndex(entry=>entry.type==="custom" && entry.customType==="pi-web:course-delivery" && (entry.data as {id?:string})?.id===taskId);
+  if(start<0)return undefined;
+  for(let index=entries.length-1;index>start;index--) {
+    const result=entries[index];
+    if(result.type!=="message" || result.message.role!=="toolResult" || result.message.toolName!=="course_builder" || !result.message.isError || !result.message.content.some(part=>part.type==="text" && part.text.includes("Finish the active delivery before changing its product target (id)")))continue;
+    const toolCallId=result.message.toolCallId;
+    const callEntry=entries.slice(start,index).reverse().find(entry=>entry.type==="message" && entry.message.role==="assistant" && entry.message.content.some(part=>part.type==="toolCall" && part.id===toolCallId));
+    if(callEntry?.type!=="message" || callEntry.message.role!=="assistant")continue;
+    const call=callEntry.message.content.find(part=>part.type==="toolCall" && part.id===toolCallId);
+    if(call?.type!=="toolCall" || call.name!=="course_builder" || call.arguments.action!=="interactive_visual")continue;
+    const command=call.arguments as Record<string,unknown>;
+    if(command.id!==undefined && command.id!==target.lessonPlanId)continue;
+    const value:unknown=command.spec ?? (typeof command.specJson==="string" ? JSON.parse(command.specJson) : undefined);
+    if(!value || typeof value!=="object" || Array.isArray(value) || typeof command.purpose!=="string")continue;
+    const spec=value as Record<string,unknown>, purpose=command.purpose.trim();
+    if(typeof spec.materialId!=="string")continue;
+    const matches=snapshot.visuals.filter(visual=>visual.projectId===snapshot.project.projectId && visual.format==="interactive-html" && visual.lessonPlanId===target.lessonPlanId && visual.materialId===spec.materialId && visual.learningPurpose===purpose && (spec.title===undefined || visual.title===spec.title) && Date.parse(visual.createdAt)>=Date.parse(callEntry.timestamp) && Date.parse(visual.createdAt)<=Date.parse(result.timestamp));
+    if(matches.length>1)throw new Error("Ambiguous saved visual evidence for failed delivery binding");
+    if(matches.length===1)return resolveDeliveryTarget(snapshot,{kind:"visual",id:matches[0].visualId});
+  }
+  return undefined;
 }
 
 export function deliveryWriteKind(action: string): DeliveryKind | undefined {

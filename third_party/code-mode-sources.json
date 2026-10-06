@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "max4c-skills",
+      "repository": "max4c/skills",
+      "commit": "0e5a4869cfb9a7c1d5b97bf0e3da543fdd37be71",
+      "directory": "max4c-skills",
+      "skills": [
+        "grill-me"
+      ],
+      "source": "github:max4c/skills",
+      "license": "MIT",
+      "archiveHash": "sha256:9e31ded013ca111f57f83c29a0ee106886586a93e79909af3ea940c05ec97db8",
+      "contentHash": "sha256:da100e8b40d331ae8a9121af0322a3dd5d5173bb8b87dbb2ce84e7cc1ccc2d74",
+      "files": [
+        {
+          "path": "LICENSE",
+          "contentHash": "sha256:1b5f4c9f47c03c6349296975f3a405ccf3e44d72eb2b6e5832fcb5d4d3a14e68",
+          "bytes": 1067
+        },
+        {
+          "path": "README.md",
+          "contentHash": "sha256:826a224148142a2b4fa7d439f75ae6dc37aa41e0ca1794e51264320058dae4d9",
+          "bytes": 3516
+        },
+        {
+          "path": "skills/grill-me/SKILL.md",
+          "contentHash": "sha256:dc64dc624c20722a453247745382fe70f23a6bbc00eb03d660d9d6ac76b3479b",
+          "bytes": 10391
+        }
+      ]
+    },
+    {
+      "id": "addyosmani-agent-skills",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "directory": "agent-skills",
+      "skills": [
+        "incremental-implementation",
+        "debugging-and-error-recovery",
+        "test-driven-development",
+        "code-review-and-quality",
+        "source-driven-development",
+        "code-simplification",
+        "doubt-driven-development",
+        "security-and-hardening"
+      ],
+      "source": "github:addyosmani/agent-skills",
+      "license": "MIT",
+      "archiveHash": "sha256:18a8939fbb10faa6b1e94f385256574a78d4ebc2e1e1684dc8ef454794da938a",
+      "contentHash": "sha256:c78482c17e04c26154a59a493f2c195aae245d6a6f78edfab6dc3237394ff66f",
+      "files": [
+        {
+          "path": "LICENSE",
+          "contentHash": "sha256:6f202f8bd568cd730dbb2b0d1f8e243bc74c2fa1f64dbce9b2c7ea08bd5c9fd7",
+          "bytes": 1068
+        },
+        {
+          "path": "README.md",
+          "contentHash": "sha256:0956874d6ba30f65d45ff90a9d51e615627a836e22745f43b7aece14537bb028",
+          "bytes": 25146
+        },
+        {
+          "path": "references/accessibility-checklist.md",
+          "contentHash": "sha256:61c759d94d52296231f5f310b92b401f56c44e4430dc3cc95ebac5d7b1d5ffac",
+          "bytes": 5206
+        },
+        {
+          "path": "references/definition-of-done.md",
+          "contentHash": "sha256:d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee",
+          "bytes": 3798
+        },
+        {
+          "path": "references/observability-checklist.md",
+          "contentHash": "sha256:25fcd0e854596a5ab6f11b002050d245bf78f5ae0fcbd1df699b89451ae0e1e8",
+          "bytes": 5129
+        },
+        {
+          "path": "references/orchestration-patterns.md",
+          "contentHash": "sha256:61e543d86f19f86b83074f8c1c769455c7085a2c72dd47b1da21a8c63785be4a",
+          "bytes": 18201
+        },
+        {
+          "path": "references/performance-checklist.md",
+          "contentHash": "sha256:40f564d1e62341e277c01ba42c42d95264b9ef3b8e5a23249dc6e121a7e70067",
+          "bytes": 13139
+        },
+        {
+          "path": "references/security-checklist.md",
+          "contentHash": "sha256:37774056502fe8970dcd2fd27dca5fa31f2a55232649fc3056c89c3af7d62755",
+          "bytes": 14360
+        },
+        {
+          "path": "references/testing-patterns.md",
+          "contentHash": "sha256:f0bf05acd0edcadc27297ad5b74f104c8103ccfedba1a05cd6d6ae4af8364c56",
+          "bytes": 7460
+        },
+        {
+          "path": "skills/code-review-and-quality/SKILL.md",
+          "contentHash": "sha256:8f3cabca581bbf7cb5f0add3f7454e7a4523f9d4353a6a4a217e6fa515309612",
+          "bytes": 20555
+        },
+        {
+          "path": "skills/code-simplification/SKILL.md",
+          "contentHash": "sha256:f0c5ed754057eb0c1e027e2587f59de816651feb5e837242296c43ea21cf621d",
+          "bytes": 13545
+        },
+        {
+          "path": "skills/debugging-and-error-recovery/SKILL.md",
+          "contentHash": "sha256:21f3960f5d7ae2cc95c40896545004dbbcbbd752ea65fc2d53962554d4174220",
+          "bytes": 10913
+        },
+        {
+          "path": "skills/doubt-driven-development/SKILL.md",
+          "contentHash": "sha256:6fa1fcd8420c28daf7e53c5b08b0f20b907911efd2a6d9bce0b9740da20a4008",
+          "bytes": 16647
+        },
+        {
+          "path": "skills/incremental-implementation/SKILL.md",
+          "contentHash": "sha256:df66536610071727feae1ca95f3c391c248ad828041750ccd3699cce763aa00b",
+          "bytes": 9629
+        },
+        {
+          "path": "skills/security-and-hardening/references/hardening-patterns.md",
+          "contentHash": "sha256:d8ba58cad151aeca4804e48fc768240af0dd6b0ecddd07fbf24a1562140ba97a",
+          "bytes": 13036
+        },
+        {
+          "path": "skills/security-and-hardening/SKILL.md",
+          "contentHash": "sha256:3015b6b7d3ce7c20d1092ed363047e9946eea947b2161673dd0bfa65b8a4c0e8",
+          "bytes": 17178
+        },
+        {
+          "path": "skills/source-driven-development/SKILL.md",
+          "contentHash": "sha256:c59faf851377f0eeda45306398d16eb96d77ab1c2fd3e1a7fb58e9a0af33c1e9",
+          "bytes": 10038
+        },
+        {
+          "path": "skills/test-driven-development/SKILL.md",
+          "contentHash": "sha256:7c0c6ac057c19d7f8be65d9f49c3a638703b868f4625c78b70da5439d5d74fca",
+          "bytes": 16517
+        }
+      ]
+    },
+    {
+      "id": "max4c-grill-with-docs",
+      "repository": "max4c/skills",
+      "commit": "825b94d5c28b81d5cf1c66ce2f474dc2d3c87048",
+      "directory": "max4c-grill-with-docs",
+      "skills": [
+        "grill-with-docs"
+      ],
+      "source": "github:max4c/skills",
+      "license": "MIT",
+      "archiveHash": "sha256:7cdf0c3db58666fde52b49391fffa521f0660f74e0c58c0a05d7d8a41b7a98af",
+      "contentHash": "sha256:c818ba6cd50da941c981803f9296edcc4df849a77e88639044650ee0a062af7c",
+      "files": [
+        {
+          "path": "LICENSE",
+          "contentHash": "sha256:1b5f4c9f47c03c6349296975f3a405ccf3e44d72eb2b6e5832fcb5d4d3a14e68",
+          "bytes": 1067
+        },
+        {
+          "path": "skills/grill-with-docs/ADR-FORMAT.md",
+          "contentHash": "sha256:f1f36cd3f8d3b6474ddd5855da4e233bfc4ae1a1c5024909ccf11871819a41b2",
+          "bytes": 2766
+        },
+        {
+          "path": "skills/grill-with-docs/CONTEXT-FORMAT.md",
+          "contentHash": "sha256:b8cc318f2a4285b530e908b6bc43901c3c5cd11100362636bbc4216639bef597",
+          "bytes": 2299
+        },
+        {
+          "path": "skills/grill-with-docs/SKILL.md",
+          "contentHash": "sha256:4e0592fde2f9e3846a0c84581525ba2bc4d2842d676139e85b79e7806500fd47",
+          "bytes": 4246
+        }
+      ]
+    },
+    {
+      "id": "playwright-cli",
+      "repository": "microsoft/playwright-cli",
+      "commit": "74354ecc7a43da16d91a9bc54fa8db8283a3fcf5",
+      "directory": "playwright-cli",
+      "skills": [
+        "playwright-cli"
+      ],
+      "source": "github:microsoft/playwright-cli",
+      "license": "Apache-2.0",
+      "archiveHash": "sha256:63e3d14cbaf9c2dcc4a4c84193b80c90b9356f412fd1d17f1ae5d8a22994f6a5",
+      "contentHash": "sha256:94a6c81b59686f08fe3e2489a189de8aa909afe7150effc7f51e0b442a3f0697",
+      "files": [
+        {
+          "path": "LICENSE",
+          "contentHash": "sha256:9a7110fc2d2f964038e5dc49128f908f29f47a574c961cba16085914e879cbda",
+          "bytes": 11552
+        },
+        {
+          "path": "README.md",
+          "contentHash": "sha256:c0cbb367cd90ca750581017715c14931706f03e32dcc77761f6885eedc25735d",
+          "bytes": 25552
+        },
+        {
+          "path": "skills/playwright-cli/references/element-attributes.md",
+          "contentHash": "sha256:bf19aa4671e0a50a0fefa9c790f39124e803060eefe395042b723c29fcb7faa2",
+          "bytes": 665
+        },
+        {
+          "path": "skills/playwright-cli/references/playwright-tests.md",
+          "contentHash": "sha256:c5b0719fef2cfdff50bd744051b2f9afc119775db4b48e9b2882c1cf3886797c",
+          "bytes": 1690
+        },
+        {
+          "path": "skills/playwright-cli/references/pr-attachments.md",
+          "contentHash": "sha256:24b118e74598be72e73e24fe223d295b9099c85b1860a7c8f6e5690c9038fa2a",
+          "bytes": 2830
+        },
+        {
+          "path": "skills/playwright-cli/references/request-mocking.md",
+          "contentHash": "sha256:54e801c9663fc2b6d68ceb058cb1c360724c2499f42acc7852a68e83e5b5f37c",
+          "bytes": 2182
+        },
+        {
+          "path": "skills/playwright-cli/references/running-code.md",
+          "contentHash": "sha256:d95c539a5990b71d02d8bdf1d9414df16191eb6cff95b0063820518b7a13dcb2",
+          "bytes": 5642
+        },
+        {
+          "path": "skills/playwright-cli/references/session-management.md",
+          "contentHash": "sha256:a4f16271f95d3eec7bc56e659d8adbb8f6ad7d603a6fa15efdcdd071a50c6ce3",
+          "bytes": 5929
+        },
+        {
+          "path": "skills/playwright-cli/references/storage-state.md",
+          "contentHash": "sha256:9ac47f9ae4a1aedcd2077f8ac9ab1ba6bee1962cb83ff51adcd36fb6d83b5ec6",
+          "bytes": 5198
+        },
+        {
+          "path": "skills/playwright-cli/references/test-generation.md",
+          "contentHash": "sha256:12f54cfa718d9e559bad918120a4ca4f11c933167713d1b9c5f99872eddaf749",
+          "bytes": 16114
+        },
+        {
+          "path": "skills/playwright-cli/references/tracing.md",
+          "contentHash": "sha256:ef73e71bee792e341df9cd4f60529c929ade48b538ac76e033f4f20843e8dbda",
+          "bytes": 3456
+        },
+        {
+          "path": "skills/playwright-cli/references/video-recording.md",
+          "contentHash": "sha256:1c800b897824cb54394c34265d8ebffdbb530adfc8d612c5d798b667a1799f48",
+          "bytes": 9388
+        },
+        {
+          "path": "skills/playwright-cli/SKILL.md",
+          "contentHash": "sha256:85ef187460f776a4e9b44ffbf4a0293e5585d4192d0858c23fb011c72784f347",
+          "bytes": 15179
+        }
+      ]
+    }
+  ]
+}

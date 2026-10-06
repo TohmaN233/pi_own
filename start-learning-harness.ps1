@@ -146,18 +146,30 @@ if (Test-LocalPortOpen) {
 
 $npmCommand = Get-Command npm -CommandType Application -ErrorAction Stop | Select-Object -First 1
 $nextEntry = Join-Path $piWebDirectory "node_modules\next\dist\bin\next"
-if (-not (Test-Path -LiteralPath $nextEntry -PathType Leaf)) {
-	Write-Host "Pi Web dependencies are missing; running npm ci --ignore-scripts..."
-	Push-Location $piWebDirectory
+function Ensure-LockedDependencies([string] $directory, [string[]] $requiredEntries) {
+	$lockPath = Join-Path $directory "package-lock.json"
+	$lockHash = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash
+	$markerPath = Join-Path $directory "node_modules\.pi-own-install-lock-sha256"
+	$installedHash = if (Test-Path -LiteralPath $markerPath -PathType Leaf) { (Get-Content -LiteralPath $markerPath -Raw).Trim() } else { "" }
+	$missing = @($requiredEntries | Where-Object { -not (Test-Path -LiteralPath (Join-Path $directory $_) -PathType Leaf) })
+	if ($missing.Count -eq 0 -and $installedHash -eq $lockHash) { return }
+	Write-Host "Installing locked dependencies in $directory..."
+	Push-Location $directory
 	try {
 		& $npmCommand.Source ci --ignore-scripts
 		if ($LASTEXITCODE -ne 0) {
-			throw "npm ci --ignore-scripts failed with exit code $LASTEXITCODE"
+			throw "npm ci --ignore-scripts failed in $directory with exit code $LASTEXITCODE"
 		}
+		foreach ($entry in $requiredEntries) {
+			if (-not (Test-Path -LiteralPath (Join-Path $directory $entry) -PathType Leaf)) { throw "Installed dependency is missing: $entry" }
+		}
+		Set-Content -LiteralPath $markerPath -Value $lockHash -Encoding utf8
 	} finally {
 		Pop-Location
 	}
 }
+Ensure-LockedDependencies $repositoryRoot @("node_modules\esbuild\package.json", "node_modules\jiti\package.json")
+Ensure-LockedDependencies $piWebDirectory @("node_modules\next\dist\bin\next", "node_modules\@earendil-works\pi-coding-agent\package.json")
 
 $pdfToTextPath = Resolve-PdfToTextPath
 $requestedHarnessDataDirectory = if ($env:PI_LEARNING_HARNESS_DIR) {

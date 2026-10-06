@@ -35,7 +35,7 @@ test("restores the settings section and each list detail selection", async () =>
   assert.match(shellSource, /getLastSettingsSection\(projectTrustCwd\)/);
   assert.match(panelSource, /setLastSettingsSection\(initialSection\)/);
   assert.match(panelSource, /setLastSettingsSection\(nextSection\)/);
-  for (const name of ["ModelsConfig", "SkillsConfig", "AgentsConfig", "PluginsConfig"]) {
+  for (const name of ["ModelsConfig", "SkillsConfig", "PluginsConfig"]) {
     assert.match(
       await readFile(new URL(`./${name}.tsx`, import.meta.url), "utf8"),
       /getLastSettingsSelection/,

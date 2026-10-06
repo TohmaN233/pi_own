@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createJiti } from "jiti";
-const { saveChatAttachment, readChatAttachment } = await createJiti(import.meta.url).import("./chat-attachments.ts");
+const { saveChatAttachment, readChatAttachment, readChatAttachmentSource } = await createJiti(import.meta.url).import("./chat-attachments.ts");
 test("chat files retain original bytes, support arbitrary text extensions and enforce conversation/Assignment scope", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-chat-attachments-"));
   const scope = { sessionId: "teacher", assignmentId: null };
@@ -13,6 +13,9 @@ test("chat files retain original bytes, support arbitrary text extensions and en
     const saved = await saveChatAttachment(cwd, file, scope);
     assert.equal(await readFile(saved.path, "utf8"), "x <- 42");
     assert.equal(await readChatAttachment(cwd, saved.id, scope), "x <- 42");
+    assert.deepEqual(await readChatAttachmentSource(cwd,saved.id,scope),{id:saved.id,name:"exercise.custom",sourceHash:saved.sourceHash,text:"x <- 42"});
+    await writeFile(saved.textPath,"forged sidecar");
+    assert.equal((await readChatAttachmentSource(cwd,saved.id,scope)).text,"x <- 42","verified originals own extracted content");
     await assert.rejects(readChatAttachment(cwd, saved.id, { ...scope, sessionId: "other" }), /another conversation/);
     await assert.rejects(readChatAttachment(cwd, saved.id, { ...scope, assignmentId: "homework" }), /Assignment/);
     const collision = await saveChatAttachment(cwd, new File(["plain"], "attachment.json"), scope);

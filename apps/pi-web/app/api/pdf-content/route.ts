@@ -4,6 +4,7 @@ import { GET as readCourseExport } from "../course-builder/export/route";
 import { GET as readAssignmentAsset } from "../course-builder/assignment-assets/route";
 import { GET as readWorkspaceFile } from "../files/[...path]/route";
 import { GET as readStudySource } from "../study-research/source/route";
+import { GET as readPortableRuntime } from "../mode-packs/runtime/[sessionId]/[...path]/route";
 import { readStudyExecutionArtifact } from "@/lib/study-execution-service";
 import { publicStudyError, studyText } from "@/lib/study-api-request";
 
@@ -39,6 +40,16 @@ export async function GET(request: Request) {
       source.searchParams.set("type", "read");
       const path = source.pathname.slice("/api/files/".length).split("/").map(decodeURIComponent);
       response = await readWorkspaceFile(new NextRequest(source, { headers }), { params: Promise.resolve({ path }) });
+    } else if (source.pathname.startsWith("/api/mode-packs/runtime/")) {
+      const path = source.pathname.slice("/api/mode-packs/runtime/".length).split("/").map(decodeURIComponent);
+      const [sessionId, runtimeId, ...route] = path;
+      const permitted = runtimeId === "course-builder"
+        ? ["export", "assignment-assets"].includes(route.join("/"))
+        : runtimeId === "study-research" && ["source", "execution/artifact"].includes(route.join("/"));
+      if (!sessionId || !runtimeId || !permitted || source.searchParams.get("sessionId") !== sessionId) {
+        return Response.json({ error: "Unsupported portable PDF source" }, { status: 400 });
+      }
+      response = await readPortableRuntime(new Request(source, { headers }), { params: Promise.resolve({ sessionId, path: [runtimeId, ...route] }) });
     } else return Response.json({ error: "Unsupported PDF source" }, { status: 400 });
     if (!response.ok) return Response.json({ error: `读取 PDF 失败：${publicStudyError(await response.text()).slice(0, 500)}` }, { status: response.status });
     if (response.headers.get("content-type") !== "application/pdf") throw new Error("PDF reader returned an unexpected content type");

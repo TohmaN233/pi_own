@@ -12,10 +12,8 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=22.19.0",
-    "npm": ">=11.11.0"
+    "node": ">=22.19.0"
   },
-  "packageManager": "npm@11.12.1",
   "bin": {
     "pi-web": "bin/pi-web.js"
   },
@@ -27,38 +25,57 @@
     "!.next/**/*.js.map",
     "public",
     "runtime",
+    "host-plugins",
     "next.config.ts",
     "package.json"
   ],
   "scripts": {
-    "prebuild": "node ../../scripts/build-study-worker.mjs",
+    "prepare:runtime": "node ../../scripts/build-portable-code-mode-archive.mjs && node ../../scripts/build-study-worker.mjs && node ../../scripts/build-portable-module-frontends.mjs && node ../../scripts/build-portable-module-runtime.mjs && node ../../scripts/build-portable-registration-probe.mjs",
+    "prebuild": "npm run prepare:runtime",
     "dev": "next dev -H 127.0.0.1 -p 30141",
     "dev:lan": "next dev -H 0.0.0.0 -p 30141",
     "build": "next build --webpack",
+    "postbuild": "node ../../scripts/check-pi-web-build-traces.mjs",
     "start": "next start -H 127.0.0.1 -p 30141",
     "start:lan": "next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
-    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public"
+    "test": "node --experimental-strip-types --test --test-concurrency=4 \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
+    "release": "npm version patch --no-git-tag-version && npm run build && npm publish --access public",
+    "predev": "node ../../scripts/build-portable-code-mode-archive.mjs && node ../../scripts/build-portable-module-frontends.mjs && node ../../scripts/build-portable-module-runtime.mjs && node ../../scripts/build-portable-registration-probe.mjs",
+    "predev:lan": "node ../../scripts/build-portable-code-mode-archive.mjs && node ../../scripts/build-portable-module-frontends.mjs && node ../../scripts/build-portable-module-runtime.mjs && node ../../scripts/build-portable-registration-probe.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
-    "@earendil-works/pi-coding-agent": "file:../../third_party/pi-web-sdk/pi-coding-agent-0.85.1-security.tgz",
-    "@earendil-works/pi-tui": "0.85.1",
+    "@earendil-works/pi-agent-core": "1.0.4",
+    "@earendil-works/pi-ai": "1.0.4",
+    "@earendil-works/pi-coding-agent": "1.0.4",
+    "@earendil-works/pi-tui": "1.0.4",
+    "@eko24ive/pi-ask": "1.2.0",
+    "@ff-labs/pi-fff": "0.11.0",
     "ansi_up": "^6.0.6",
     "hast-util-from-html": "2.0.3",
-    "js-yaml": "5.4.2",
+    "jiti": "^2.7.0",
+    "js-yaml": "5.4.3",
+    "jsonc-parser": "3.3.1",
     "jszip": "3.10.1",
-    "next": "16.3.7",
+    "next": "16.3.6",
     "pdfjs-dist": "6.3.289",
+    "pi-caw": "file:host-plugins/pi-caw-0.2.31.tgz",
+    "pi-context-usage": "2.1.0",
+    "pi-subagents": "0.74.0",
     "proper-lockfile": "4.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "remark-frontmatter": "^5.0.0",
+    "tar-stream": "2.2.0",
     "typebox": "1.3.7",
     "undici": "8.11.2",
     "web-push": "^3.6.7"
+  },
+  "overrides": {
+    "eslint-plugin-react-hooks": "7.0.1",
+    "minimatch@>=10": {
+      "brace-expansion": "5.0.12"
+    }
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
@@ -68,10 +85,10 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/tar-stream": "2.2.3",
     "@types/web-push": "^3.6.4",
     "eslint": "^9",
-    "eslint-config-next": "16.3.7",
-    "jiti": "^2.7.0",
+    "eslint-config-next": "16.3.6",
     "katex": "^0.16.47",
     "mammoth": "^1.12.0",
     "mermaid": "^11.16.1",
@@ -85,8 +102,5 @@
     "remark-math": "^6.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5"
-  },
-  "bundleDependencies": [
-    "@earendil-works/pi-coding-agent"
-  ]
+  }
 }

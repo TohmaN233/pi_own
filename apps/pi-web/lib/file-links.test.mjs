@@ -5,6 +5,13 @@ async function loadSubject() {
   return import("./file-links.ts");
 }
 
+test("application review/navigation routes do not open as filesystem artifacts",async()=>{
+ const {resolveLocalFileHref,isAppNavigationHref}=await loadSubject();
+ for(const href of ["/course-builder?sessionId=exact#lessons","/projects","/mode-packs?sessionId=exact"]){assert.equal(isAppNavigationHref(href),true);assert.equal(resolveLocalFileHref(href,"G:/project"),null);}
+ assert.equal(resolveLocalFileHref("G:/project/lesson.tex","G:/project"),"G:/project/lesson.tex");
+ assert.equal(resolveLocalFileHref("/course-builder.tex","/project"),"/course-builder.tex");
+});
+
 test("resolves absolute markdown file links and strips line suffixes", async () => {
   const { resolveLocalFileHref } = await loadSubject();
 

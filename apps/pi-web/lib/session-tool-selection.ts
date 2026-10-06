@@ -9,7 +9,7 @@ export interface SessionToolSelectionData {
   tools: string[];
 }
 
-const BUILTIN_TOOL_NAMES = new Set(PRESET_FULL);
+const BUILTIN_TOOL_NAMES = new Set([...PRESET_FULL, "powershell", "codemode", "tool_search"]);
 
 function parseToolSelectionData(data: unknown): string[] | undefined {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return undefined;

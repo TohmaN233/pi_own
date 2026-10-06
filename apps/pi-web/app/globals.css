@@ -1421,3 +1421,30 @@ span.token.table {
     font-size: 16px !important;
   }
 }
+
+.local-file-context-menu {
+  position: fixed;
+  z-index: 10000;
+  width: min(240px, calc(100vw - 16px));
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: 0 8px 24px #0002;
+  font-size: 13px;
+}
+.local-file-context-menu button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.local-file-context-menu button:hover,
+.local-file-context-menu button:focus-visible { background: var(--bg-hover); }
+.local-file-context-menu button:disabled { opacity: 0.6; cursor: wait; }
+.local-file-context-menu p { margin: 6px 10px; overflow-wrap: anywhere; color: var(--text-muted); }

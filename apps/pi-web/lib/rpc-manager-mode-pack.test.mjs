@@ -8,7 +8,7 @@ import { createJiti } from "jiti";
 
 test("rpc manager rebuilds and verifies generic Mode Pack runtimes instead of mutating prompt only", async () => {
   const source = await readFile(new URL("./rpc-manager.ts", import.meta.url), "utf8");
-  assert.match(source, /createAgentSessionServices/);
+  assert.match(source, /createModePackServices/);
   assert.match(source, /additionalSkillPaths: plan\.skillPaths/);
   assert.match(source, /additionalExtensionPaths: plan\.extensionPaths/);
   assert.match(source, /noExtensions: true/);
@@ -16,7 +16,11 @@ test("rpc manager rebuilds and verifies generic Mode Pack runtimes instead of mu
   assert.match(source, /appendModePackBinding/);
   assert.match(source, /recoverModePackBindingHistory/);
   assert.match(source, /An unpinned Mode Pack must not replace a persisted session.s saved model/);
-  assert.match(source, /await existing\.shutdown\(\);\s*appendModePackBinding/);
+  // Candidate shutdown must precede the durable binding write. The behavioral
+  // test below exercises this transaction; keep this source check independent
+  // of formatting and helper extraction.
+  assert.match(source, /await existing\.shutdown\(\);/);
+  assert.match(source, /appendModePackBinding/);
   assert.match(source, /journalCommitted = true/);
   assert.match(source, /never resurrect the previous runtime/);
   assert.match(source, /Reopen the session to recover the committed snapshot/);
@@ -70,9 +74,19 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   await initial.session.send({ type: "set_model", provider: chosen.provider, modelId: chosen.id });
   const expectedModel = { provider: chosen.provider, id: chosen.id };
   const modelOf = (wrapper) => ({ provider: wrapper.inner.model?.provider, id: wrapper.inner.model?.id });
-
+  // This broad persistence/recovery test must stay offline. Code's private
+  // package installation is exercised by the opt-in host smoke; use an empty
+  // custom Mode Pack to cover the same activation/journal/restart paths here.
+  const primaryPack = await new ModePackStore().saveDraft({
+    version: 1, modePackId: "custom.smoke-primary", revision: 1,
+    title: "Primary smoke", description: "Offline generic runtime fixture.",
+    category: "general", role: "general", runtimeMode: "general", provider: null,
+    model: null, thinkingLevel: "medium", externalKnowledgePolicy: "allow",
+    courseRequired: false, tools: ["find", "grep", "ls", "read"], components: [],
+    systemPrompt: "Offline generic Mode Pack runtime fixture.", instructions: [],
+  }, cwd, 0);
   const first = await rpc.activateGenericModePack({
-    sessionId, modePackId: "coding", expectedSnapshotId: null, idempotencyKey: "smoke-coding",
+    sessionId, modePackId: primaryPack.modePackId, expectedSnapshotId: null, idempotencyKey: "smoke-primary",
   });
   assert.equal(first.runtime.verified, true);
   let live = rpc.getRpcSession(sessionId);
@@ -92,28 +106,27 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   assert.equal(second.binding.revision, 2);
   assert.equal(readBinding()?.snapshot.profileId, "creative");
   live = rpc.getRpcSession(sessionId);
+  const fffExtension = live.inner.resourceLoader.getExtensions().extensions
+    .find((extension) => extension.tools.has("ffgrep") && extension.tools.has("grep"));
+  assert.ok(fffExtension, "workspace grep is supplied by the universal Pi Web FFF extension");
+  assert.match(fffExtension.tools.get("grep").definition.description, /frecency/iu);
+  assert.match(live.inner.getAllTools().find((tool) => tool.name === "grep")?.description ?? "", /frecency/iu);
   assert.deepEqual(modelOf(live), expectedModel);
   await live.shutdown();
   const reopened = await rpc.startRpcSession(sessionId, sessionFile, undefined);
   assert.deepEqual(modelOf(reopened.session), expectedModel);
   assert.equal((await rpc.getGenericModePackStatus(sessionId)).runtime.verified, true);
 
-  // Fail specifically after append/registration, when status verification reads the store.
-  const originalList = ModePackStore.prototype.list;
-  ModePackStore.prototype.list = async () => {
-    await assert.rejects(rpc.startRpcSession(sessionId, sessionFile, undefined), /activation is in progress/i);
-    throw new Error("injected post-commit status failure");
-  };
-  try {
-    await assert.rejects(rpc.activateGenericModePack({
-      sessionId, modePackId: "general", expectedSnapshotId: second.binding.snapshot.resourceSnapshotId,
-      idempotencyKey: "smoke-post-commit",
-    }), /committed to the Pi transcript/i);
-  } finally {
-    ModePackStore.prototype.list = originalList;
-  }
-  assert.equal(rpc.getRpcSession(sessionId)?.isAlive() ?? false, false);
+  // Activation verifies the live runtime directly after commit, without a
+  // second full inventory scan. A store-list injection is therefore no longer
+  // a post-commit failure and must not be used to simulate one.
+  const third = await rpc.activateGenericModePack({
+    sessionId, modePackId: "general", expectedSnapshotId: second.binding.snapshot.resourceSnapshotId,
+    idempotencyKey: "smoke-post-commit",
+  });
+  assert.equal(third.runtime.verified, true);
   assert.equal(readBinding()?.snapshot.profileId, "general");
+  await rpc.getRpcSession(sessionId).shutdown();
   const recovered = await rpc.startRpcSession(sessionId, sessionFile, undefined);
   assert.equal((await rpc.getGenericModePackStatus(sessionId)).runtime.binding.snapshot.profileId, "general");
 
@@ -275,7 +288,7 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   const edited = await updateSessionModeSettings(request);
   assert.equal(edited.systemPrompt, prompt);
   assert.ok(edited.skills.find((skill) => skill.id === "education.visual-explanation").loaded);
-  assert.ok(rpc.getRpcSession(sessionId).inner.agent.state.systemPrompt.includes(prompt));
+  assert.ok(rpc.getRpcSession(sessionId).systemPrompt.includes(prompt));
   const revision = readBinding().revision;
   await updateSessionModeSettings(request);
   assert.equal(readBinding().revision, revision, "retry must not create another revision");
@@ -287,7 +300,7 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   const current = await getSessionModeSettings(sessionId);
   const off = await updateSessionModeSettings({ sessionId, expectedSnapshotId: current.snapshotId, idempotencyKey: "settings-skill-off", settingsPatch: { skills: [{ id: "education.visual-explanation", enabled: false }] } });
   assert.equal(off.skills.find((skill) => skill.id === "education.visual-explanation").loaded, false);
-  assert.ok(!rpc.getRpcSession(sessionId).inner.agent.state.systemPrompt.includes('<mode-pack-resource id="skill:education.visual-explanation"'));
+  assert.ok(!rpc.getRpcSession(sessionId).systemPrompt.includes('<mode-pack-resource id="skill:education.visual-explanation"'));
 
   // Ordinary controls revise the pack without dropping its prompt/skills or identity.
   const setTools = async (toolNames) => {
@@ -318,8 +331,21 @@ test("real Pi runtime switches, restarts, forks, and fails closed after a commit
   }
   await rpc.getRpcSession(sessionId).shutdown();
   await setTools(["read", "grep", "find", "ls"]);
-  assert.deepEqual(rpc.getRpcSession(sessionId).inner.getActiveToolNames().sort(), ["find", "grep", "ls", "read"]);
+  const activeReadOnly = rpc.getRpcSession(sessionId).inner.getActiveToolNames();
+  assert.deepEqual(activeReadOnly.filter(name => ["read", "bash", "edit", "write", "grep", "find", "ls"].includes(name)).sort(), ["find", "grep", "ls", "read"]);
+  assert.ok(activeReadOnly.includes("ask_user"));
+  assert.ok(activeReadOnly.includes("subagent") || activeReadOnly.includes("subagents_enable"));
+  assert.ok(!activeReadOnly.includes("Agent"));
   assert.equal((await getSessionModeSettings(sessionId)).systemPrompt, prompt);
   await setTools([]);
+  assert.deepEqual(rpc.getRpcSession(sessionId).inner.getActiveToolNames().sort(), []);
+  const { writeBuiltInSubagentsEnabled } = await jiti.import("./subagent-settings.ts");
+  writeBuiltInSubagentsEnabled(false);
+  await rpc.getRpcSession(sessionId).send({ type: "reload" });
   assert.deepEqual(rpc.getRpcSession(sessionId).inner.getActiveToolNames(), []);
+  assert.equal((await rpc.getGenericModePackStatus(sessionId)).runtime.verified, true);
+  writeBuiltInSubagentsEnabled(true);
+  await rpc.getRpcSession(sessionId).send({ type: "reload" });
+  assert.deepEqual(rpc.getRpcSession(sessionId).inner.getActiveToolNames().sort(), []);
+  assert.equal((await rpc.getGenericModePackStatus(sessionId)).runtime.verified, true);
 });

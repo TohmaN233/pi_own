@@ -12,6 +12,13 @@
 
 # testing
 /coverage
+/.artifacts/
+
+# Local course outputs and diagnostics (also excluded by the root repository)
+/.pi/
+/figure/
+*.log
+.skill-upgrade-live-*.json
 
 # next.js
 /.next/

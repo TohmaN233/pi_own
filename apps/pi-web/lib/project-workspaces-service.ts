@@ -9,6 +9,7 @@ import { activateGenericModePack, createPersistedGenericSession, getGenericModeP
 import { listAllSessions, resolveSessionPath, invalidateSessionListCache } from "./session-reader";
 import { ModePackStore } from "./mode-pack-store";
 import { buildModePackRuntimePlanFromInventory } from "./mode-pack-inventory";
+import { isCourseBuilderSnapshot } from "./course-builder-mode";
 
 export function projectConversationHref(sessionId: string, course: boolean): string {
   return course ? `/course-builder?sessionId=${encodeURIComponent(sessionId)}` : `/?session=${encodeURIComponent(sessionId)}`;
@@ -65,23 +66,25 @@ async function ensureProject(projectId: string) {
   const settings = source ? await sessionSource(source.id) : null;
   // Existing courses become folders without moving or rewriting their transcripts.
   const cwd = settings?.cwd ?? process.cwd();
-  const defaults = settings?.snapshot.profileId === "course-builder" ? settings.snapshot : (await new ModePackStore().resolve("course-builder", cwd)).snapshot;
+  const defaults = settings?.snapshot && isCourseBuilderSnapshot(settings.snapshot) ? settings.snapshot : (await new ModePackStore().resolve("course-builder", cwd)).snapshot;
   return harness.projectWorkspaces.create({ id: projectId, courseProjectId: projectId, title: course.title, cwd, defaults });
 }
 
 export async function createProjectFolder(input: { id: string; title: string; cwd: string; sourceSessionId?: string }) {
   const source = input.sourceSessionId ? await sessionSource(input.sourceSessionId) : null;
-  if (source?.snapshot.profileId === "course-builder") throw new Error("备课对话请在其课程内新建对话。");
+  if (source?.snapshot && isCourseBuilderSnapshot(source.snapshot)) throw new Error("备课对话请在其课程内新建对话。");
   const cwd = resolve(source?.cwd ?? input.cwd);
   if (!(await stat(cwd)).isDirectory()) throw new Error("项目工作目录不存在。");
   const defaults = source?.snapshot ?? (await new ModePackStore().resolve("general", cwd)).snapshot;
   return getLearningHarness().projectWorkspaces.create({ id: input.id, title: input.title, cwd, defaults, courseProjectId: null });
 }
 
-export async function createProjectConversation(input: { projectId: string; title: string; requestId: string }) {
+export async function createProjectConversation(input: { projectId: string; title: string; requestId: string; sourceSessionId?: string }) {
   const project = await ensureProject(input.projectId);
-  const base = project.defaults ?? (await new ModePackStore().resolve(project.courseProjectId ? "course-builder" : "general", project.cwd)).snapshot;
-  if (project.courseProjectId && base.profileId !== "course-builder") throw new Error("课程默认设置必须使用备课模式。");
+  const source = input.sourceSessionId ? await sessionSource(input.sourceSessionId) : null;
+  if (source && resolve(source.cwd) !== resolve(project.cwd)) throw new Error("来源对话与项目工作目录不一致。");
+  const base = source?.snapshot ?? project.defaults ?? (await new ModePackStore().resolve(project.courseProjectId ? "course-builder" : "general", project.cwd)).snapshot;
+  if (project.courseProjectId && !isCourseBuilderSnapshot(base)) throw new Error("课程默认设置必须使用备课模式。");
   const resolved = await resolveSavedModeSettings(base, undefined, project.cwd);
   buildModePackRuntimePlanFromInventory({ snapshot: resolved.snapshot, inventory: resolved.inventory });
   const host = getLearningHarness().projectWorkspaces;
@@ -90,7 +93,25 @@ export async function createProjectConversation(input: { projectId: string; titl
   if (project.courseProjectId) getLearningHarness().courseBuilder.bindSession(sessionId, project.courseProjectId);
   invalidateSessionListCache();
   console.info("[projects] created conversation", { projectId: project.id, sessionId, defaultRevision: project.revision });
-  return { sessionId, href: projectConversationHref(sessionId, !!project.courseProjectId) };
+  return { sessionId, href: projectConversationHref(sessionId, !!project.courseProjectId && resolved.snapshot.profileId === "course-builder") };
+}
+
+/** Start beside an existing conversation, preserving its workspace and mode without copying messages. */
+export async function createConversationFromSession(input: { sourceSessionId: string; requestId: string }) {
+  const sourcePath = await resolveSessionPath(input.sourceSessionId);
+  if (!sourcePath) throw new Error("Source conversation not found");
+  if (getLearningHarness().findCurrentSession(input.sourceSessionId)) throw new Error("学生会话不能作为新工作对话的来源。");
+  const harness = getLearningHarness();
+  const course = harness.courseBuilder.getProjectForSession(input.sourceSessionId);
+  const membership = harness.projectWorkspaces.members().find((item) => item.sessionId === input.sourceSessionId);
+  const projectId = course?.projectId ?? membership?.projectId;
+  if (projectId) return createProjectConversation({ projectId, title: "新对话", requestId: input.requestId, sourceSessionId: input.sourceSessionId });
+  const source = await sessionSource(input.sourceSessionId);
+  if (isCourseBuilderSnapshot(source.snapshot)) throw new Error("备课模式会话需要课程绑定才能新建课程对话。");
+  const sessionId = createPersistedGenericSession(source.cwd, "", source.snapshot);
+  invalidateSessionListCache();
+  console.info("[projects] created mode conversation", { sourceSessionId: input.sourceSessionId, sessionId, modePackId: source.snapshot.profileId });
+  return { sessionId, href: projectConversationHref(sessionId, false) };
 }
 
 export async function saveProjectDefaults(projectId: string, sourceSessionId: string, expectedRevision: number) {
@@ -100,7 +121,7 @@ export async function saveProjectDefaults(projectId: string, sourceSessionId: st
   if (!prior || prior.revision !== expectedRevision) throw new Error("Project settings revision conflict; reload before saving");
   const source = await sessionSource(sourceSessionId);
   const project = await ensureProject(projectId);
-  if (project.courseProjectId && source.snapshot.profileId !== "course-builder") throw new Error("课程默认设置必须使用备课模式。");
+  if (project.courseProjectId && !isCourseBuilderSnapshot(source.snapshot)) throw new Error("课程默认设置必须使用备课模式。");
   const result = getLearningHarness().projectWorkspaces.update(projectId, { title: prior.title, defaults: source.snapshot }, expectedRevision === 0 ? 1 : expectedRevision);
   console.info("[projects] saved shared defaults", { projectId, sourceSessionId, revision: result.revision });
   return { revision: result.revision };
@@ -113,25 +134,26 @@ export async function moveProjectConversation(sessionId: string, projectId: stri
   const project = projectId ? await ensureProject(projectId) : null;
   if (project?.courseProjectId) {
     const current = await getGenericModePackStatus(sessionId);
-    const ready = current.runtime.live && current.runtime.verified && current.runtime.binding?.snapshot.profileId === "course-builder";
+    const active = current.runtime.binding?.snapshot;
+    const ready = current.runtime.live && current.runtime.verified && !!active && isCourseBuilderSnapshot(active);
     if (!ready) {
       if (current.runtime.busy) throw new Error("Pi 正在处理消息，请等待当前回复完成后再移入课程。");
       await activateGenericModePack({
         sessionId,
-        modePackId: "course-builder",
+        modePackId: project.defaults && isCourseBuilderSnapshot(project.defaults) ? project.defaults.profileId : "course-builder",
         expectedSnapshotId: current.runtime.binding?.snapshot.resourceSnapshotId ?? null,
         idempotencyKey: randomUUID(),
       });
     }
     const activated = await getGenericModePackStatus(sessionId);
-    if (!activated.runtime.verified || activated.runtime.binding?.snapshot.profileId !== "course-builder") {
+    if (!activated.runtime.verified || !activated.runtime.binding?.snapshot || !isCourseBuilderSnapshot(activated.runtime.binding.snapshot)) {
       throw new Error(activated.runtime.diagnostic ?? "备课模式启动核验失败，对话尚未移入课程。");
     }
     harness.courseBuilder.bindSession(sessionId, project.courseProjectId);
     harness.projectWorkspaces.move(sessionId, project.id);
     invalidateSessionListCache();
     console.info("[projects] moved existing conversation into course", { sessionId, projectId: project.id, resourceSnapshotId: activated.runtime.binding.snapshot.resourceSnapshotId });
-    return { href: projectConversationHref(sessionId, true) };
+    return { href: projectConversationHref(sessionId, activated.runtime.binding.snapshot.profileId === "course-builder") };
   }
   harness.projectWorkspaces.move(sessionId, projectId);
   console.info("[projects] moved conversation", { sessionId, projectId });

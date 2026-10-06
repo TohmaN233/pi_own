@@ -7,8 +7,9 @@ on:
       - '**/package.json'
       - '**/package-lock.json'
       - '**/npm-shrinkwrap.json'
-      - 'third_party/pi-web-sdk/**'
-      - 'scripts/vendor-pi-web-sdk*'
+      - 'apps/pi-web/host-plugins/**'
+      - 'third_party/pi-caw.json'
+      - 'scripts/audit-production*'
       - '.github/workflows/npm-audit.yml'
   schedule:
     - cron: '37 7 * * *'
@@ -47,41 +48,36 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/pi-web/package-lock.json
-      - name: Use the npm version that preserves platform lock metadata
+      - name: Use npm with complete platform lock metadata
         run: npm install --global npm@11.12.1 --ignore-scripts --no-audit --no-fund
-      - name: Record installation toolchain
-        run: npm --version
-      - name: Verify vendored SDK bytes and patch scope
-        run: python scripts/vendor-pi-web-sdk.py --check
-      - name: SDK archive integrity regressions
-        run: python scripts/vendor-pi-web-sdk-test.py
       - name: Install Pi Web without lifecycle scripts
         working-directory: apps/pi-web
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Audit Pi Web production dependencies
         working-directory: apps/pi-web
         run: npm audit --omit=dev --audit-level=moderate
-      - name: Verify Pi Web registry dependency signatures
+      - name: Verify Pi Web registry signatures
         working-directory: apps/pi-web
         run: npm audit signatures --omit=dev
-      - name: Verify SDK CLI, RPC, extension loading and HTTP proxy
+      - name: Verify native Pi SDK, pinned plugin archive and HTTP proxy
         working-directory: apps/pi-web
-        run: node --test --test-force-exit lib/vendored-sdk.test.mjs lib/http-dispatcher.test.mjs
-      - name: Verify normal install keeps the repaired lock
+        run: node --test --test-force-exit lib/pi-runtime-integrity.test.mjs lib/http-dispatcher.test.mjs
+      - name: Verify normal installation preserves the audited graph
         working-directory: apps/pi-web
         run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Recheck audit after normal install
+      - name: Recheck audit after normal installation
         working-directory: apps/pi-web
         run: npm audit --omit=dev --audit-level=moderate
-      - name: Verify SDK identity and dependency graph after normal install
-        run: python scripts/vendor-pi-web-sdk.py --check
-      - name: Verify normal install did not change the lock
+      - name: Recheck native runtime and plugin integrity
+        working-directory: apps/pi-web
+        run: node --test --test-force-exit lib/pi-runtime-integrity.test.mjs
+      - name: Verify normal installation did not change the lock
         working-directory: apps/pi-web
         run: git diff --exit-code -- package-lock.json

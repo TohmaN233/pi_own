@@ -79,7 +79,7 @@ export function resolveLocalFileHref(
   baseDir?: string,
   relativeRoot = baseDir,
 ): string | null {
-  if (!href) return null;
+  if (!href || isAppNavigationHref(href)) return null;
 
   if (href.startsWith("/__pi_file__/")) {
     const path = safeDecode(href.slice("/__pi_file__/".length));
@@ -123,6 +123,11 @@ export function resolveLocalFileHref(
   const filePath = stripLineSuffix(normalizeLocalPath(candidate));
   if (candidateKind === "relative" && relativeRoot && !isPathInside(filePath, relativeRoot)) return null;
   return filePath;
+}
+
+/** These exact application routes are navigation, including their query/hash. */
+export function isAppNavigationHref(href: string | undefined): boolean {
+  return typeof href === "string" && /^\/(?:course-builder|projects|mode-packs)(?:[?#]|$)/.test(href);
 }
 
 /** Resolve a filesystem path without applying URL or source-location syntax. */

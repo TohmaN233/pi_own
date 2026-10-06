@@ -1,5 +1,5 @@
 import { isApiRequestAllowed } from "@/lib/request-security";
-import { createProjectConversation, createProjectFolder, moveProjectConversation, projectWorkspaceList, saveProjectDefaults } from "@/lib/project-workspaces-service";
+import { createConversationFromSession, createProjectConversation, createProjectFolder, moveProjectConversation, projectWorkspaceList, saveProjectDefaults } from "@/lib/project-workspaces-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     switch (body.action) {
       case "create": return Response.json(await createProjectFolder({ id: `project_${text(body.requestId, "requestId", 128)}`, title: text(body.title, "title", 200), cwd: text(body.cwd, "cwd", 4096), ...(body.sourceSessionId ? { sourceSessionId: text(body.sourceSessionId, "sourceSessionId") } : {}) }));
       case "new_conversation": return Response.json(await createProjectConversation({ projectId: text(body.projectId, "projectId"), title: text(body.title, "title", 200), requestId: text(body.requestId, "requestId", 128) }));
+      case "new_from_session": return Response.json(await createConversationFromSession({ sourceSessionId: text(body.sourceSessionId, "sourceSessionId"), requestId: text(body.requestId, "requestId", 128) }));
       case "save_defaults": {
         if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0) throw new Error("Expected project revision is required");
         return Response.json(await saveProjectDefaults(text(body.projectId, "projectId"), text(body.sessionId, "sessionId"), body.expectedRevision));

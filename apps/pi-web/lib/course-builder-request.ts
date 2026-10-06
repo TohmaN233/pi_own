@@ -1,6 +1,7 @@
 import { getGenericModePackStatus, getRpcSession } from "./rpc-manager";
 import { assertCourseBuilderSession } from "./course-builder-service";
 import { resolveSessionPath } from "./session-reader";
+import { isCourseBuilderSnapshot } from "./course-builder-mode";
 
 /** Persisted teacher work does not depend on a live model or current Skill snapshot. */
 export async function requireCourseBuilderWorkspace(sessionId: string, idle = false) {
@@ -14,7 +15,7 @@ export async function requireCourseBuilderRuntime(sessionId: string, idle = fals
  assertCourseBuilderSession(sessionId);
  const status=await getGenericModePackStatus(sessionId);
  const wrapper=getRpcSession(sessionId);
- if (!wrapper || !status.runtime.live || !status.runtime.verified || status.runtime.binding?.snapshot.profileId!=="course-builder") throw new Error("Activate Course Builder in a live ordinary Pi session first");
+ if (!wrapper || !status.runtime.live || !status.runtime.verified || !status.runtime.binding?.snapshot || !isCourseBuilderSnapshot(status.runtime.binding.snapshot)) throw new Error("Activate Course Builder in a live ordinary Pi session first");
  if(idle && status.runtime.busy) throw new Error("Session is busy; wait before teacher changes");
  return {wrapper,status};
 }

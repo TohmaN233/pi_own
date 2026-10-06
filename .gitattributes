@@ -1,5 +1,9 @@
 # Default to LF for text files across the repo
 * text=auto eol=lf
+third_party/playwright-cli/LICENSE -text whitespace=cr-at-eol
+skill-backups/course-workflows/2026-10-02/course-planning-beamer/SKILL.md -text whitespace=cr-at-eol
+# Preserve the upstream README's diagram spacing verbatim.
+third_party/agent-skills/README.md whitespace=-blank-at-eol
 
 # Windows scripts should keep CRLF
 *.bat text eol=crlf
@@ -19,6 +23,5 @@
 *.pdf binary
 *.zip binary
 *.gz binary
-*.tgz binary
 *.woff binary
 *.woff2 binary

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { complete, getModel } from "../src/compat.ts";
 import type { Api, AssistantMessage, Context, Model, StreamOptions, UserMessage } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -367,23 +367,24 @@ describe("AI Providers Empty Message Tests", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider Empty Messages", () => {
-		const llm = getTogetherTestModel();
+	const togetherEmptyModel = findCurrentOpenAICompletionsModel("together");
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherEmptyModel)("Together AI Provider Empty Messages", () => {
+		const llm = () => requireCurrentOpenAICompletionsModel(togetherEmptyModel, "together");
 
 		it("should handle empty content array", { retry: 3, timeout: 30000 }, async () => {
-			await testEmptyMessage(llm);
+			await testEmptyMessage(llm());
 		});
 
 		it("should handle empty string content", { retry: 3, timeout: 30000 }, async () => {
-			await testEmptyStringMessage(llm);
+			await testEmptyStringMessage(llm());
 		});
 
 		it("should handle whitespace-only content", { retry: 3, timeout: 30000 }, async () => {
-			await testWhitespaceOnlyMessage(llm);
+			await testWhitespaceOnlyMessage(llm());
 		});
 
 		it("should handle empty assistant message in conversation", { retry: 3, timeout: 30000 }, async () => {
-			await testEmptyAssistantMessage(llm);
+			await testEmptyAssistantMessage(llm());
 		});
 	});
 

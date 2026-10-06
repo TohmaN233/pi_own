@@ -38,7 +38,7 @@ test("fresh Pi task has exact tools, durable version-bound report and no inherit
   const task = await openStudyTaskAgent({ sessionFile: prepared.sessionFile, expectedPacket: packet, agentDir: directory, modelRuntime: runtime }); opened.push(task);
   assert.deepEqual(task.session.getActiveToolNames(), ["study_task_report"]);
   assert.equal(task.session.messages.length, 0);
-  assert.doesNotMatch(task.session.agent.state.systemPrompt, /AMBIENT_SECRET_SENTINEL/);
+  assert.doesNotMatch(task.session.systemPrompt, /AMBIENT_SECRET_SENTINEL/);
   task.session.agent.streamFunction = faux.stream;
   const valid = { summary: "Finite expectation is an assumption.", status: "inconclusive", findings: [],
     notes: [{ title: "Assumption", body: "No stronger moment assumptions follow from this fragment.", evidenceIds: ["chunk-1"] }], unresolved: ["Need later sections."] };

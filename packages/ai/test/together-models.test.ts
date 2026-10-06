@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getTogetherCompat, getTogetherThinkingLevelMap } from "../scripts/together-reasoning-options.ts";
-import { getModels } from "../src/compat.ts";
+import { getModels, getSupportedThinkingLevels } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
+import { findCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
+import { TOGETHER_KIMI_K2_6_MODEL } from "./model-fixtures.ts";
 
 const originalTogetherApiKey = process.env.TOGETHER_API_KEY;
 
@@ -29,6 +31,18 @@ describe("Together models", () => {
 				supportsLongCacheRetention: false,
 			});
 		}
+	});
+
+	it("selects current Together models with the requested live-test capabilities", () => {
+		const highReasoning = findCurrentOpenAICompletionsModel("together", { reasoningLevel: "high" });
+		const imageReasoning = findCurrentOpenAICompletionsModel("together", {
+			inputs: ["image"],
+			reasoningLevel: "high",
+		});
+
+		expect(highReasoning ? getSupportedThinkingLevels(highReasoning) : []).toContain("high");
+		expect(imageReasoning?.input).toContain("image");
+		expect(imageReasoning ? getSupportedThinkingLevels(imageReasoning) : []).toContain("high");
 	});
 
 	it("models Together reasoning controls from the Together API surface", () => {
@@ -69,6 +83,15 @@ describe("Together models", () => {
 		expect(minimax.thinkingLevelMap).toEqual({ off: null, minimal: null, low: null, medium: null });
 		expect(minimax.compat?.thinkingFormat).toBeUndefined();
 		expect(minimax.compat?.supportsReasoningEffort).toBe(false);
+	});
+
+	it("keeps the retired Kimi protocol policy test independent of current catalog membership", () => {
+		expect(getTogetherCompat(TOGETHER_KIMI_K2_6_MODEL.id, TOGETHER_KIMI_K2_6_MODEL.reasoning)).toEqual(
+			TOGETHER_KIMI_K2_6_MODEL.compat,
+		);
+		expect(getTogetherThinkingLevelMap(TOGETHER_KIMI_K2_6_MODEL.id, TOGETHER_KIMI_K2_6_MODEL.reasoning)).toEqual(
+			TOGETHER_KIMI_K2_6_MODEL.thinkingLevelMap,
+		);
 	});
 
 	it("handles ordinary reasoning toggles and non-reasoning models independently of catalog membership", () => {

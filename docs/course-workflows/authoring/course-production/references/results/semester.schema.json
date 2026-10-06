@@ -1,0 +1,212 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "draft",
+    "files"
+  ],
+  "properties": {
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sessions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 840,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "materialIndexes": {
+                "type": "array",
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 511
+                }
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "objectives": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "prerequisites": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "topics": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "activities": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "understandingEvidence": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "assessment": {
+                "type": "string",
+                "maxLength": 10000,
+                "description": "Use an empty string when absent; Host normalizes absence."
+              },
+              "homework": {
+                "type": "string",
+                "maxLength": 10000,
+                "description": "Use an empty string when absent; Host normalizes absence."
+              },
+              "goalIndexes": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 99
+                },
+                "uniqueItems": true
+              },
+              "revisits": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {
+                    "concept": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096,
+                      "description": "Newly authored human concept label; Host derives its course-scoped identity. Omit unchanged revisits on revision."
+                    },
+                    "progression": {
+                      "enum": [
+                        "complexity",
+                        "relationship",
+                        "abstraction",
+                        "formalization",
+                        "representation",
+                        "transfer",
+                        "boundary"
+                      ]
+                    },
+                    "note": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  }
+                }
+              },
+              "visualOpportunities": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "path"
+        ],
+        "properties": {
+          "format": {
+            "enum": [
+              "tex",
+              "rmd"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+          },
+          "documentKind": {
+            "enum": [
+              "beamer",
+              "teacher-notes",
+              "assignment"
+            ]
+          },
+          "role": {
+            "enum": [
+              "student",
+              "solution"
+            ]
+          },
+          "outputMode": {
+            "enum": [
+              "knit",
+              "render"
+            ]
+          },
+          "expectedPages": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    }
+  }
+}

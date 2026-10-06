@@ -1,0 +1,109 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "draft",
+    "files"
+  ],
+  "properties": {
+    "draft": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "overview": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "deliverables": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "rubric": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "solutionNotes": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "path"
+        ],
+        "properties": {
+          "format": {
+            "enum": [
+              "tex",
+              "rmd"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+          },
+          "documentKind": {
+            "enum": [
+              "beamer",
+              "teacher-notes",
+              "assignment"
+            ]
+          },
+          "role": {
+            "enum": [
+              "student",
+              "solution"
+            ]
+          },
+          "outputMode": {
+            "enum": [
+              "knit",
+              "render"
+            ]
+          },
+          "expectedPages": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    }
+  }
+}

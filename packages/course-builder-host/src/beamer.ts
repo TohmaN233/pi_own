@@ -145,6 +145,9 @@ export async function resolveSyncTexCommand(compiler?: string): Promise<string> 
 }
 
 export interface CompileLatexDocumentOptions {
+	signal?: AbortSignal;
+	/** Parent-owned scratch directory; all transient compiler files stay beneath it. */
+	workDirectory?: string;
 	source: string;
 	sourceHash: string;
 	documentKind: LatexDocumentKind;
@@ -221,14 +224,16 @@ function assertSafeTeacherNotesSource(source: string): void {
 	assertBeamerPresentationSource(source);
 }
 
-function runBoundedProcess(options: {
+export function runBoundedProcess(options: {
 	command: string;
 	args: readonly string[];
 	cwd: string;
 	timeoutMs: number;
 	maxOutputBytes: number;
 	env?: NodeJS.ProcessEnv;
+	signal?: AbortSignal;
 }): Promise<ProcessResult> {
+	options.signal?.throwIfAborted();
 	return new Promise((resolveProcess, rejectProcess) => {
 		const child = spawn(options.command, [...options.args], {
 			cwd: options.cwd,
@@ -236,6 +241,7 @@ function runBoundedProcess(options: {
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
 			shell: false,
+			detached: process.platform !== "win32",
 		});
 		const stdout: Buffer[] = [];
 		const stderr: Buffer[] = [];
@@ -243,15 +249,48 @@ function runBoundedProcess(options: {
 		let settled = false;
 		let timedOut = false;
 		let outputLimited = false;
+		let termination: Promise<void> | null = null;
+		const terminate = (): void => {
+			if (termination || !child.pid) return;
+			const pid = child.pid;
+			termination =
+				process.platform === "win32"
+					? new Promise<void>((done, fail) => {
+							const killer = spawn(
+								join(process.env.SYSTEMROOT ?? "C:\\Windows", "System32", "taskkill.exe"),
+								["/PID", String(pid), "/T", "/F"],
+								{ windowsHide: true, stdio: "ignore", shell: false },
+							);
+							killer.once("error", fail);
+							killer.once("close", (code) =>
+								code === 0
+									? done()
+									: fail(
+											new BeamerWorkflowError(
+												"PROCESS_TERMINATION_UNCONFIRMED",
+												`taskkill failed for compiler tree ${pid}: ${code}`,
+											),
+										),
+							);
+						})
+					: Promise.resolve().then(() => {
+							process.kill(-pid, "SIGKILL");
+						});
+			// The close handler awaits this evidence; avoid an unhandled rejection meanwhile.
+			termination.catch(() => undefined);
+		};
+		const onAbort = (): void => terminate();
+		options.signal?.addEventListener("abort", onAbort, { once: true });
 		const finish = (result: ProcessResult): void => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			options.signal?.removeEventListener("abort", onAbort);
 			resolveProcess(result);
 		};
 		const killForLimit = (): void => {
 			outputLimited = true;
-			child.kill("SIGKILL");
+			terminate();
 		};
 		const append = (target: Buffer[], chunk: Buffer): void => {
 			outputBytes += chunk.byteLength;
@@ -263,12 +302,13 @@ function runBoundedProcess(options: {
 		};
 		const timer = setTimeout(() => {
 			timedOut = true;
-			child.kill("SIGKILL");
+			terminate();
 		}, options.timeoutMs);
 		child.once("error", (error) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
+			options.signal?.removeEventListener("abort", onAbort);
 			rejectProcess(
 				new BeamerWorkflowError(
 					"BEAMER_COMPILER_START_FAILED",
@@ -278,7 +318,25 @@ function runBoundedProcess(options: {
 		});
 		child.stdout?.on("data", (chunk: Buffer) => append(stdout, chunk));
 		child.stderr?.on("data", (chunk: Buffer) => append(stderr, chunk));
-		child.once("close", (exitCode) => {
+		child.once("close", async (exitCode) => {
+			try {
+				await termination;
+				if (options.signal?.aborted) {
+					settled = true;
+					clearTimeout(timer);
+					options.signal.removeEventListener("abort", onAbort);
+					rejectProcess(
+						options.signal.reason ?? new BeamerWorkflowError("PROCESS_CANCELLED", "Compiler tree terminated"),
+					);
+					return;
+				}
+			} catch (error) {
+				settled = true;
+				clearTimeout(timer);
+				options.signal?.removeEventListener("abort", onAbort);
+				rejectProcess(error);
+				return;
+			}
 			finish({
 				exitCode,
 				stdout: Buffer.concat(stdout).toString("utf8"),
@@ -287,6 +345,7 @@ function runBoundedProcess(options: {
 				outputLimited,
 			});
 		});
+		if (options.signal?.aborted) onAbort();
 	});
 }
 
@@ -359,6 +418,8 @@ function pageCountFromLog(log: string): number | null {
 }
 
 export interface CompileBeamerOptions {
+	signal?: AbortSignal;
+	workDirectory?: string;
 	project: CourseBuilderProject;
 	deck: BeamerDeck;
 	compiler?: string;
@@ -372,6 +433,7 @@ export interface CompileBeamerOptions {
 }
 
 export async function compileLatexDocument(options: CompileLatexDocumentOptions): Promise<CompileLatexDocumentResult> {
+	options.signal?.throwIfAborted();
 	if (options.documentKind !== "beamer" && options.documentKind !== "teacher-notes")
 		throw new BeamerWorkflowError("INVALID_DOCUMENT_KIND", "documentKind must be beamer or teacher-notes");
 	const source = options.source;
@@ -416,7 +478,10 @@ export async function compileLatexDocument(options: CompileLatexDocumentOptions)
 	let syncTexBytes: Uint8Array | undefined;
 	try {
 		directory = await mkdtemp(
-			join(tmpdir(), options.documentKind === "beamer" ? "pi-own-beamer-" : "pi-own-teacher-notes-"),
+			join(
+				options.workDirectory ?? tmpdir(),
+				options.documentKind === "beamer" ? "pi-own-beamer-" : "pi-own-teacher-notes-",
+			),
 		);
 		await writeFile(join(directory, inputName), source, "utf8");
 		await mkdir(join(directory, "assets"));
@@ -436,6 +501,7 @@ export async function compileLatexDocument(options: CompileLatexDocumentOptions)
 			shell_escape: "f",
 		};
 		for (let pass = 0; pass < passes; pass++) {
+			options.signal?.throwIfAborted();
 			finalResult = await runBoundedProcess({
 				command: compiler,
 				args,
@@ -443,6 +509,7 @@ export async function compileLatexDocument(options: CompileLatexDocumentOptions)
 				timeoutMs,
 				maxOutputBytes,
 				env: environment,
+				signal: options.signal,
 			});
 			finalLog = `${finalResult.stdout}\n${finalResult.stderr}`;
 			try {
@@ -533,6 +600,8 @@ export async function compileBeamerDeck(options: CompileBeamerOptions): Promise<
 		throw new BeamerWorkflowError("PROJECT_MISMATCH", "Deck belongs to another Course Builder project");
 	}
 	const result = await compileLatexDocument({
+		signal: options.signal,
+		workDirectory: options.workDirectory,
 		source: options.deck.source,
 		sourceHash: options.deck.sourceHash,
 		documentKind: "beamer",

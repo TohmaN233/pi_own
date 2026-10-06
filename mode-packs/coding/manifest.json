@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "modePackId": "coding",
+  "title": "Coding",
+  "description": "面向真实仓库的检查、最小编辑、测试与差异核验。",
+  "category": "coding",
+  "role": "general",
+  "runtimeMode": "general",
+  "tools": ["bash", "codemode", "edit", "find", "grep", "ls", "powershell", "read", "write"],
+  "systemPrompt": "Use Pi's default coding-agent instructions, the active repository instructions, and the Code Mode resources selected by the host.",
+  "systemPromptMode": "append",
+  "projectCapabilities": ["spec-kit"],
+  "frontend": { "entry": "frontend/index.html" }
+}

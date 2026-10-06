@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { getOpenCodeGoThinkingLevelMap } from "../scripts/opencode-go-reasoning-options.ts";
 import { getModel, getSupportedThinkingLevels } from "../src/compat.ts";
-import { historicalOpenCodeKimi } from "./historical-models.ts";
+import { OPENCODE_GO_KIMI_K2_6_MODEL } from "./model-fixtures.ts";
 
 describe("getSupportedThinkingLevels", () => {
 	it("includes max but not xhigh for Anthropic Opus 4.6 on anthropic-messages API", () => {
@@ -96,9 +97,10 @@ describe("getSupportedThinkingLevels", () => {
 	});
 
 	it("includes only high plus off for OpenCode Go Kimi K2.6", () => {
-		const model = historicalOpenCodeKimi["opencode-go"];
-		expect(model).toBeDefined();
-		expect(getSupportedThinkingLevels(model!)).toEqual(["off", "high"]);
+		const thinkingLevelMap = getOpenCodeGoThinkingLevelMap(OPENCODE_GO_KIMI_K2_6_MODEL.id);
+		expect(thinkingLevelMap).toEqual({ minimal: null, low: null, medium: null });
+		const model = { ...OPENCODE_GO_KIMI_K2_6_MODEL, thinkingLevelMap: thinkingLevelMap ?? {} };
+		expect(getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 	});
 
 	it("excludes thinking off for Moonshot Kimi K2.7 Code models", () => {

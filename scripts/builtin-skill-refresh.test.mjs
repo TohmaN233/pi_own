@@ -11,14 +11,14 @@ test('new catalogs read edited built-in Skills while prior snapshots stay immuta
   cpSync(resolve('skills'),root,{recursive:true});
   process.env.PI_SKILLS_DIR=root;
   const module=await import('../packages/profile-resource-host/src/index.ts');
-  const id='teacher.course-planning-beamer';
+  const id='education.lesson-blueprint';
   const before=module.createDefaultResourceCatalog().get('skill',id);
-  const frozen=module.BUILTIN_MODE_RESOURCES.find(item=>item.id===id);
-  const path=join(root,'course-planning-beamer','SKILL.md');
+  const frozen=module.createBuiltinModeResources().find(item=>item.id===id);
+  const path=join(root,'lesson-blueprint','SKILL.md');
   const changed=readFileSync(path,'utf8')+'\nFresh skill instruction for hot-update regression.\n';
   writeFileSync(path,changed);
   const after=module.createDefaultResourceCatalog().get('skill',id);
-  assert.notEqual(after.contentHash,before.contentHash,'new catalog must not reuse the import-time Skill hash');
+  assert.notEqual(after.contentHash,before.contentHash,'new catalog must not reuse the prior Skill hash');
   const fresh=module.createBuiltinModeResources().find(item=>item.id===id);
   assert.equal(fresh.instructions.join('\n\n'),changed);
   assert.equal(frozen.contentHash,before.contentHash);

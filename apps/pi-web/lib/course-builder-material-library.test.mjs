@@ -48,6 +48,29 @@ test("conflicting filenames retain existing bytes and register a versioned filen
   assert.match(result.materials[0].name,/^existing-[a-f0-9]+\.md$/);
   assert.equal(f.host.getSnapshotForSession("teacher").materials.length,2);
 });
+
+test("add_material refreshes the authored file in place, retaining its ID and unrelated references",async t=>{
+  const f=await fixture(t),subfolder=join(f.library,"visuals");await mkdir(subfolder);
+  const path=join(f.library,"explorer.html");await writeFile(path,"Original authored classroom page");
+  const first=await addCourseMaterial(f.host,"teacher",{path},f.revision);
+  const other=f.host.getSnapshotForSession("teacher").materials.find(m=>m.name==="existing.md");
+  const baseline=f.host.getMaterial("teacher",first.materials[0].materialId);
+  await writeFile(path,"Updated authored classroom page with the requested Rmd download");
+  const updated=await addCourseMaterial(f.host,"teacher",{path},first.revision);
+  assert.equal(updated.materials[0].path,path);
+  assert.equal(updated.materials[0].materialId,baseline.materialId);
+  assert.equal(updated.revision,first.revision+1);assert.equal(updated.replay,false);
+  assert.notEqual(f.host.getMaterial("teacher",baseline.materialId).sourceHash,baseline.sourceHash);
+  assert.match(await readLinkedCourseBuilderMaterial(f.host.getMaterial("teacher",baseline.materialId)),/requested Rmd download/);
+  assert.deepEqual(f.host.getMaterial("teacher",other.materialId),other);
+  const nested=join(subfolder,"nested.html");await writeFile(nested,"Nested authored page");
+  const linked=await addCourseMaterial(f.host,"teacher",{path:nested},updated.revision);
+  assert.equal(linked.materials[0].path,nested);assert.equal(linked.materials[0].name,"visuals/nested.html");
+  assert.deepEqual(await readdir(f.library),["existing.md","explorer.html","visuals"]);
+  const replay=await addCourseMaterial(f.host,"teacher",{path},linked.revision);
+  assert.equal(replay.replay,true);assert.equal(replay.revision,linked.revision);
+  await assert.rejects(addCourseMaterial(f.host,"teacher",{path},first.revision),/版本已变化/);
+});
 test("actual Host material command binds and completes a library delivery, including verified replay",async t=>{
   const f=await fixture(t),source=join(f.cwd,"web-capture.md");await writeFile(source,"# User suggested reference\n\nRead this source on demand.");
   let task;const loop=new CourseDeliveryLoop({snapshot:()=>f.host.getSnapshotForSession("teacher"),load:()=>task,save:value=>{task=value;}});

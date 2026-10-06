@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { getModel, getModels, stream } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -186,11 +186,12 @@ describe("Token Statistics on Abort", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider", () => {
-		const llm = getTogetherTestModel();
+	const togetherTokenModel = findCurrentOpenAICompletionsModel("together");
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherTokenModel)("Together AI Provider", () => {
+		const llm = () => requireCurrentOpenAICompletionsModel(togetherTokenModel, "together");
 
 		it("should include token stats when aborted mid-stream", { retry: 3, timeout: 30000 }, async () => {
-			await testTokensOnAbort(llm);
+			await testTokensOnAbort(llm());
 		});
 	});
 

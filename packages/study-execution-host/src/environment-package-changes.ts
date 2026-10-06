@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { contentHash } from "../../harness-core/src/index.ts";
+import { compileWindowsNativeHelper } from "./windows-native-helper.ts";
 
 const PACKAGE_NAME = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/u;
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
@@ -1003,7 +1004,7 @@ export async function runTrustedCommand(
 interface TrustedCommandProcessObserver {
 	onStarted?: (identity: EnvironmentPackageProcessIdentity) => void;
 	onExited?: (identity: EnvironmentPackageProcessIdentity) => void;
-	/** An operation-private absolute directory that retains the supervisor binary and gate evidence. */
+	/** An operation-private absolute directory retaining gate evidence; the verified executable uses the retained native cache. */
 	supervisorDirectory?: string;
 }
 
@@ -1038,7 +1039,6 @@ async function prepareGatedEnvironmentPackageSupervisor(
 		);
 	await mkdir(observer.supervisorDirectory, { recursive: true });
 	const sourcePath = join(dirname(fileURLToPath(import.meta.url)), "environment-package-supervisor.cs");
-	const outputPath = join(observer.supervisorDirectory, "environment-package-supervisor.exe");
 	const compilerPath = join(
 		process.env.SystemRoot || "C:\\Windows",
 		"Microsoft.NET",
@@ -1051,20 +1051,19 @@ async function prepareGatedEnvironmentPackageSupervisor(
 			"PACKAGE_SUPERVISOR_COMPILER_MISSING",
 			"the Windows C# compiler required for durable package supervision is unavailable",
 		);
-	const compiled = spawnSync(compilerPath, ["/nologo", "/target:exe", `/out:${outputPath}`, sourcePath], {
-		encoding: "utf8",
-		shell: false,
-		windowsHide: true,
-		timeout: 30_000,
+	const outputPath = await compileWindowsNativeHelper({
+		compilerPath,
+		sourcePath,
+		name: "environment-package-supervisor.exe",
+		failure: (message) =>
+			new EnvironmentPackageChangeError(
+				"PACKAGE_SUPERVISOR_COMPILE_FAILED",
+				`could not build the durable package supervisor: ${message}`,
+			),
 	});
-	if (compiled.error || compiled.status !== 0 || !existsSync(outputPath))
-		throw new EnvironmentPackageChangeError(
-			"PACKAGE_SUPERVISOR_COMPILE_FAILED",
-			`could not build the durable package supervisor: ${(compiled.stderr || compiled.error?.message || `exit ${compiled.status}`).trim().slice(0, 2_000)}`,
-		);
 	const gateToken = randomUUID();
-	// One operation owns one work directory. Keep gate names short enough for the
-	// legacy Win32 MAX_PATH limit even when a project path is deeply nested.
+	// One operation owns its durable gate evidence. The retained cache executable
+	// and its .NET settings enable these long operation paths during recovery.
 	const readyFile = join(observer.supervisorDirectory, "supervisor.ready.json");
 	const releaseFile = join(observer.supervisorDirectory, "supervisor.release");
 	return {

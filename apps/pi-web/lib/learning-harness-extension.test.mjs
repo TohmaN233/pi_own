@@ -62,9 +62,12 @@ test("grounded extension stages a valid draft, strips intermediate prose, and on
   const toolCall = handlers.get("tool_call");
   assert.deepEqual(toolCall({ toolName: "bash", toolCallId: "blocked", input: {} }), {
     block: true,
-    reason: "Only submit_grounded_answer may run during a course-grounded answer.",
+    reason: "Only course publication and subagent protocol tools may run during a course-grounded answer.",
   });
   assert.equal(toolCall({ toolName: "submit_grounded_answer", toolCallId: "allowed", input: {} }), undefined);
+  for (const name of ["Agent", "get_subagent_result", "steer_subagent"]) {
+    assert.equal(toolCall({ toolName: name, toolCallId: `allowed-${name}`, input: {} }), undefined);
+  }
 
   const intermediate = messageEnd({ message: {
     role: "assistant",

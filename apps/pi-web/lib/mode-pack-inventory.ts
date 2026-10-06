@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { existsSync, readFileSync, statSync } from "fs";
-import { basename, dirname, extname, relative, resolve } from "path";
+import { basename, dirname, extname, join, relative, resolve } from "path";
 import {
   DefaultPackageManager,
   getAgentDir,
@@ -10,6 +10,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   ModePackDefinition,
+  ResourceDescriptor,
+  ResourceDelivery,
   ResourceKind,
   ResourceSnapshot,
 } from "../../../packages/harness-contracts/src/index.ts";
@@ -20,6 +22,8 @@ import {
   ResourceCatalog,
   resolveBuiltinModeSkillPath,
   localModeSkillsDirectory,
+  isBuiltinModeSkillDeleted,
+  MODE_PACK_TOOL_NAMES,
 } from "../../../packages/profile-resource-host/src/index.ts";
 import {
   assertGenericModePackSnapshot,
@@ -35,12 +39,18 @@ import { COURSE_BUILDER_DRAFT } from "./course-builder-pack";
 import { assertStudyModeBoundary } from "./study-mode-policy";
 import { STUDY_RESEARCH_DRAFTS } from "./study-research-pack";
 import { resolveShellTools } from "./powershell-settings";
+import { nativeMcpDirectToolNames } from "./pi-builtin-mode-extensions";
+import { portableModePackageDirectory, readHistoricalSharedProvider, readLatestPortableModePackages, readPortableModePackage } from "./portable-mode-pack-registry";
+import { resolveSharedResourceProviders, sharedResourceClaims, type SharedResourceClaim } from "./portable-mode-shared-resources";
+import { bundledCodeModePackage } from "./bundled-code-mode-package";
+import { portablePackageRuntimeDirectory, type PortableModePackageSelection } from "./portable-mode-package-install";
+import { inspectSpecKit, SPEC_KIT_COMMANDS } from "./code-mode-spec-kit";
+import { hostBaselineToolNames } from "./host-baseline-plugins";
 
 const TOOL_HASH = "sha256:built-in-tool";
 const BUILTIN_EXTENSION_HASH = "sha256:learning-harness-v1";
 const MAX_RESOURCE_TEXT_BYTES = 256 * 1024;
 const MAX_COMPILED_PROMPT_BYTES = 768 * 1024;
-const BUILTIN_TOOL_NAMES = ["bash", "edit", "find", "grep", "ls", "powershell", "read", "write"] as const;
 
 export interface RuntimeModeResource {
   kind: ResourceKind;
@@ -54,6 +64,9 @@ export interface RuntimeModeResource {
   source: string;
   scope: string;
   synthetic: boolean;
+  delivery?: ResourceDelivery;
+  /** Known package resource which has not yet been installed for this mode. */
+  available?: boolean;
 }
 
 export interface ModePackInventoryDiagnostic {
@@ -81,13 +94,14 @@ export interface ModePackRuntimePlan {
   themePaths: string[];
   expected: ModePackRuntimeExpectation;
   systemPrompt: string;
+  systemPromptMode: "replace" | "append";
   resourceIdsByPath: ReadonlyMap<string, string>;
   resourceHashesByPath: ReadonlyMap<string, string>;
   resourcePromptBlocksByKey: ReadonlyMap<string, string>;
 }
 
 interface ResourceLoaderLike {
-  getExtensions(): { extensions: Array<{ path?: string; sourceInfo?: { path?: string } }> };
+  getExtensions(): { extensions: Array<{ path?: string; sourceInfo?: { path?: string }; tools?: ReadonlyMap<string, unknown> }> };
   getSkills(): { skills: Array<{ filePath?: string; sourceInfo?: { path?: string } }> };
   getPrompts(): { prompts: Array<{ filePath?: string; sourceInfo?: { path?: string } }> };
   getThemes(): { themes: Array<{ path?: string; filePath?: string; sourcePath?: string; sourceInfo?: { path?: string } }> };
@@ -168,6 +182,7 @@ function runtimeResource(options: {
   synthetic?: boolean;
   version?: string;
   digestPayload?: unknown;
+  delivery?: ResourceDelivery;
 }): RuntimeModeResource {
   const paths = [...options.paths].sort((left, right) => normalizePath(left).localeCompare(normalizePath(right)));
   const pathHashes = Object.fromEntries(paths.map((path) => [normalizePath(path), fileDigest(path)]));
@@ -190,11 +205,12 @@ function runtimeResource(options: {
     source: options.source,
     scope: options.scope,
     synthetic: options.synthetic ?? false,
+    ...(options.delivery ? { delivery: options.delivery } : {}),
   };
 }
 
-function builtinResources(): RuntimeModeResource[] {
-  const tools: RuntimeModeResource[] = BUILTIN_TOOL_NAMES.map((id) => ({
+function builtinResources(toolsOnly = false): RuntimeModeResource[] {
+  const tools: RuntimeModeResource[] = MODE_PACK_TOOL_NAMES.map((id) => ({
     kind: "tool",
     id,
     title: id,
@@ -207,6 +223,7 @@ function builtinResources(): RuntimeModeResource[] {
     scope: "platform",
     synthetic: true,
   }));
+  if (toolsOnly) return tools;
   const learningHarness: RuntimeModeResource = {
     kind: "extension",
     id: "learning-harness",
@@ -260,7 +277,6 @@ function builtinResources(): RuntimeModeResource[] {
   const extensionPath = [resolve(process.cwd(), "lib/course-builder-extension.ts"), resolve(process.cwd(), "apps/pi-web/lib/course-builder-extension.ts")].find(existsSync);
   const courseResources = extensionPath ? [
     runtimeResource({kind:"extension",id:"course-builder",title:"Course Builder",paths:[extensionPath],source:"pi-own",scope:"platform"}),
-    runtimeResource({kind:"prompt",id:"workflow:course-builder",title:"Teacher approval workflow",paths:[],source:"pi-own",scope:"platform",synthetic:true,text:"Use the fixed Course Builder workflow. For an Assignment, call assignment_state, apply project.assignmentPreamble, read only through read_assignment_material with the same assignmentId, save_assignment, and write current .tex/.Rmd/.md/.pdf deliverables into workspace.outputDirectory. Revise existing files in place unless the teacher explicitly abandons them. Wait for teacher review. Keep course, Assignment and cross-Assignment materials isolated. Wait for real teacher approval between plan, lesson and deck. Never self-approve.",digestPayload:"course-builder-workflow-v3"}),
   ] : [];
   const studyResources: RuntimeModeResource[] = [];
   for (const [id, filename] of [
@@ -352,38 +368,142 @@ function mapIndividualResources(kind: "skill" | "prompt" | "theme", resources: R
     });
 }
 
-export async function inspectModePackInventory(cwd: string): Promise<ModePackInventory> {
+/** Project-owned Spec Kit templates are capability resources, never implicit
+ * Code-mode paths. They are admitted only as the complete official command
+ * set, which prevents a partial or unrelated `.pi/prompts` directory from
+ * being silently loaded into a Mode Pack. */
+function projectCapabilityResources(cwd: string, projectCapabilities: readonly string[]): RuntimeModeResource[] {
+  if (!projectCapabilities.includes("spec-kit")) return [];
+  const status = inspectSpecKit(cwd);
+  if (status.state !== "ready") return [];
+  return SPEC_KIT_COMMANDS.map((command) => {
+    const path = join(status.promptDirectory, `${command}.md`);
+    return runtimeResource({
+      kind: "prompt",
+      id: `spec-kit.template.${command}`,
+      title: command,
+      paths: [path],
+      text: readText(path),
+      source: "project:spec-kit",
+      scope: "project",
+      version: "specify-cli@1.0.5/pi-template-v1",
+      digestPayload: { command, sha256: fileDigest(path) },
+      delivery: "native-prompt-template",
+    });
+  });
+}
+
+export async function inspectModePackInventory(cwd: string, options: { packageContentHash?: string; includeBundledCode?: boolean; selection?: PortableModePackageSelection; useLatestSharedResources?: boolean; sharedResourcePins?: readonly ResourceDescriptor[] } = {}): Promise<ModePackInventory> {
   const resolvedCwd = resolve(cwd);
   const agentDir = getAgentDir();
-  const projectTrust = getProjectTrustStatus(resolvedCwd, agentDir);
-  const settingsManager = SettingsManager.create(resolvedCwd, agentDir, { projectTrusted: projectTrust.trusted });
-  const packageManager = new DefaultPackageManager({ cwd: resolvedCwd, agentDir, settingsManager });
   const diagnostics: ModePackInventoryDiagnostic[] = [];
   const resources: RuntimeModeResource[] = [];
   const resourcesByKey = new Map<string, RuntimeModeResource>();
-  for (const resource of builtinResources()) pushResource(resources, resourcesByKey, resource);
-  const localSkills = loadSkillsFromDir({ dir: localModeSkillsDirectory(), source: "pi-own-local-skills" });
-  for (const diagnostic of localSkills.diagnostics) diagnostics.push({ severity: "warning", source: "pi-own-local-skills", message: diagnostic.message });
-  for (const skill of localSkills.skills) {
-    if (resources.some((resource) => resource.paths.some((path) => normalizePath(path) === normalizePath(skill.filePath)))) continue;
-    pushResource(resources, resourcesByKey, runtimeResource({ kind: "skill", id: `local.skill.${slug(skill.name)}`, title: skill.name, paths: [skill.filePath], source: "pi-own-local-skills", scope: "user", text: readText(skill.filePath) }));
+  const selectedPackage = options.packageContentHash ? readPortableModePackage(options.packageContentHash) : null;
+  const bundledCode = options.includeBundledCode ? bundledCodeModePackage() : null;
+  const selectedArchive = selectedPackage ?? (bundledCode && (!options.packageContentHash || bundledCode.packageContentHash === options.packageContentHash) ? bundledCode : null);
+  if (options.packageContentHash && !selectedArchive) {
+    throw new Error(`Selected portable Mode Pack is unavailable: ${options.packageContentHash}`);
   }
+  // A clone of the bundled Code archive owns its stable logical IDs. Do not add
+  // a second ambient Code catalog with different paths into this inventory.
+  for (const resource of builtinResources(Boolean(selectedArchive))) pushResource(resources, resourcesByKey, resource);
+  if (selectedArchive) {
+    const archive = selectedArchive;
+    const sharedProviders = new Map<string, SharedResourceClaim>();
+    if (archive.sharedResources?.length && options.useLatestSharedResources) {
+      const other = readLatestPortableModePackages(
+        [archive.definition, ...(archive.profiles ?? [])].map((definition) => definition.modePackId),
+        archive.sharedResources.map((binding) => binding.logicalId),
+      );
+      const resolution = resolveSharedResourceProviders([...other, archive]);
+      if (resolution.conflicts.length) throw new Error(`Portable shared resource registry conflicts: ${JSON.stringify(resolution.conflicts)}`);
+      for (const binding of archive.sharedResources) sharedProviders.set(`${binding.kind}:${binding.id}`, resolution.providers.get(binding.logicalId)!);
+    } else if (archive.sharedResources?.length && options.sharedResourcePins) {
+      for (const binding of archive.sharedResources) {
+        const pin = options.sharedResourcePins.find((item) => item.kind === binding.kind && item.id === binding.id);
+        if (!pin) continue;
+        const own = sharedResourceClaims(archive).find((claim) => claim.binding.logicalId === binding.logicalId)!;
+        if (pin.version === own.version && pin.contentHash === own.contentHash) continue;
+        const providerArchive = readHistoricalSharedProvider(binding.logicalId, pin.version, pin.contentHash);
+        const provider = providerArchive && sharedResourceClaims(providerArchive).find((claim) => claim.binding.logicalId === binding.logicalId);
+        if (!provider) throw new Error(`Pinned shared resource provider is unavailable: ${binding.logicalId}@${pin.version} (${pin.contentHash})`);
+        sharedProviders.set(`${binding.kind}:${binding.id}`, provider);
+      }
+    }
+    const packageComponents = [archive.definition, ...(archive.profiles ?? [])].flatMap((definition) => definition.components);
+    for (const entry of archive.resources) {
+      const shared = sharedProviders.get(`${entry.kind}:${entry.id}`);
+      const backingArchive = shared?.archive ?? archive;
+      const backingEntry = shared?.resource ?? entry;
+      const candidateFile = backingEntry.source.type === "bundled"
+        ? resolve(portableModePackageDirectory(backingArchive.packageContentHash), backingEntry.source.path)
+        : options.selection
+          ? join(portablePackageRuntimeDirectory(backingArchive, options.selection), "node_modules", backingEntry.source.package)
+          : null;
+      if (!candidateFile) {
+        pushResource(resources, resourcesByKey, {
+          kind: entry.kind, id: entry.id, title: entry.id, version: packageComponents.find((candidate) =>
+            entry.kind === "extension" ? candidate.type === "plugin" && candidate.id === entry.id
+              : candidate.type === "workflow" ? entry.kind === "prompt" && entry.id === `workflow:${candidate.id}`
+              : candidate.type === entry.kind && candidate.id === entry.id,
+          )?.version ?? archive.packageContentHash,
+          contentHash: backingEntry.contentHash, paths: [], pathHashes: {}, text: null,
+          source: `portable:${backingArchive.packageContentHash}`, scope: shared ? "mode-shared" : "mode-private", synthetic: false, available: false,
+        });
+        continue;
+      }
+      const file = candidateFile;
+      const paths = existsSync(file) ? [file] : [];
+      const fileIsRegular = paths.length === 1 && statSync(file).isFile();
+      const component = packageComponents.find((candidate) =>
+        entry.kind === "extension" ? candidate.type === "plugin" && candidate.id === entry.id
+          : candidate.type === "workflow" ? entry.kind === "prompt" && entry.id === `workflow:${candidate.id}`
+          : candidate.type === entry.kind && candidate.id === entry.id,
+      );
+      pushResource(resources, resourcesByKey, {
+        kind: entry.kind, id: entry.id, title: entry.id, version: shared?.version ?? component?.version ?? archive.packageContentHash, contentHash: backingEntry.contentHash,
+        paths, pathHashes: Object.fromEntries(paths.map((path) => [normalizePath(path), statSync(path).isFile() ? fileDigest(path) : backingEntry.contentHash])),
+        text: (entry.kind === "skill" || entry.kind === "prompt") && fileIsRegular ? readText(file) : null,
+        source: `portable:${backingArchive.packageContentHash}`, scope: shared ? "mode-shared" : "mode-private", synthetic: false, available: paths.length === 1,
+        delivery: entry.delivery,
+      });
+    }
+    for (const resource of projectCapabilityResources(resolvedCwd, archive.projectCapabilities)) {
+      pushResource(resources, resourcesByKey, resource);
+    }
+  }
+  // An archive supplies its complete selected resource inventory. Ambient Pi
+  // packages cannot satisfy missing archive entries, and scanning every
+  // globally installed Skill on each packaged-mode switch was the dominant
+  // avoidable cost in this path.
+  if (!selectedArchive) {
+    const projectTrust = getProjectTrustStatus(resolvedCwd, agentDir);
+    const settingsManager = SettingsManager.create(resolvedCwd, agentDir, { projectTrusted: projectTrust.trusted });
+    const packageManager = new DefaultPackageManager({ cwd: resolvedCwd, agentDir, settingsManager });
+    const localSkills = loadSkillsFromDir({ dir: localModeSkillsDirectory(), source: "pi-own-local-skills" });
+    for (const diagnostic of localSkills.diagnostics) diagnostics.push({ severity: "warning", source: "pi-own-local-skills", message: diagnostic.message });
+    for (const skill of localSkills.skills) {
+      if (resources.some((resource) => resource.paths.some((path) => normalizePath(path) === normalizePath(skill.filePath)))) continue;
+      pushResource(resources, resourcesByKey, runtimeResource({ kind: "skill", id: `local.skill.${slug(skill.name)}`, title: skill.name, paths: [skill.filePath], source: "pi-own-local-skills", scope: "user", text: readText(skill.filePath) }));
+    }
 
-  try {
-    const resolved = await packageManager.resolve(async (source) => {
-      diagnostics.push({ severity: "warning", source, message: "Configured package is not installed and was skipped." });
-      return "skip";
-    });
-    for (const resource of groupExtensions(resolved.extensions)) pushResource(resources, resourcesByKey, resource);
-    for (const resource of mapIndividualResources("skill", resolved.skills)) pushResource(resources, resourcesByKey, resource);
-    for (const resource of mapIndividualResources("prompt", resolved.prompts)) pushResource(resources, resourcesByKey, resource);
-    for (const resource of mapIndividualResources("theme", resolved.themes)) pushResource(resources, resourcesByKey, resource);
-  } catch (error) {
-    diagnostics.push({
-      severity: "error",
-      source: null,
-      message: error instanceof Error ? error.message : String(error),
-    });
+    try {
+      const resolved = await packageManager.resolve(async (source) => {
+        diagnostics.push({ severity: "warning", source, message: "Configured package is not installed and was skipped." });
+        return "skip";
+      });
+      for (const resource of groupExtensions(resolved.extensions)) pushResource(resources, resourcesByKey, resource);
+      for (const resource of mapIndividualResources("skill", resolved.skills)) pushResource(resources, resourcesByKey, resource);
+      for (const resource of mapIndividualResources("prompt", resolved.prompts)) pushResource(resources, resourcesByKey, resource);
+      for (const resource of mapIndividualResources("theme", resolved.themes)) pushResource(resources, resourcesByKey, resource);
+    } catch (error) {
+      diagnostics.push({
+        severity: "error",
+        source: null,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   const catalog = new ResourceCatalog(
@@ -392,6 +512,8 @@ export async function inspectModePackInventory(cwd: string): Promise<ModePackInv
       id: resource.id,
       version: resource.version,
       contentHash: resource.contentHash,
+      ...(resource.available === false ? { available: false } : {}),
+      ...(resource.delivery ? { delivery: resource.delivery } : {}),
     })),
   );
   return {
@@ -401,9 +523,10 @@ export async function inspectModePackInventory(cwd: string): Promise<ModePackInv
     resourcesByKey,
     diagnostics,
     builtinPacks: {
-      ...createRuntimeBuiltinModePacks(catalog),
-      ...(catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft(COURSE_BUILDER_DRAFT, catalog)} : {}),
-      ...Object.fromEntries(STUDY_RESEARCH_DRAFTS.filter((draft) => draft.components.every((component) =>
+      ...(!selectedArchive ? createRuntimeBuiltinModePacks(catalog) : {}),
+      ...(bundledCode ? { [bundledCode.definition.modePackId]: bundledCode.definition } : {}),
+      ...(!selectedArchive && catalog.get("extension", "course-builder") ? {"course-builder": compileModePackDraft({ ...COURSE_BUILDER_DRAFT, components: COURSE_BUILDER_DRAFT.components.filter(component => component.type !== "skill" || !isBuiltinModeSkillDeleted(component.id)) }, catalog)} : {}),
+      ...Object.fromEntries((selectedArchive ? [] : STUDY_RESEARCH_DRAFTS).filter((draft) => draft.components.every((component) =>
         catalog.get(component.type === "plugin" ? "extension" : "skill", component.id),
       )).map((draft) => [draft.modePackId, compileModePackDraft(draft, catalog)])),
     },
@@ -464,7 +587,8 @@ export function buildModePackRuntimePlanFromInventory(options: {
     if (descriptor.kind === "extension" && descriptor.id === "learning-harness") {
       throw new Error("Generic Mode Packs cannot activate the course-only learning-harness extension");
     }
-    if (installed.text) {
+    const delivery = descriptor.delivery;
+    if (installed.text && delivery !== "native-skill" && delivery !== "native-prompt-template") {
       loadedResourceText.push({ id: key, text: installed.text });
       resourcePromptBlocksByKey.set(key, formatModePackResourceBlock(key, installed.text));
     }
@@ -472,11 +596,15 @@ export function buildModePackRuntimePlanFromInventory(options: {
       extensionPaths.push(...installed.paths);
       expectedPluginIds.push(descriptor.id);
     } else if (descriptor.kind === "skill") {
-      skillPaths.push(...installed.paths);
-      expectedSkillIds.push(descriptor.id);
+      if (delivery === "native-skill") {
+        skillPaths.push(...installed.paths);
+        expectedSkillIds.push(descriptor.id);
+      }
     } else if (descriptor.kind === "prompt") {
-      promptPaths.push(...installed.paths);
-      expectedPromptIds.push(descriptor.id);
+      if (delivery === "native-prompt-template") {
+        promptPaths.push(...installed.paths);
+        expectedPromptIds.push(descriptor.id);
+      }
     } else if (descriptor.kind === "theme") {
       themePaths.push(...installed.paths);
       expectedThemeIds.push(descriptor.id);
@@ -507,6 +635,7 @@ export function buildModePackRuntimePlanFromInventory(options: {
       loadedThemeIds: [...new Set(expectedThemeIds)].sort(),
     },
     systemPrompt,
+    systemPromptMode: snapshot.modePackSystemPromptMode ?? (snapshot.profileId === "coding" ? "append" : "replace"),
     resourceIdsByPath,
     resourceHashesByPath,
     resourcePromptBlocksByKey,
@@ -518,7 +647,12 @@ export async function buildModePackRuntimePlan(options: {
   cwd: string;
   definition?: ModePackDefinition | null;
 }): Promise<ModePackRuntimePlan> {
-  const inventory = await inspectModePackInventory(options.cwd);
+  const inventory = await inspectModePackInventory(options.cwd, {
+    ...(options.snapshot.packageContentHash ? { packageContentHash: options.snapshot.packageContentHash } : {}),
+    ...(options.snapshot.packageContentHash ? { selection: { resources: options.snapshot.resources.map((resource) => ({ kind: resource.kind, id: resource.id, enabled: resource.enabled })) } } : {}),
+    ...(options.snapshot.packageContentHash ? { sharedResourcePins: options.snapshot.resources } : {}),
+    ...(options.snapshot.packageContentHash && !readPortableModePackage(options.snapshot.packageContentHash) ? { includeBundledCode: true } : {}),
+  });
   if (inventory.diagnostics.some((item) => item.severity === "error")) {
     throw new Error(inventory.diagnostics.map((item) => item.message).join("; "));
   }
@@ -545,7 +679,7 @@ function idsFromLoadedPaths(
     if (!path || path.startsWith("<")) continue;
     const normalized = normalizePath(path);
     loadedPaths.add(normalized);
-    if (!plan.resourceIdsByPath.has(normalized)) unexpected.add(`unexpected:${normalized}`);
+    if (![...plan.resourceIdsByPath.keys()].some((root) => normalized === root || normalized.startsWith(`${root}/`))) unexpected.add(`unexpected:${normalized}`);
   }
 
   const ids = new Set<string>(unexpected);
@@ -559,7 +693,10 @@ function idsFromLoadedPaths(
   for (const id of expectedIds) {
     const key = resourceKey(syntheticKind, id);
     const expectedBlock = plan.resourcePromptBlocksByKey.get(key);
-    if (expectedBlock && !plan.systemPrompt.includes(expectedBlock)) continue;
+    if (expectedBlock) {
+      if (plan.systemPrompt.includes(expectedBlock)) ids.add(id);
+      continue;
+    }
     const paths = [...plan.resourceIdsByPath.entries()]
       .filter(([, resourceId]) => resourceId === id)
       .map(([path]) => path);
@@ -568,7 +705,10 @@ function idsFromLoadedPaths(
       continue;
     }
     const current = paths.every((path) => {
-      if (!loadedPaths.has(path)) return false;
+      const isDirectory = existsSync(path) && statSync(path).isDirectory();
+      if (!isDirectory && !loadedPaths.has(path)) return false;
+      if (isDirectory && ![...loadedPaths].some((loaded) => loaded === path || loaded.startsWith(`${path}/`))) return false;
+      if (isDirectory) return true;
       try {
         return fileDigest(path) === plan.resourceHashesByPath.get(path);
       } catch {
@@ -583,7 +723,22 @@ function idsFromLoadedPaths(
 
 function selectedPluginToolNames(session: RuntimeSessionLike, plan: ModePackRuntimePlan): string[] {
   const selectedPluginPaths = new Set(plan.extensionPaths.map(normalizePath));
-  return session
+  // Extension objects are the authoritative ownership boundary: the SDK
+  // carries their path and registered tools even when a later registry refresh
+  // has normalized source metadata. Do not infer from package IDs or names.
+  const extensionRecords = session.resourceLoader.getExtensions().extensions;
+  // A selected directory can resolve to its concrete index file. Ownership
+  // stays tied to that declared physical source; unselected extensions never
+  // become active merely because they are loaded in the same host process.
+  const physicalRecords = extensionRecords.filter((extension) => typeof extension.path === "string" && !extension.path.startsWith("<"));
+  const exactRecords = physicalRecords.filter((extension) => {
+    const path = normalizePath(extension.path!);
+    return [...selectedPluginPaths].some((selected) => path === selected || path.startsWith(`${selected}/`));
+  });
+  const ownedRecords = exactRecords;
+  const registered = ownedRecords
+    .flatMap((extension) => extension.tools ? [...extension.tools.keys()] : []);
+  const sourced = session
     .getAllTools()
     .filter((tool) => {
       const source = tool.sourceInfo;
@@ -591,13 +746,14 @@ function selectedPluginToolNames(session: RuntimeSessionLike, plan: ModePackRunt
       const path = source.path;
       return typeof path === "string" && Boolean(path) && !path.startsWith("<") && selectedPluginPaths.has(normalizePath(path));
     })
-    .map((tool) => tool.name)
-    .sort();
+    .map((tool) => tool.name);
+  return [...new Set([...registered, ...sourced])].sort();
 }
 
 export function expectedModePackActiveTools(session: RuntimeSessionLike, plan: ModePackRuntimePlan): string[] {
   const tools = resolveShellTools(plan.toolNames, session.settingsManager.getDefaultTools());
-  return [...new Set([...tools, ...selectedPluginToolNames(session, plan)])].sort();
+  const hostSubagentTools = hostBaselineToolNames(session);
+  return [...new Set([...tools, ...selectedPluginToolNames(session, plan), ...hostSubagentTools, ...nativeMcpDirectToolNames(session.resourceLoader.getExtensions().extensions)])].sort();
 }
 
 export function applyModePackToolSelection(session: RuntimeSessionLike, plan: ModePackRuntimePlan): string[] {
@@ -615,7 +771,9 @@ export function collectModePackRuntimeEvidence(
   plan: ModePackRuntimePlan,
 ): ModePackRuntimeEvidence {
   const loader = session.resourceLoader;
-  const systemPrompt = session.agent?.state?.systemPrompt ?? session.systemPrompt ?? "";
+  // Pi 0.87 exposes the effective prompt through AgentSession.systemPrompt;
+  // AgentState.systemPrompt is a legacy compatibility field and may be empty.
+  const systemPrompt = session.systemPrompt ?? session.agent?.state?.systemPrompt ?? "";
   return {
     activeTools: [...session.getActiveToolNames()].sort(),
     loadedSkillIds: idsFromLoadedPaths(loader.getSkills().skills, { ...plan, systemPrompt }, "skill"),

@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "files"
+  ],
+  "properties": {
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "path"
+        ],
+        "properties": {
+          "format": {
+            "enum": [
+              "tex",
+              "rmd"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+          },
+          "documentKind": {
+            "enum": [
+              "beamer",
+              "teacher-notes",
+              "assignment"
+            ]
+          },
+          "role": {
+            "enum": [
+              "student",
+              "solution"
+            ]
+          },
+          "outputMode": {
+            "enum": [
+              "knit",
+              "render"
+            ]
+          },
+          "expectedPages": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    }
+  }
+}

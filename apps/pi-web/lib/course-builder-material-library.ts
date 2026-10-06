@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, extname, isAbsolute, join, relative } from "node:path";
+import { basename, extname, isAbsolute, join, relative, sep } from "node:path";
 import type { CourseBuilderHost, CourseBuilderMaterialInput } from "../../../packages/course-builder-host/src/index.ts";
 import { describeCourseBuilderLocalFile } from "./course-builder-local-materials.ts";
 import { captureCourseWebMaterial } from "./course-builder-web-material.ts";
@@ -25,9 +25,9 @@ function filename(name: string) {
   if (!name || name.length > 220 || basename(name) !== name || /[<>:"/\\|?*\x00-\x1f]/u.test(name) || /[. ]$/u.test(name)) throw new Error("Provide a plain safe material filename, without a directory");
   return name;
 }
-export interface NewCourseMaterial { name: string; bytes: Uint8Array; provenance?: {sourceUrl?:string;finalUrl?:string;method?:string;sourcePath?:string;purpose?:string} }
+export interface NewCourseMaterial { name: string; bytes: Uint8Array; localPath?: string; provenance?: {sourceUrl?:string;finalUrl?:string;method?:string;sourcePath?:string;purpose?:string} }
 
-/** Copy into the teacher's existing library, then register lazy local references atomically. */
+/** Copy new files or refresh explicit in-library paths, then atomically register lazy references. */
 export async function saveCourseLibraryFiles(host: CourseBuilderHost, sessionId: string, files: NewCourseMaterial[], expectedRevision: number, requestedRoot?: string, assertActive?:()=>void|Promise<void>) {
   const project = host.getProjectForSession(sessionId);
   if (!project) throw new Error("Course project is not bound");
@@ -41,11 +41,17 @@ export async function saveCourseLibraryFiles(host: CourseBuilderHost, sessionId:
   if (!files.length || files.length > 100 || files.reduce((n,f)=>n+f.bytes.byteLength,0)>MAX_BYTES) throw new Error("Material batch requires 1..100 files within 64 MiB");
   const root = await selectedRoot(host,sessionId,requestedRoot);
   const created: {path:string;hash:string}[] = [], additions: CourseBuilderMaterialInput[] = [], results: {name:string;path:string;existingId?:string}[] = [];
+  let updated = 0;
   try {
     for (const file of files) {
       const base = filename(file.name), digest = hash(file.bytes);
-      let path = join(root,base);
-      for (let attempt = 0; ; attempt++) {
+      let path = file.localPath ? await realpath(file.localPath) : join(root,base);
+      if (file.localPath) {
+        const rel = relative(root,path);
+        if (isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) throw new Error("Material escaped the selected folder");
+        if ((await stat(path)).size !== file.bytes.byteLength || hash(await readFile(path)) !== digest) throw new Error("Local material changed during registration; read its current bytes and retry add_material");
+      }
+      for (let attempt = 0; !file.localPath; attempt++) {
         try { await writeFile(path,file.bytes,{flag:"wx"}); created.push({path,hash:digest}); break; }
         catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -62,15 +68,16 @@ export async function saveCourseLibraryFiles(host: CourseBuilderHost, sessionId:
       for(const [key,value] of Object.entries(file.provenance ?? {})) if(typeof value==="string") provenance[key]=value;
       input.metadata = {...input.metadata, importedContentHash:`sha256:${digest}`, provenance};
       const existing = host.getSnapshotForSession(sessionId)!.materials.find(m=>m.metadata.materialScope !== "assignment" && m.metadata.sourceRoot===root && m.name===input.name);
-      if (existing && existing.sourceHash !== `sha256:${hash(input.sourceBytes)}`) throw new Error(`已有素材 ${input.name} 在磁盘上已变化，请先重新索引此素材文件夹`);
-      if (!existing && !additions.some(m=>m.name===input.name)) additions.push(input);
+      const changed = existing && (existing.sourceHash !== `sha256:${hash(input.sourceBytes)}` || typeof existing.metadata.importedContentHash === "string" && existing.metadata.importedContentHash !== input.metadata.importedContentHash);
+      if ((!existing || changed) && !additions.some(m=>m.name===input.name)) { additions.push(input); if (changed) updated++; }
       results.push({name:input.name,path,existingId:existing?.materialId});
     }
     await check();
     if (await selectedRoot(host,sessionId,root) !== root) throw new Error("Material folder binding changed");
-    const saved = additions.length ? host.importMaterials(sessionId,additions,expectedRevision) : [];
+    // Partial sync retains all other links and preserves IDs for the refreshed files.
+    const saved = additions.length ? updated ? host.syncLocalMaterials(sessionId,root,additions,expectedRevision) : host.importMaterials(sessionId,additions,expectedRevision) : [];
     const materials = results.map(r=>({materialId:r.existingId ?? saved.find(m=>m.name===r.name)!.materialId,name:r.name,path:r.path}));
-    console.info("[course-material-library] saved",{sessionId,projectId:project.projectId,root,count:materials.length,added:saved.length});
+    console.info("[course-material-library] saved",{sessionId,projectId:project.projectId,root,count:materials.length,added:saved.length-updated,updated,materialIds:materials.map(m=>m.materialId)});
     return {projectId:project.projectId,revision:host.getProjectForSession(sessionId)!.revision,root,materials,replay:saved.length===0};
   } catch (error) {
     const cleanupErrors: unknown[] = [];
@@ -96,7 +103,8 @@ export async function addCourseMaterial(host: CourseBuilderHost, sessionId: stri
   } else {
     const path=await realpath(input.path as string);
     const info=await stat(path); if(!info.isFile() || info.size>MAX_BYTES)throw new Error("Local source must be a file within 64 MiB");
-    file={name:input.name as string ?? basename(path),bytes:new Uint8Array(await readFile(path)),provenance:{sourcePath:path,purpose:input.purpose as string|undefined}};
+    const rel=relative(root,path),inLibrary=!isAbsolute(rel) && rel!==".." && !rel.startsWith(`..${sep}`);
+    file={name:input.name as string ?? basename(path),bytes:new Uint8Array(await readFile(path)),...(inLibrary && (input.name===undefined || input.name===basename(path)) ? {localPath:path} : {}),provenance:{sourcePath:path,purpose:input.purpose as string|undefined}};
   }
   return saveCourseLibraryFiles(host,sessionId,[file],expectedRevision,root,assertActive);
 }

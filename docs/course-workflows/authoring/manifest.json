@@ -1,0 +1,1602 @@
+{
+  "version": 1,
+  "sourceSkill": "course-planning-beamer",
+  "sourceHash": "9246968e35d7c91aeb074eebef5edbe34e0a9abb91d308d64952ddefce99cbbe",
+  "sharedSources": {
+    "lesson-blueprint": "1e041004e0d48ac89e1b2e0669aed7f7f273e3ce17476c85788ea953daf742b7",
+    "learning-to-learn": "735051ce8cd7ab6e43f3de98839505842cf6b6dbf7865c99eb18b06407663518",
+    "curriculum-continuity": "b4bb5a33e8f114ddf22f12f570ed7422664083c256695a9120a7e5d3e7ed1fb3",
+    "evidence-ledger": "1c514605946d0d29a8f6f1c58c725c70200bc8254b140d5e70ced9f1cbfb4256",
+    "revision-discipline": "90563d0696e91555f1676e25113d9748ab154cb47d3f25b0e83b8aa988df9cb2",
+    "learn-by-doing": "9411ea2392fabdc75fa1ebb3896b30d5ee6a32fa9bd1feb4bfd57b16e81f68a1",
+    "feynman-teach-back": "213db2e7a19b8aadc15263a2257b198ccaaa7dde522092f755a5bd5298b7ee2d"
+  },
+  "products": [
+    {
+      "id": "course-lesson-artifacts",
+      "kind": "bundle",
+      "name": "单课草案与 PDF/Rmd",
+      "sourceHash": "425a9bd9f5ab5dc2b19427e747ee2e82ab1dce1476bf830f9cdcfaa526f51f3b",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "db87258acd77767a74480eeceea74f9b74595bde26b414655f14ba2bf5fdd5a7"
+        },
+        {
+          "path": "references/lesson-blueprint.md",
+          "sha256": "9b7bddfd9090365950d9615c2ad411c849056d436180d3bc386ae8ddf9bcd063"
+        },
+        {
+          "path": "references/learning-to-learn.md",
+          "sha256": "87124d92ed9039d6ac9596c1294e6a9b76633a7dc7bbd730834cbab663f1f2b5"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "materialIndexes": {
+                "type": "array",
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 511
+                }
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "objectives": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "prerequisites": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "misconceptions": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "segments": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {
+                    "minutes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 360
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "teacherAction": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "learnerAction": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "checkForUnderstanding": {
+                      "type": "string",
+                      "maxLength": 10000,
+                      "description": "Use an empty string when absent; Host normalizes absence."
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "exercises": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "visualRequests": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "notes": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-slide-revision",
+      "kind": "deck",
+      "name": "修改现有 Beamer",
+      "sourceHash": "b72540673c16920aebc1e450a2a71b6ae0094687678641efa1674de03882ab39",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "14f15a3acd31064d79c42c15da60b7a19614f5256625275889bafeef809d0c84"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "frameOutline": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-material-analysis",
+      "kind": "analysis",
+      "name": "资料分析",
+      "sourceHash": "0fd6f3a093f70237359f70f054aaf838cc7de2225a821f26a31335a2bec6163b",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "0d4f006926e4ac34ca2ba4cb59a60ef44dcd705b535ff9ecb3c5f6aa3041767c"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "draft",
+          "files"
+        ],
+        "properties": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "topicChains": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "prerequisiteGaps": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "duplicates": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "sequenceGaps": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "terminologyConflicts": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "practiceOpportunities": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "visualOpportunities": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-semester-plan",
+      "kind": "semester",
+      "name": "学期计划",
+      "sourceHash": "04d8c735edf39b5e65ae28a34d4028e4c9a7c7ae784ce3b0747531681f605693",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "80b7cdb12dc8989efa4d5253d636fb90a6e7fa3dda6ed75ce89d6095d151d4d3"
+        },
+        {
+          "path": "references/lesson-blueprint.md",
+          "sha256": "9b7bddfd9090365950d9615c2ad411c849056d436180d3bc386ae8ddf9bcd063"
+        },
+        {
+          "path": "references/curriculum-continuity.md",
+          "sha256": "ae6a2754972ae28134ed4f663dcadecd02293996fc627feba1bc71a21fbe6b64"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "draft",
+          "files"
+        ],
+        "properties": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "sessions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 840,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {
+                    "materialIndexes": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 511
+                      }
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "objectives": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "prerequisites": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "topics": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "activities": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "understandingEvidence": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "assessment": {
+                      "type": "string",
+                      "maxLength": 10000,
+                      "description": "Use an empty string when absent; Host normalizes absence."
+                    },
+                    "homework": {
+                      "type": "string",
+                      "maxLength": 10000,
+                      "description": "Use an empty string when absent; Host normalizes absence."
+                    },
+                    "goalIndexes": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 99
+                      },
+                      "uniqueItems": true
+                    },
+                    "revisits": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [],
+                        "properties": {
+                          "concept": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096,
+                            "description": "Newly authored human concept label; Host derives its course-scoped identity. Omit unchanged revisits on revision."
+                          },
+                          "progression": {
+                            "enum": [
+                              "complexity",
+                              "relationship",
+                              "abstraction",
+                              "formalization",
+                              "representation",
+                              "transfer",
+                              "boundary"
+                            ]
+                          },
+                          "note": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          }
+                        }
+                      }
+                    },
+                    "visualOpportunities": {
+                      "type": "array",
+                      "maxItems": 500,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-lesson-plan",
+      "kind": "lesson",
+      "name": "单课教案",
+      "sourceHash": "a380357be1b0c0d62f4fb7928d6839c7065137731181b8429949920df5ebfdbb",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "80b7cdb12dc8989efa4d5253d636fb90a6e7fa3dda6ed75ce89d6095d151d4d3"
+        },
+        {
+          "path": "references/lesson-blueprint.md",
+          "sha256": "9b7bddfd9090365950d9615c2ad411c849056d436180d3bc386ae8ddf9bcd063"
+        },
+        {
+          "path": "references/learning-to-learn.md",
+          "sha256": "87124d92ed9039d6ac9596c1294e6a9b76633a7dc7bbd730834cbab663f1f2b5"
+        },
+        {
+          "path": "references/curriculum-continuity.md",
+          "sha256": "ae6a2754972ae28134ed4f663dcadecd02293996fc627feba1bc71a21fbe6b64"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "draft",
+          "files"
+        ],
+        "properties": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "materialIndexes": {
+                "type": "array",
+                "maxItems": 100,
+                "uniqueItems": true,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 511
+                }
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "objectives": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "prerequisites": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "misconceptions": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "segments": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {
+                    "minutes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 360
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "teacherAction": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "learnerAction": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "checkForUnderstanding": {
+                      "type": "string",
+                      "maxLength": 10000,
+                      "description": "Use an empty string when absent; Host normalizes absence."
+                    }
+                  }
+                }
+              },
+              "examples": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "exercises": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "visualRequests": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "notes": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-beamer-deck",
+      "kind": "deck",
+      "name": "Beamer课件",
+      "sourceHash": "19c648207a96f44204939a62a44c107b586a46961399b3f280df9dbd5bf98af4",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "14f15a3acd31064d79c42c15da60b7a19614f5256625275889bafeef809d0c84"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "frameOutline": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-teacher-notes",
+      "kind": "teacher-notes",
+      "name": "教师讲稿",
+      "sourceHash": "8ffb13464b0c9b1c46b90d8ef43da2f2dec3e16fdd7383db1b74a94613250399",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "488e4728d67321a01d94771435f80e95e06e0350a6b3b289add517107170cae6"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      }
+    },
+    {
+      "id": "course-assignment-plan",
+      "kind": "assignment-plan",
+      "name": "Assignment题目计划",
+      "sourceHash": "afef8c96ad5f391df4e78e22380567e08b13c39a402811e1045f42db0df28288",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "3630398c65d37225aa02b1b743545913e0a26630189b82357515842e3c680f23"
+        },
+        {
+          "path": "references/lesson-blueprint.md",
+          "sha256": "9b7bddfd9090365950d9615c2ad411c849056d436180d3bc386ae8ddf9bcd063"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "draft",
+          "files"
+        ],
+        "properties": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "overview": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "tasks": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "deliverables": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "rubric": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "solutionNotes": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-assignment-artifacts",
+      "kind": "assignment-artifacts",
+      "name": "Assignment TeX/Rmd",
+      "sourceHash": "347e2491b7e758e04f3256e2da72af3d14531f47221664eed1c21535bc4bf577",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "12438f1e5a040fb4e6e980291539d8a02f9a61d4db76022704eafccafea84b7d"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-rmd-lab",
+      "kind": "rmd",
+      "name": "Rmd实验",
+      "sourceHash": "67615d51dadc13f1ce46994dccb82ab4c9a3145973a3fc766937885bafdd1827",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "5fef632ea909c14b0c60194ab7fc8093bb8423059687b486e376cb65a9a9d2f1"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "course-interactive-html",
+      "kind": "html",
+      "name": "交互网页",
+      "sourceHash": "ea146eadd9d724956eab1026040dfb5ffc589521a39a02e03d330cfd0a092b62",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "882dc77ab523e83045dc3d07ebea1c4f7785f6c76bcbb13dd1ecf6c1d07aaee2"
+        },
+        {
+          "path": "references/learn-by-doing.md",
+          "sha256": "f0736e1a2027440bc25457bfd2791ab298c9225f2e674baaea6969c8c1465cce"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222"
+        },
+        {
+          "path": "references/revision-discipline.md",
+          "sha256": "ddb33c486b41568023330bb8e45c2361f4a859dfbe93359bc7b86b0ff6450692"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "html"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      }
+    },
+    {
+      "id": "course-coverage-checkpoint",
+      "kind": "checkpoint",
+      "name": "备课检查点",
+      "sourceHash": "28f95bfc97fc59066f322c027e284560e53e5a5bcb188d1d27399a718812b6a4",
+      "references": [
+        {
+          "path": "references/product-guide.md",
+          "sha256": "9629ec70e44cc3fe55846e36d367007617d2457d0c49cd50fb779f0e7c4332cf"
+        },
+        {
+          "path": "references/curriculum-continuity.md",
+          "sha256": "ae6a2754972ae28134ed4f663dcadecd02293996fc627feba1bc71a21fbe6b64"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "draft",
+          "files"
+        ],
+        "properties": {
+          "draft": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "coverage": {
+                "type": "array",
+                "maxItems": 512,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [],
+                  "properties": {
+                    "summary": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    },
+                    "position": {
+                      "type": "string",
+                      "maxLength": 4000
+                    },
+                    "nextLesson": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4096
+                    }
+                  }
+                }
+              },
+              "completed": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "remaining": {
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                }
+              },
+              "nextLesson": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 0,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "format",
+                "path"
+              ],
+              "properties": {
+                "format": {
+                  "enum": [
+                    "tex",
+                    "rmd"
+                  ]
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "description": "Author-chosen new artifact filename beneath sources/, relative to the task workspace; no absolute path, traversal, or context-resource path. Host captures its SHA256/bytes; supply exactly one of path or legacy source."
+                },
+                "documentKind": {
+                  "enum": [
+                    "beamer",
+                    "teacher-notes",
+                    "assignment"
+                  ]
+                },
+                "role": {
+                  "enum": [
+                    "student",
+                    "solution"
+                  ]
+                },
+                "outputMode": {
+                  "enum": [
+                    "knit",
+                    "render"
+                  ]
+                },
+                "expectedPages": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "retiredMechanics": [
+    "whole-course state and direct delivery loop",
+    "model-authored IDs, hashes and CAS references",
+    "fixed Main prompt production and blanket parent approval for independent artifacts"
+  ],
+  "retainedHostResponsibilities": [
+    "scope, identities, CAS, exact byte readback, compilation/execution, draft persistence, receipts, manual teacher approval and existing editors"
+  ]
+}

@@ -15,13 +15,13 @@
 import { describe, expect, it } from "vitest";
 import { complete, getModel } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions, Usage } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -378,26 +378,23 @@ describe("totalTokens field", () => {
 	// Together AI
 	// =========================================================================
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI", () => {
-		it(
-			"current model - should return totalTokens equal to sum of components",
-			{ retry: 3, timeout: 60000 },
-			async () => {
-				const llm = getTogetherTestModel();
+	const togetherTotalTokensModel = findCurrentOpenAICompletionsModel("together", { reasoningLevel: "high" });
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherTotalTokensModel)("Together AI", () => {
+		it("should return totalTokens equal to sum of components", { retry: 3, timeout: 60000 }, async () => {
+			const llm = requireCurrentOpenAICompletionsModel(togetherTotalTokensModel, "together");
 
-				console.log(`\nTogether AI / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, {
-					apiKey: process.env.TOGETHER_API_KEY,
-					reasoningEffort: "high",
-				});
+			console.log(`\nTogether AI / ${llm.id}:`);
+			const { first, second } = await testTotalTokensWithCache(llm, {
+				apiKey: process.env.TOGETHER_API_KEY,
+				reasoningEffort: "high",
+			});
 
-				logUsage("First request", first);
-				logUsage("Second request", second);
+			logUsage("First request", first);
+			logUsage("Second request", second);
 
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
-			},
-		);
+			assertTotalTokensEqualsComponents(first);
+			assertTotalTokensEqualsComponents(second);
+		});
 	});
 
 	// =========================================================================

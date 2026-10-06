@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import { getEffortThinkingLevelMap, type ModelsDevReasoningOption } from "./models-dev-reasoning-options.ts";
+import { getFireworksThinkingLevelMap } from "./fireworks-reasoning-options.ts";
+import { getOpenCodeGoThinkingLevelMap } from "./opencode-go-reasoning-options.ts";
 import {
 	getOpenRouterThinkingLevelMap,
 	type OpenRouterReasoningMetadata,
@@ -909,15 +911,16 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.provider === "openrouter" && model.id === "z-ai/glm-5.2") {
 		mergeThinkingLevelMap(model, { xhigh: "xhigh" });
 	}
-	if (model.provider === "fireworks" && model.id.includes("glm-5p2")) {
-		mergeThinkingLevelMap(model, { off: "none", minimal: null, low: "high", medium: "high", max: "max" });
+	if (model.provider === "fireworks") {
+		const thinkingLevelMap = getFireworksThinkingLevelMap(model.id);
+		if (thinkingLevelMap) mergeThinkingLevelMap(model, thinkingLevelMap);
 	}
 	if (model.provider === "opencode-go" && model.id === "glm-5.2") {
 		mergeThinkingLevelMap(model, OPENCODE_GO_GLM52_THINKING_LEVEL_MAP);
 	}
-	if (model.provider === "opencode-go" && model.id === "kimi-k2.6") {
-		// OpenCode Go exposes Kimi K2.6 thinking as on/off, not distinct effort tiers.
-		mergeThinkingLevelMap(model, { minimal: null, low: null, medium: null });
+	if (model.provider === "opencode-go") {
+		const thinkingLevelMap = getOpenCodeGoThinkingLevelMap(model.id);
+		if (thinkingLevelMap) mergeThinkingLevelMap(model, thinkingLevelMap);
 	}
 	if (model.provider === "opencode" && model.id === "grok-build-0.1") {
 		// OpenCode Zen Grok Build reasons by default but rejects explicit reasoningEffort.

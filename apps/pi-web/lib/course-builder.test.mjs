@@ -24,39 +24,42 @@ test.after(()=>{
 });
 test("Course Builder mode resolves physical plugin, authoring tools and fixed guidance",async()=>{
  const inventory=await inspectModePackInventory(dir);const definition=inventory.builtinPacks["course-builder"];
- assert.ok(definition);assert.deepEqual(definition.tools,["bash","edit","read","write"]);
+ assert.ok(definition);assert.deepEqual(definition.tools,["bash","codemode","edit","read","write"]);
  const snapshot=resolveModePackSnapshot({pack:definition,courseVersionId:null,catalog:inventory.catalog});
  const plan=buildModePackRuntimePlanFromInventory({snapshot,inventory,definition});
  assert.equal(plan.extensionPaths.length,1);assert.match(plan.extensionPaths[0],/course-builder-extension\.ts$/);
- assert.match(plan.systemPrompt,/teacher approval/i);assert.match(plan.systemPrompt,/Noi1r/);
- assert.match(plan.systemPrompt,/assignment_state/u);assert.match(plan.systemPrompt,/read_assignment_material/u);
- const teachingSkills = ["education.lesson-blueprint","education.learning-to-learn","education.curriculum-continuity","education.evidence-ledger","shared.revision-discipline","education.learn-by-doing","education.visual-explanation"];
- for(const id of teachingSkills) {
-  assert.ok(definition.components.some(c=>c.id===id&&c.required&&c.enabled), `${id} must be required in Course Builder`);
-  const resource=inventory.resourcesByKey.get(`skill:${id}`);
-  assert.ok(resource);
-  assert.equal(resource.synthetic,false,`${id} must be a physical Skill`);
-  assert.equal(resource.paths.length,1,`${id} must have one SKILL.md path`);
-  assert.ok(plan.systemPrompt.includes(resource.text), `${id} full text must reach the system prompt`);
- }
- assert.match(plan.systemPrompt,/mode-pack-resource id="skill:teacher\.course-planning-beamer" contentHash="sha256:[a-f0-9]{64}"/);
+ assert.match(plan.systemPrompt,/teacher review/i);assert.doesNotMatch(plan.systemPrompt,/Noi1r/);
+ assert.match(plan.systemPrompt,/course-production/u);assert.match(plan.systemPrompt,/workflow_prepare/u);assert.match(plan.systemPrompt,/workflow_start/u);
+ assert.match(plan.systemPrompt,/Only that branch loads its full teaching methods/u);
+ assert.doesNotMatch(plan.systemPrompt,/Assume earlier scheduled lessons have been taught/u);
+ assert.ok(definition.components.some(c=>c.type==="plugin"&&c.id==="course-builder"&&c.required&&c.enabled));
+ const caw=definition.components.find(c=>c.type==="skill"&&c.id==="pi-caw");
+ assert.ok(caw?.enabled,"Course Builder must expose the native pi-CAW Skill");
+ assert.equal(caw.delivery,"native-skill");
+ const resource=inventory.resourcesByKey.get("skill:pi-caw");
+ assert.ok(resource);
+ assert.equal(resource.synthetic,false,"pi-CAW must be a physical Skill");
+ assert.equal(resource.paths.length,1,"pi-CAW must have one SKILL.md path");
+ assert.ok(plan.skillPaths.includes(resource.paths[0]),"pi-CAW must use Pi native Skill discovery");
+ assert.ok(plan.expected.loadedSkillIds.includes("pi-caw"),"the native Skill must be verified as loaded");
+ assert.equal(plan.systemPrompt.includes(resource.text),false,"the full pi-CAW Skill body must stay out of the eager system prompt");
+ assert.doesNotMatch(plan.systemPrompt,/mode-pack-resource id="skill:/u);
 });
-test("resource verification rejects empty Skill bodies even when their markers survive",async()=>{
+test("resource verification rejects a missing native Skill even when the mode prompt survives",async()=>{
  const inventory=await inspectModePackInventory(dir),definition=inventory.builtinPacks.general;
  const snapshot=resolveModePackSnapshot({pack:definition,courseVersionId:null,catalog:inventory.catalog});
  const plan=buildModePackRuntimePlanFromInventory({snapshot,inventory,definition});
  const loadedSkills=plan.skillPaths.map(filePath=>({filePath}));
  const session={getActiveToolNames:()=>snapshot.tools,agent:{state:{systemPrompt:plan.systemPrompt}},resourceLoader:{getSkills:()=>({skills:loadedSkills}),getExtensions:()=>({extensions:[]}),getPrompts:()=>({prompts:[]}),getThemes:()=>({themes:[]})}};
  assert.equal(verifyModePackRuntime(snapshot,collectModePackRuntimeEvidence(session,plan),plan.expected).verified,true);
- const prompt=plan.systemPrompt.replace(/(<mode-pack-resource id="[^"]+" contentHash="[^"]+">)\n[\s\S]*?\n(<\/mode-pack-resource>)/g,"$1\n\n$2");
- session.agent.state.systemPrompt=prompt;
+ session.resourceLoader.getSkills=()=>({skills:[]});
  const result=verifyModePackRuntime(snapshot,collectModePackRuntimeEvidence(session,plan),plan.expected);
- assert.equal(result.verified,false,"a Skill name and snapshot hash cannot prove its body was loaded");
+ assert.equal(result.verified,false,"the prompt cannot prove that a selected native Skill was loaded");
 });
 test("Actual extension registers only a dedicated agent surface, with no teacher approval action",async()=>{
- const tools=[],events=[];extension({registerTool:tool=>tools.push(tool),on:(name,handler)=>events.push({name,handler}),appendEntry:()=>{},sendMessage:()=>{}});
+ const tools=[],events=[];extension({registerTool:tool=>tools.push(tool),on:(name,handler)=>events.push({name,handler}),events:{on:()=>()=>{},emit:()=>{}},appendEntry:()=>{},sendMessage:()=>{}});
  assert.deepEqual(tools.map(t=>t.name),["course_builder"]);
- assert.deepEqual(events.map(event=>event.name),["session_start","before_agent_start","input","agent_end","agent_settled"]);
+ assert.deepEqual(events.map(event=>event.name),["session_start","session_shutdown","before_agent_start","message_start","input","agent_end","agent_settled"]);
  const ctx={sessionManager:{getSessionId:()=>"test-unbound-session",getBranch:()=>[]}};
  const result=await tools[0].execute("call",{action:"state"},new AbortController().signal,undefined,ctx);
  assert.equal(JSON.parse(result.content[0].text),null);

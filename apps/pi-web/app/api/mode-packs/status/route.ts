@@ -5,6 +5,8 @@ import {
   getHarnessRuntimeVerification,
   getRpcSession,
 } from "@/lib/rpc-manager";
+import { activePortableModePackageForSnapshot } from "@/lib/portable-mode-pack-registry";
+import { portableModuleFrontendEntry } from "../../../../../../packages/mode-pack-host/src/index.ts";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,9 @@ export async function GET(request: Request) {
       });
     }
     const generic = await getGenericModePackStatus(sessionId);
+    const archive = generic.runtime.binding?.snapshot ? activePortableModePackageForSnapshot(generic.runtime.binding.snapshot) : null;
+    const frontendEntry = archive && generic.runtime.binding?.snapshot
+      ? portableModuleFrontendEntry(archive, generic.runtime.binding.snapshot.profileId) : null;
     return NextResponse.json({
       kind: "generic",
       sessionId,
@@ -57,6 +62,11 @@ export async function GET(request: Request) {
       activeTools: generic.runtime.activeTools,
       expectedTools: generic.runtime.expectedTools,
       diagnostic: generic.runtime.diagnostic,
+      packageContentHash: generic.runtime.packageContentHash,
+      frontend: frontendEntry ? { entry: frontendEntry, presentation: archive?.frontend?.presentation ?? "panel" } : null,
+      frontendEntry,
+      runtimeId: archive?.runtimeAssets?.find((asset) => asset.kind === "harness")?.id ?? null,
+      projectCapabilities: archive?.projectCapabilities ?? [],
       packs: generic.packs.map((item) => ({
         modePackId: item.definition.modePackId,
         title: item.definition.title,
@@ -68,6 +78,7 @@ export async function GET(request: Request) {
         missingRequiredResources: item.missingRequiredResources,
         missingOptionalResources: item.missingOptionalResources,
         identityMismatches: item.identityMismatches,
+        ...(item.packageError ? { packageError: item.packageError } : {}),
       })),
       resources: generic.resources,
       diagnostics: generic.diagnostics,

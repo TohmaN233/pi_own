@@ -11,9 +11,23 @@ const { CourseBuilderHost, runCourseBuilderCommand } = await jiti.import("../../
 const { importCourseGeneratedAsset } = await jiti.import("./course-builder-generated-assets.ts");
 const { COURSE_BUILDER_DRAFT } = await jiti.import("./course-builder-pack.ts");
 const { createDefaultCourseBuilderProject } = await jiti.import("./course-builder-defaults.ts");
+const { readBundledDomainWorkflows } = await jiti.import("./bundled-domain-workflows.ts");
 
 test("teacher defaults expose native source authoring and a terminal", () => {
   for (const name of ["read", "write", "edit", "bash"]) assert.ok(COURSE_BUILDER_DRAFT.tools.includes(name), name);
+  assert.ok(COURSE_BUILDER_DRAFT.components.filter((component) => component.type === "skill").every((component) => component.delivery === "native-skill"), "Course Builder Skills use progressive disclosure instead of permanent prompt bodies");
+});
+
+test("later-lesson teaching methods stay in the selected native Workflow branch", async () => {
+  const bundle = (await readBundledDomainWorkflows()).find((entry) => entry.id === "course-production");
+  assert.ok(bundle, "the pinned course-production Workflow is installed with the application");
+  const workflowPackage = JSON.parse(readFileSync(bundle.packagePath, "utf8"));
+  const lessonBranch = workflowPackage.snapshot.workflow.nodes.find((node) => node.type === "agent" && node.prompt_template?.includes("Create only the selected new lesson"));
+  assert.ok(lessonBranch, "the selected new-lesson branch has its own teaching prompt");
+  assert.match(lessonBranch.prompt_template, /Earlier scheduled concepts are background, not invented completed learner performance/u);
+  assert.match(lessonBranch.prompt_template, /approved prerequisites, schedule and materials/u);
+  assert.match(COURSE_BUILDER_DRAFT.systemPrompt, /Only that branch loads its full teaching methods/u);
+  assert.doesNotMatch(COURSE_BUILDER_DRAFT.systemPrompt, /Earlier scheduled concepts are background/u, "teaching methods are loaded conditionally from the selected Workflow branch");
 });
 
 test("native write and terminal knit real R Markdown, import its PNG and patch/compile the existing deck", {skip: !process.env.PI_TEST_RSCRIPT || process.env.PI_TEST_XELATEX !== "1", timeout:120000}, async () => {

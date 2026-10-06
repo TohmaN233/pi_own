@@ -59,7 +59,7 @@ test("prompt commands wait for SDK preflight acceptance before acknowledging", a
   let acceptPreflight;
   let finishPrompt;
   const inner = makePromptInner((_message, options) => new Promise((resolve) => {
-    acceptPreflight = () => options.preflightResult(true);
+    acceptPreflight = () => options.preflightResult("started");
     finishPrompt = resolve;
   }));
   const wrapper = new AgentSessionWrapper(inner);
@@ -96,7 +96,7 @@ test("completion notification waits for an accepted agent run to become idle", a
   const completed = [];
   const inner = makePromptInner((_message, options) => new Promise((resolve) => {
     inner.isStreaming = true;
-    options.preflightResult(true);
+    options.preflightResult("started");
     finishPrompt = () => {
       inner.isStreaming = false;
       resolve();
@@ -179,7 +179,6 @@ test("suppressed sessions do not emit completion notifications", (t) => {
 
 test("prompt commands reject when SDK preflight fails", async (t) => {
   const inner = makePromptInner((_message, options) => {
-    options.preflightResult(false);
     return Promise.reject(new Error("Authentication failed"));
   });
   const wrapper = new AgentSessionWrapper(inner);
@@ -199,7 +198,7 @@ test("prompt commands reject when SDK preflight fails", async (t) => {
 test("accepted prompt failures still finish through the event stream", async (t) => {
   let failPrompt;
   const inner = makePromptInner((_message, options) => {
-    options.preflightResult(true);
+    options.preflightResult("started");
     return new Promise((_resolve, reject) => {
       failPrompt = () => reject(new Error("post-accept failure"));
     });
@@ -220,7 +219,7 @@ test("queued prompt commands forward their streaming behavior and acknowledge ac
   let receivedOptions;
   const inner = makePromptInner((_message, options) => {
     receivedOptions = options;
-    options.preflightResult(true);
+    options.preflightResult("queued");
     return Promise.resolve();
   });
   const wrapper = new AgentSessionWrapper(inner);
@@ -241,11 +240,36 @@ test("queued prompt commands forward their streaming behavior and acknowledge ac
   assert.deepEqual(events, []);
 });
 
+test("extension-handled prompts do not create a phantom agent completion", async (t) => {
+  let sdkListener;
+  const completed = [];
+  const inner = makePromptInner((_message, options) => {
+    options.preflightResult("handled");
+    return Promise.resolve();
+  });
+  inner.subscribe = (listener) => {
+    sdkListener = listener;
+    return () => {};
+  };
+  const wrapper = new AgentSessionWrapper(inner, {
+    onAgentRunComplete: (sessionId) => completed.push(sessionId),
+  });
+  t.after(() => wrapper.destroy());
+  wrapper.start();
+
+  await wrapper.send({ type: "prompt", message: "/mcp" });
+  await nextTurn();
+  sdkListener({ type: "agent_settled" });
+
+  assert.equal(wrapper.isRunning(), false);
+  assert.deepEqual(completed, []);
+});
+
 test("an exact system prompt is reapplied after SDK preflight resets it", async (t) => {
   const inner = makePromptInner((_message, options) => {
     inner.agent.state.systemPrompt = "SDK base prompt";
-    options.preflightResult(true);
-    assert.equal(inner.agent.state.systemPrompt, "context prompt");
+    options.preflightResult("started");
+    assert.equal(wrapper.systemPrompt, "context prompt");
     return Promise.resolve();
   });
   inner.agent.state.systemPrompt = "initial SDK prompt";
@@ -255,14 +279,11 @@ test("an exact system prompt is reapplied after SDK preflight resets it", async 
   });
   t.after(() => wrapper.destroy());
 
-  assert.equal(inner.agent.state.systemPrompt, "context prompt");
+  assert.equal(wrapper.systemPrompt, "context prompt");
   await wrapper.send({ type: "prompt", message: "hello" });
   await nextTurn();
 
-  const prepared = await inner.agent.prepareNextTurnWithContext({
-    context: { systemPrompt: "SDK continuation prompt" },
-  });
-  assert.equal(prepared.context.systemPrompt, "context prompt");
+  assert.equal((await wrapper.send({ type: "get_state" })).systemPrompt, "context prompt");
 });
 
 test("prompt admission waits for the preceding preflight and keeps overlapping runs counted", async (t) => {
@@ -275,7 +296,7 @@ test("prompt admission waits for the preceding preflight and keeps overlapping r
       return new Promise((resolve) => {
         acceptFirst = () => {
           inner.isStreaming = true;
-          options.preflightResult(true);
+          options.preflightResult("started");
         };
         finishFirst = () => {
           inner.isStreaming = false;
@@ -285,7 +306,7 @@ test("prompt admission waits for the preceding preflight and keeps overlapping r
     }
 
     assert.equal(inner.isStreaming, true);
-    options.preflightResult(true);
+    options.preflightResult("queued");
     return Promise.resolve();
   });
   const wrapper = new AgentSessionWrapper(inner);
@@ -322,12 +343,11 @@ test("prompt admission continues after the preceding preflight rejects", async (
     if (callCount === 1) {
       return new Promise((_resolve, reject) => {
         rejectFirst = () => {
-          options.preflightResult(false);
           reject(new Error("first rejected"));
         };
       });
     }
-    options.preflightResult(true);
+    options.preflightResult("started");
     return Promise.resolve();
   });
   const wrapper = new AgentSessionWrapper(inner);
@@ -357,7 +377,7 @@ test("a failing event listener cannot reject prompt completion", async (t) => {
   console.error = () => {};
 
   const inner = makePromptInner((_message, options) => {
-    options.preflightResult(true);
+    options.preflightResult("started");
     return Promise.resolve();
   });
   const wrapper = new AgentSessionWrapper(inner);

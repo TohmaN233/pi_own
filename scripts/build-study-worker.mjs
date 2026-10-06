@@ -3,6 +3,7 @@ import { isBuiltin } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { buildPortableCodeModeArchive } from "./build-portable-code-mode-archive.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -50,6 +51,9 @@ export async function buildStudyWorker(outputRoot = join(repository, "apps", "pi
   }
   // Bundled import.meta.url stays three levels below runtime/skills, matching the existing Skill resolver.
   await cp(join(repository, "skills"), join(staging, "skills"), { recursive: true, dereference: false });
+  // Code shares runtime/ with Study. Generate into this same staging tree so
+  // the atomic Study replacement cannot erase its relocatable archive.
+  await buildPortableCodeModeArchive(staging);
   await writeFile(join(staging, "study-worker-build.json"), JSON.stringify({ version: 1, entry: "packages/study-execution-host/src/study-execution-coordinator.mjs",
     node: ">=22.19.0", externalDependencies: "node builtins only", sourceFiles: Object.keys(result.metafile.inputs).sort(),
     agentEntry: "packages/study-agent/src/study-agent-worker.mjs", agentDependencies: [...packagedDependencies],

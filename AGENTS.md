@@ -1,6 +1,45 @@
 # Development Rules
 
-Construct runtime and default resource catalogs with `createBuiltinModeResources()` so local Skill edits are read at catalog construction, not frozen at module import. Existing resource snapshots remain immutable; required missing/empty files and mid-read drift still fail explicitly. The legacy `BUILTIN_MODE_RESOURCES` export is a captured snapshot, not the runtime catalog source.
+## Remote publication policy
+
+Keep GitHub `main` as the verified stable baseline; ordinary development and bug
+fixes stay local. Do not infer permission to push from a feature request, CI
+complaint, successful check, or earlier upload authorization. Push only when the
+user explicitly requests `push` for the intended changes. The sole permitted
+GitHub account and commit identity is `TohmaN233`. Preserve unrelated local work
+and never include personal course materials, chat/session data or credentials.
+Do not delete failed CI history or weaken checks to present a stable status.
+
+Cloud synchronization publishes the complete reviewed public source snapshot,
+including the current pinned plugin archive. Verify fresh-checkout runtime asset
+generation before typechecks and tests, and require GitHub checks on the uploaded
+commit. Record commit and Run identities in local diagnostic artifacts rather
+than hard-coding a baseline here that becomes stale after a synchronization.
+
+## Application development
+
+Learning sessions default to the Host pi-CAW plugin unless the user disables it globally. Study & Research revision 4 includes compact Workflow routing and an optional native pi-caw Skill. Resolve imported Study phase aliases from the verified package identity. `study_workflow` binds study-explanation to the current session, question and frozen public selected sources; its strict child reads only that task workspace. Generic Role/Main execution and Course tools must not bypass Study admission or learner answer gates. Preserve shared learning Skills, custom settings, immutable archives and transcripts when adopting these defaults; this does not replace all learner pedagogy with Workflows.
+
+Workflow libraries are independent of Mode Packs. Every installed normal Workflow is selectable in every mode; a mode supplies editable defaults only. Course Builder defaults to course-production; Study/Research defaults to study-explanation; other modes default to globally enabled generic Workflows. Historical learner modes also permit user-selected generic Workflows. Keep domain tool/task/source/assessment authority separate from library preferences. Store overrides by exact session/profile/package origin with revision CAS, preserving resource snapshots, transcripts, global graphs and Run pins. Catalog deletion leaves dormant preferences without execution grants. Workbench groups only enabled/disabled; native Pi without a mode adapter retains the same complete library and human global switches. Global pi-CAW off remains authoritative.
+
+Pi Web baseline plugins are Host-owned `pi-subagents@0.74.0`, `@eko24ive/pi-ask@1.2.0`, `pi-context-usage@2.1.0` and FFF `0.11.0`. There is only one general-purpose subagent scheduler and role manager; the old `Agent` implementation and Code-owned subagent dependency are deleted. Web uninstall must remove physical installation files, mode references and obsolete offline copies. Explicit uninstall is journaled so conversation history can load the updated current mode.
+
+Native plugins can register dormant tools and enable them on demand. Mode capability ceilings must include the registered tools of actually loaded eligible Host plugins; active-tool verification still checks the current lazy activation state. Reload re-reads plugin switches so disabling and re-enabling a plugin takes effect in the same conversation.
+
+Course Builder additionally defaults to our `pi-caw@0.2.31` Workflow plugin and optional complete `pi-caw` Skill. Preserve portable upstream Workbench capabilities and full Role instructions; select default templates from the user's actual retained configuration. Exclude the user-removed implementation-with-review composite and keep standalone source compilation in the Host tools. Codex/GPT-exclusive transport may be replaced. It has a separate explicit graph/Provider namespace, with node-level Main worker (default fresh inherited-model context) / orchestration (Cooperative current chat), initiating-Agent selections frozen per Run, and workflow children using bound native Pi sessions; it must not reintroduce the retired generic `Agent` protocol or supply implicit child models. Ship its full private tarball, including defaults and compiled UI, in `apps/pi-web/host-plugins/` and use that pinned file for reinstall. Host-controlled bounded loops retain exact round history, repair only failed items and re-review changed dependencies; loop editors and both authoring paths belong to the portable plugin. Final human acceptance remains outside loops, and current Run pins are immutable. Settings and Run evidence remain beneath the effective G-drive `PI_CODING_AGENT_DIR`, never the adjacent plugin source checkout. Native `/caw` exposes the Workbench link without launching an external browser. Keep the dynamically loaded plugin and installation archive in Next build traces. Native MCP reuses the active Pi 1.0 configuration and credential store; do not add another MCP registry. Parallel qualification must check each actual writer's effective strict policy so cooperative current-chat Main remains possible.
+
+Course production uses one conditional graph and a durable Host-owned task/Run binding. Host actions select eleven product types; optional Rmd/HTML/combined outputs require explicit chat requests and have no automatic generation buttons. `course_task_route` deterministically chooses the product and new/revise branch from a frozen prepared task. Only the selected branch loads its complete methods and selected course or isolated Assignment sources. Existing assets are the revision baseline unless the teacher explicitly discards them. An explicit failed task may supply a hash-verified committed source baseline even if compilation failed. The strict child writes newly authored files only under its task's `sources/`; deterministic domain tools own identities, CAS, persistence and real TeX/Rmd execution. Branch commits converge on one Host finalizer. Pending teacher drafts and experimental PDFs do not require a new pre-generation approval and never count as teacher acceptance. Preserve the exact successful PDF while repairing source. Chat `workflow_prepare`, `workflow_start` and `workflow_status` reuse the same task APIs, and a terminal domain finalizer must not start the legacy whole-course continuation. Historical Runs keep their original Workflow bindings.
+
+Before restarting Pi Web, preserve its effective `PI_CODING_AGENT_DIR` and
+`PI_LEARNING_HARNESS_DIR`. The source launcher defaults to the repository's
+`.learning-harness-data/pi-agent` and `.learning-harness-data`; an unconfigured
+`npm run dev` instead uses Pi's user-home storage. Persist this machine's selected
+paths in the ignored `apps/pi-web/.env.local` so direct npm restarts keep the same
+sessions, credentials, mode registrations and course database. Never migrate or
+merge records merely because a restart points at a different directory. Confirm
+the startup `[pi-web] runtime storage` log and existing session IDs after restart.
+
+Construct runtime and default resource catalogs with `createBuiltinModeResources()` so local Skill edits are read at catalog construction, not frozen at module import. On dormant session restart, edited local built-in Skills automatically advance the Mode Pack binding to a newly hashed snapshot; a custom catalog-backed mode also advances its one current definition. The picker keeps such modes selectable. Existing snapshot records remain immutable, while missing/empty files, mid-read drift, and portable package identity changes still fail explicitly. Do not eagerly construct built-in resources at module import: portable runtime modules must load without the source repository's Skills directory.
 
 Teacher scripts now deliver TeX and PDF. Reuse the bounded XeLaTeX engine with a distinct `teacher-notes` document class policy and independent receipt/log/PDF ledger; never manufacture Beamer identities for scripts. `compile_teacher_notes` and `read_teacher_notes_compile_log` support the native repair loop, and script delivery requires a successful current script revision/hash receipt. Desktop TeX editing places source on the left and PDF on the right, each scrollable; preserve draft and revision-conflict handling. PDF transport remains JSON/base64 through `PdfPreview`, not a raw iframe URL.
 
@@ -36,6 +75,8 @@ Numerical visual receipts and their canonical Host validation must commit or rol
 
 Frozen supplementary inputs use one shared 16 MiB per-file / 32 MiB total limit and canonical byte hashes. Native running telemetry uses the real process stopwatch and captured stdout/stderr bytes; artifact output is accounted at terminal harvesting, not represented as live filesystem usage. No automatic execution checkpoint/resume is provided; disclose retained partial output and new-run semantics before launch. Installer recovery requires an absolute supervisor helper and durable process-creation FILETIME; incomplete legacy identity must remain locked. Preserve command-specific installer environment variables through the supervisor.
 
+Windows C# helpers share short compiler staging and a verified source-addressed cache beneath `%LOCALAPPDATA%/pi-own/native/<identity>`. Long operation gate/evidence paths remain supported. Retain recorded helper executables for process recovery; cleanup removes unpublished compilation inputs and test fixtures, never helpers referenced by an operation. Capture compiler stdout and stderr on failures. Source launch installs both root build dependencies and Pi Web dependencies from their exact lockfiles when the installed lock marker changes.
+
 Result-learning prompts carry only exact result/task identity and revision. Both phases can use `study_paper action=read_result`; Research can also use `study_results action=read_result`. Read a single allowlisted frozen field per page, at most 8000 UTF-16 units, using the returned contentHash as the next fieldHash. Check project identity again after asynchronous state resolution. Model-facing state/save responses omit full code/log origins; browser result state remains separate. Do not replace user-model academic acceptance with the offline protocol provider or a small numerical smoke.
 
 ## Existing Course Builder invariants
@@ -61,7 +102,7 @@ Beamer presentation validation blocks malformed line-break/formatting commands (
 - Course Builder local folders are stored as read-only path bindings with a lightweight file manifest. Do not eagerly inject or persist every linked file body; `read_material` resolves one bounded course source on demand. Every Assignment owns a separate folder manifest and revision; `read_assignment_material` must carry its Assignment identity, and Host code must reject course/Assignment and cross-Assignment source access. File extensions select an extraction adapter, never whether a source may be linked.
 - Assignment structured plans use the same `MarkdownBody` math renderer as other teacher reviews. Authored `.tex`, `.Rmd`, `.md`, `.R` and `.txt` outputs stay in the Host-assigned Assignment directory and open through the shared workspace preview; TeX reuses the source/PDF editor and keeps the last PDF until a successful Ctrl+S compile. Course-level `assignmentPreamble` is stable input for every Assignment and does not invalidate semester planning. Teacher approval prunes superseded structured plan/deck history and Assignment compiler scratch while retaining the approved source and current PDF.
 - Built-in education Skills live under `skills/` (override: `PI_SKILLS_DIR`) and are the content source for both the default catalog and Pi Web runtime inventory. Generic Mode Pack Skills load through Pi's ResourceLoader with complete prompt blocks; learner Skills are injected as complete Host-owned prompt text. Required files must be non-empty and their SHA-256 identities must match; names and menu entries alone are not loading evidence. Keep `docs/SKILL_PARITY_AUDIT_2026-09-05.zh-CN.md` and third-party notices current when adapting upstream teaching workflows.
-- Pi Web uses the pinned Pi SDK 0.85.1. Session model/thinking/prompt/Skill changes create new immutable snapshots through `session-settings.ts` and the existing activation transaction; never mutate only the SDK model or prompt behind a pinned binding. Settings stay scoped to the session and mode and are restored when switching back. Runtime invalidations refresh chat controls and open settings across pages. Course Builder embeds the existing ChatWindow on the same page and activates the original session on entry, while saved course editing remains independent of model availability.
+- Pi Web pins its four direct Pi packages together at 1.0.0. The loopback-only `/api/pi-core-update` endpoint checks `pi.dev/api/latest-version` and updates all four packages to the same exact stable version; source checkouts also refresh the bundled Code Mode Pi pin and archive, and the running server must restart afterward. Built-in tool-using modes default to Pi's native Codemode on and standalone tool search off. Their switches in Settings > General > Tool capabilities are independent of Pi's native MCP server configuration; no additional MCP adapter is required. Load only selected orchestration factories so MCP cannot re-enable a disabled switch. Scoped learning and Study & Research may orchestrate their admitted Host tools but load neither ambient MCP nor the Codemode model API. Native MCP tools with configured direct exposure join unscoped modes' direct-tool ceiling even when connected later; other exposure stays indirect or hidden. Session model/thinking/prompt/Skill/tool changes create new immutable snapshots through `session-settings.ts` and the existing activation transaction; never mutate only the SDK model or prompt behind a pinned binding. Settings stay scoped to the session and mode and are restored when switching back. Runtime invalidations refresh chat controls and open settings across pages. Course Builder embeds the existing ChatWindow on the same page and activates the original session on entry, while saved course editing remains independent of model availability.
 - On Windows, flush Mode Pack writes through a writable file handle. Close the process-wide LearningHarness before deleting its test directory; an open SQLite connection prevents cleanup.
 - Generic/teacher Mode Packs permit normal builtin tool selection and reload through verified snapshot revisions. Resolve Bash/PowerShell from the runtime's platform and SettingsManager, keeping workflow extensions active independently of builtin presets. Learner activity tool boundaries remain enforced. Pi's original sidebar-header New control is the conversation entry; do not duplicate it inside Course Builder. Reserve the Mode Pack bar's layout row and offset fixed mobile sidebars so it cannot cover Pi's original controls. Lesson/Beamer shortcuts select a real semester slot and the server validates the current lesson and approvals before dispatch.
 - Host home-directory discovery uses `apps/pi-web/lib/runtime-home.ts`. Do not let build-time file tracing evaluate and recursively include the runtime user's home; the real-tracer regression is `apps/pi-web/lib/runtime-home.test.mjs`.
@@ -129,7 +170,6 @@ Course Builder compilation must return actionable engine diagnostics, including 
 
 ## Dependency and Install Security
 
-- Builds refresh the public model catalog. Offline compatibility regressions for retired models use typed, validated fixtures in `packages/ai/test/historical-models.ts`; live Together tests select a current model by required capabilities. Do not keep retired production models or suppress missing-model errors to stabilize tests.
 - Treat npm dep and lockfile changes as reviewed code. Direct external deps stay pinned to exact versions.
 - When updating `undici`, you MUST read its changelog/release notes for the target version and evaluate whether any changes may affect functionality before applying the update.
 - Hydrate/update locally with `npm install --ignore-scripts`; clean/CI-style with `npm ci --ignore-scripts`. Don't run lifecycle scripts unless the user asks.
@@ -258,5 +298,127 @@ Attribution:
 If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.
 
 - Course delivery evidence is explicitly typed. `delivery_status` is the authoritative requirement/finish contract; compile/review/checkpoint/import proof comes from Host records, while content quotes use saved source or actual read_material windows. Never replace operational proof with an unrelated artifact substring or silently classify legacy requirements. Keep checkpoint revisions scoped per lesson and expose local-link availability without eager content ingestion.
+
+## Portable Mode Ecosystem
+
+Product requirement: every user-facing module must be decomposable, installable, and exportable
+as one portable Mode Pack, including all internal phases/profiles, its specialized
+harness, route validation, and frontend. The education-related module packages are
+Course Builder and Study & Research; historical course-bound workflow IDs are not
+standalone modules. Code Mode is a package instance, not a special packaging
+contract. General, Creative, Code, Course Builder, and Study & Research use the
+same export/import format; Course Builder and Study & Research carry compiled
+frontends and package-owned route/extension closures.
+Do not reject two isolated mode components merely because their function or
+component names match and their content differs. When public registrations
+collide in one active session, deterministically qualify them with package-name
+prefixes and verify all selected calls resolve; do not use load-order precedence
+or edit upstream bytes. Never add a package prefix to Skill names; keep their
+upstream names and track source/version/hash separately. Detect conflicts from actual shared dependency
+incompatibility or an unresolved collision after qualification.
+Reject a portable mode package with two selectable Skills under one unprefixed
+name during import preflight, even when their SKILL.md bytes match: support
+files can differ and optional Skills can be enabled later. Separate modes may
+each select their own content. Never let Pi's Skill loader silently pick the
+first file.
+After successful import, the mode-specific frontend must open immediately
+without a Pi Web rebuild or restart. Package it as runtime-loadable assets
+using a stable host capability boundary; Next-compiled pages alone are not a
+portable frontend.
+Export complete mode-owned local component bytes and their dependency graph for
+a declared OS/architecture. Explicit host-supplied external prerequisites are
+allowed, but import preflight must list and reject missing/incompatible ones for
+the Pi agent to resolve. Import must
+mechanically preflight shared versions and public registrations against the
+current Pi installation and registered modes before committing registration,
+changing shared installations, or activation. Disposable private staging for
+verification is allowed. On conflict, fail atomically with a detailed dependency report
+and a prepared resolution prompt for the initiating Pi agent. A conflict found
+only during ordinary mode use is a bug, not the expected resolution flow.
+Prefer the newest shared version only when every installed consumer explicitly
+declares it compatible and verification passes. If a consumer has no compatibility
+declaration, require exact installed version and content hash; otherwise stop
+with a structured conflict report. A higher version number alone is not
+compatibility evidence.
+Only `sharedResources` creates a cross-package binding. It names a logical
+identity and a complete bundled resource closure (entry plus support files), with an explicit list of acceptable
+stable-semver upgrades. Import compares current installed providers twice,
+including under the store commit lock; same-version differing content or an
+unaccepted newer version fails before registration. New sessions bind the
+newest compatible provider's verified bytes, while stored packages retain
+their original bytes and pins for standalone export and historical sessions.
+Successful shared-provider hashes remain in the durable store after their
+owning mode is deleted so committed snapshots still load their exact provider.
+Retained hashes are not current upgrade candidates.
+Commit-style or otherwise unorderable versions may share only when version,
+entry hash, and support-file closure match exactly; distinct unorderable
+versions fail rather than guessing which is newer.
+Same-named resources without `sharedResources` remain private.
+
+Code Mode has a content-addressed manifest with bundled Skills and frontend.
+The common binary exporter now embeds a complete platform-specific offline npm
+tree, and import installs from its verified bytes before registration. Keep
+the binary transfer streaming and stored manifests metadata-only; never parse
+a 300 MB base64 JSON manifest on each mode switch. Build the generated
+archive with `node scripts/build-portable-code-mode-archive.mjs` before direct Pi Web
+TypeScript checks; `apps/pi-web` `predev`, `predev:lan`, and staged production builds
+perform this automatically. Runtime activation may read only the bound package hash
+and its private selected runtime dependencies. Do not reintroduce repository-root
+resource reads, a shared curated Code installer/cache, global PATH mutation, or
+archive-owned ambient MCP discovery. The only ambient MCP path is the Pi native Host
+built-in in unscoped tool-using sessions; it reads Pi's standard user/project
+server configuration independently of Codemode/tool-search selection and remains
+outside the portable archive's resource identity. Scoped learning and Study & Research
+do not load ambient MCP. Preserve
+exact source provenance in the archive lock and keep original third-party Skill bytes
+unchanged.
+
+A persisted Coding snapshot may resolve only an explicitly registered historical
+built-in package hash; explicit activation advances to the current built-in package.
+Never scan package cache directories to find an old archive. Portable frontend assets
+must remain snapshot/nonce-bound and response-sandboxed, including SVG documents.
+Mode Pack definitions own prompt composition through `systemPromptMode`: education,
+creative, general, and custom packs default to an isolated replacement prompt; only
+packs that explicitly select `append` may inherit Pi's coding prompt and project
+context. Portable Skill IDs describe the Skill itself and must not carry a mode
+or package prefix. Keep Skill bodies out of settings-list responses and load one body only when
+the user opens it. A private immutable npm runtime receives a full content hash
+at installation. Later process starts scan the complete tree metadata; unchanged
+metadata reuses the persisted content hash, while any drift triggers a full
+content comparison and repair. Intentional external mutations invalidate the
+process-local verification before reuse.
+The common package constructor/parser owns the payload and definition hashes.
+The ordinary `general` and `creative` built-ins now round-trip through it.
+One user-facing module may carry several internal profiles, each with its own
+frontend entry. Import and deletion of those profiles are atomic; renamed
+installations of the same package content share the immutable payload. Harness
+and route-validation assets are typed, hash-checked and activated by the
+package-scoped runtime loader. Import validates their route and extension
+exports before registration. Package frontends are built assets in a
+snapshot-bound opaque frame; API and download URLs use the active package route.
+Exact npm pins may reuse one runtime across Mode Packs; existing legacy runtime
+directories remain in place while no shared tree exists. Course Builder and
+Study & Research each export one multi-profile module with its own frontend and
+backend runtime. Versioned host interfaces used by those frontends are checked
+at import. Historical learner profiles are internal, not separate modules.
+New exports include a canonical dependency graph in the package hash. Its
+profile/resource/file/frontend/runtime/npm/host edges are recomputed at import;
+do not accept a graph whose nodes or edges disagree with bundled content.
+Extension-owned mutable data must never be written beneath that immutable tree.
+`pi-permission-system` receives a mode-private lexical environment whose config
+and logs live under `mode-packs/state/mode-<profile-hash>/`; foreground and detached
+subagents must inherit those exact state paths without mutating host `process.env`.
+Exact npm dependencies may share one immutable runtime directory, but must
+never share mutable permission policy. Existing Coding config is copied once
+from the legacy runtime-identity location before that mode first uses its new
+state directory; old logs remain where they were written.
+
+Course artifact Workflows project only the selected slot, sources and current artifact. Human/API selection creates a private Host task binding; trusted domain tools own context, CAS commits and real TeX/R execution. Independent author writes only `sources`; control journals stay outside its workspace. Domain-only finalizers suppress the legacy course delivery loop and extra completion turns until verified quiescence, including attention/cancellation/reconnect. Experimental PDFs/Rmd do not approve a lesson or accept a deck. Generated implementation identity hashes source bytes, not bundled function text. See `apps/pi-web/lib/course-workflow-domain.ts` and its real compiler/ownership regressions.
+Course Workflow launch records distinguish durable intent, exact confirmed Run binding and unconfirmed dispatch. Preserve Run/request identities and structured errors across ambiguous failures; only exact structured missing-directory evidence may produce an unconfirmed status response, never generic ENOENT or an absence/no-effects assertion. Legacy records remain visibly unverified until the same actor/workflow/task/workspace is observed.
+Private Host broker storage declarations cover the exact course database/WAL/SHM and actor-bound control journals; they never widen an author's `sources/` grant. Keep external write evidence intact. Recover an already-saved Host result by collecting its exact original receipt under explicit trusted storage authorization, with no model or mutation replay and no teacher approval.
+
+Course/Study launch dispatch owns pending intent across shared Host module instances. Status readers must not query or demote a Run while its dispatch is pending; startup observation resumes only after dispatch settles. A process restart loses only live ownership, not durable intent, so ambiguous historical launches retain their exact IDs and diagnostics. Use before_run_intent admission diagnostics for state conflicts. Workspace buttons expose the original lesson plan, Beamer, notes and Assignment actions; do not reintroduce a duplicate internal product selector or automatic Rmd/HTML/bundle generation.
+
+Logical Workflow Main inherits the current Pi chat model/thinking; it need not reuse that chat context. pi-CAW `run.main_context:auto` isolates Strict nodes and continues Cooperative nodes. The initiating agent may explicitly choose isolated or current context, without a child-model binding or weakening declared Strict policy. Keep original course actor/Run pins, actual isolated session/model receipts, teacher approval and G-drive agent storage.
 
 GitHub production dependency audits use scripts/audit-production.mjs at the monorepo root. Preserve complete findings and registry signature verification. Only the exact reviewed, unfixable Gondolin example advisory documented in docs/DEPENDENCY_AUDIT.md is nonblocking; new advisories, consumers or available fixes still fail. Pi Web uses the ordinary npm audit command and a registry-signed source-map-js 1.2.2 lock entry.

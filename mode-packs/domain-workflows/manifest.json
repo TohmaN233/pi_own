@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "workflows": [
+    {
+      "id": "course-production",
+      "path": "course-production.workflow.json",
+      "revisionHash": "dd1a7245422e98a5ac2e97cb8dda5bf85a236a01cfec5b259d07dd739fe6403d",
+      "sha256": "48b66d766708e095693e623f3fbefec9b1d4a25b79c844855a33f9f103ffad8d"
+    },
+    {
+      "id": "study-explanation",
+      "path": "study-explanation.workflow.json",
+      "revisionHash": "98e8e4bf08aeaaff2231519034d168381be279462338f57c2bffd2126771b435",
+      "sha256": "9da6bff9727036045149a059088b7bd76510d654d456de9a4e9fe30de3b4e405"
+    }
+  ]
+}

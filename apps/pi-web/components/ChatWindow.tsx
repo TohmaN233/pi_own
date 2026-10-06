@@ -7,6 +7,7 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView } from "./MessageView";
+import { workflowCardEntries } from "@/lib/workflow-card-state";
 import { CourseReviewShortcut } from "./course-builder/CourseReviewShortcut";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
@@ -17,7 +18,7 @@ import { useAgentSession, type AgentPhase, type NoticeItem } from "@/hooks/useAg
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
-import type { AppUpdateResponse } from "@/lib/api-types";
+import type { AppUpdateResponse, PiCoreInstallResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import {
   captureScrollDistance,
@@ -81,29 +82,39 @@ function NewSessionUpdateLink({
   label: (version: string) => string;
 }) {
   const [update, setUpdate] = useState<AppUpdateResponse | null>(null);
+  const [checkState, setCheckState] = useState<"idle" | "checking" | "current" | "error">("idle");
+  const [checkError, setCheckError] = useState<string | null>(null);
+
+  const checkUpdate = useCallback(async (refresh: boolean, signal?: AbortSignal) => {
+    if (refresh) { setCheckState("checking"); setCheckError(null); }
+    try {
+      const response = await fetch(`/api/app-update${refresh ? "?refresh=1" : ""}`, { signal, cache: "no-store" });
+      const result = await response.json() as AppUpdateResponse & { error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+      setUpdate(result.updateAvailable ? result : null);
+      if (refresh) setCheckState(result.updateAvailable ? "idle" : "current");
+    } catch (error) {
+      if (signal?.aborted) return;
+      setCheckError(error instanceof Error ? error.message : String(error));
+      setCheckState("error");
+      console.warn("[pi-web] app update check failed", error);
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/app-update", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return response.json() as Promise<AppUpdateResponse>;
-      })
-      .then((result) => {
-        if (result?.updateAvailable && result.latestVersion && result.releaseUrl) {
-          setUpdate(result);
-        }
-      })
-      .catch(() => {
-        // Update checks are best-effort and must not interrupt a new session.
-      });
+    void checkUpdate(false, controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [checkUpdate]);
 
-  if (!update) return null;
-  const accessibleLabel = label(update.latestVersion);
+  const accessibleLabel = update ? label(update.latestVersion) : "检查 Pi Web 更新";
 
   return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11 }}>
+      <button type="button" onClick={() => void checkUpdate(true)} disabled={checkState === "checking"} title={checkError ?? accessibleLabel} style={{ color: checkState === "error" ? "#f87171" : "var(--text-muted)", background: "none", border: 0, cursor: "pointer", padding: "0 4px" }}>
+        {checkState === "checking" ? "检查中…" : checkState === "current" ? "已是最新" : checkState === "error" ? "检查失败 · 重试" : "检查更新"}
+      </button>
+      {update && (
     <a
       href={update.releaseUrl}
       target="_blank"
@@ -137,6 +148,82 @@ function NewSessionUpdateLink({
         <path d="M7 7h10v10" />
       </svg>
     </a>
+      )}
+    </span>
+  );
+}
+
+function PiCoreUpdateControl({ initialVersion }: { initialVersion: string }) {
+  const { t } = useI18n();
+  const [update, setUpdate] = useState<AppUpdateResponse | null>(null);
+  const [installedVersion, setInstalledVersion] = useState(initialVersion);
+  const [state, setState] = useState<"checking" | "idle" | "updating" | "restart" | "error">("checking");
+  const [error, setError] = useState<string | null>(null);
+
+  const check = useCallback(async (refresh: boolean, signal?: AbortSignal) => {
+    setState("checking");
+    setError(null);
+    try {
+      const response = await fetch(`/api/pi-core-update${refresh ? "?refresh=1" : ""}`, {
+        cache: "no-store",
+        signal,
+      });
+      const result = await response.json() as AppUpdateResponse & { error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+      setInstalledVersion(result.currentVersion);
+      setUpdate(result.updateAvailable ? result : null);
+      setState("idle");
+    } catch (caught) {
+      if (signal?.aborted) return;
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setState("error");
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void check(false, controller.signal);
+    return () => controller.abort();
+  }, [check]);
+
+  const install = useCallback(async () => {
+    if (!update) return;
+    setState("updating");
+    setError(null);
+    try {
+      const response = await fetch("/api/pi-core-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: update.latestVersion }),
+      });
+      const result = await response.json() as PiCoreInstallResponse & { error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+      setInstalledVersion(result.currentVersion);
+      setUpdate(null);
+      setState(result.restartRequired ? "restart" : "idle");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setState("error");
+    }
+  }, [update]);
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 6, fontSize: 11, color: "var(--text-muted)" }}>
+      <span>pi <span style={{ color: "var(--text)" }}>v{installedVersion}</span></span>
+      {state === "checking" && <span>{t("piCoreUpdate.checking")}</span>}
+      {state === "updating" && <span>{t("piCoreUpdate.updating")}</span>}
+      {state === "restart" && <span style={{ color: "var(--accent)" }}>{t("piCoreUpdate.restart")}</span>}
+      {state === "error" && (
+        <button type="button" onClick={() => void check(true)} title={error ?? undefined} style={{ border: 0, padding: 0, background: "none", color: "#f87171", cursor: "pointer" }}>
+          {t("piCoreUpdate.failed")}
+        </button>
+      )}
+      {state === "idle" && update && (
+        <button type="button" onClick={() => void install()} style={{ border: 0, padding: 0, background: "none", color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>
+          {t("piCoreUpdate.install", { version: update.latestVersion })}
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -417,6 +504,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
   const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant");
+  const workflowCards = useMemo(() => workflowCardEntries(messages), [messages]);
   // Stable Map identity: `messages` doesn't change during streaming updates
   // (the streaming message lives in streamState), so memoized MessageViews
   // skip re-rendering on every message_update event. An inline `new Map()`
@@ -714,9 +802,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                   web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
                 </span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
-                </span>
+                <PiCoreUpdateControl initialVersion={process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"} />
               </div>
             </div>
             {chatInputElement}
@@ -758,7 +844,13 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               };
 
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
-                const msg = options.messageOverride ?? messages[idx];
+                let msg = options.messageOverride ?? messages[idx];
+                if (msg.role === "custom" && msg.customType === "pi-caw:status") {
+                  const runId = (msg.details as {run_id?: string} | undefined)?.run_id;
+                  const card = runId ? workflowCards.get(runId) : undefined;
+                  if (card && card.first !== idx) return null;
+                  if (card) msg = card.message;
+                }
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
                     ? entryIds[idx - 1]
@@ -847,7 +939,15 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
                   processIndices.push(processIdx);
                 }
-                const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
+                // Workflow cards stay visible when Main's intermediate messages
+                // collapse after its final answer. They already have their own
+                // expansion control and must not sit inside "处理详情".
+                const workflowProcessIndices = processIndices.filter((processIdx) => {
+                  const message = messages[processIdx];
+                  return message.role === "custom" && message.customType === "pi-caw:status" && message.display !== false;
+                });
+                const workflowProcessSet = new Set(workflowProcessIndices);
+                const visibleProcessIndices = processIndices.filter((processIdx) => !workflowProcessSet.has(processIdx) && hasDisplayableProcessMessage(messages[processIdx]));
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
                 const finalSplit = splitFinalAssistantBlocks(finalAssistant);
                 const finalProcessMessage = finalSplit.processBlocks.length > 0
@@ -884,6 +984,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                   );
                 }
 
+                for (const workflowIdx of workflowProcessIndices) rendered.push(renderMessage(workflowIdx));
+
                 if (finalAnswerMessage) {
                   // Each tool call is stored as its own assistant entry, so the
                   // final answer alone carries no record of what the turn wrote.
@@ -904,7 +1006,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 }
                 idx = endIdx;
               }
-              const { startIndex } = getVisibleRenderWindow(rendered.length, visibleCount);
+              // Coalesced updates return null and must not consume the history
+              // window, otherwise repeated progress hides the only actual card.
+              const visibleRendered = rendered.filter(node => node !== null && node !== undefined);
+              const { startIndex } = getVisibleRenderWindow(visibleRendered.length, visibleCount);
               const hasMore = startIndex > 0 || hasEarlierMessages;
               return (
                 <>
@@ -913,7 +1018,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                        {t("chat.loadEarlier")}
                     </div>
                   )}
-                  {rendered.slice(startIndex)}
+                  {visibleRendered.slice(startIndex)}
                 </>
               );
             })()}

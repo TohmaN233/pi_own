@@ -15,7 +15,7 @@ test("learner settings rebuild before the first reply, load the exact prompt, pr
   const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
   const rpc = await jiti.import("./rpc-manager.ts");
   const { getLearningHarness, bindHarnessCourse } = await jiti.import("./harness-server.ts");
-  const { getSessionModeSettings, updateSessionModeSettings } = await jiti.import("./mode-settings-service.ts");
+  const { getSessionModeSettings, getSessionModeSkillContent, updateSessionModeSettings } = await jiti.import("./mode-settings-service.ts");
   t.after(async () => {
     for (const wrapper of globalThis.__piSessions?.values() ?? []) await wrapper.shutdown();
     globalThis.__piLearningHarness?.close(); globalThis.__piLearningHarness = undefined;
@@ -37,14 +37,24 @@ test("learner settings rebuild before the first reply, load the exact prompt, pr
   assert.equal(live.inner.model.id, target.id);
   let current = await getSessionModeSettings(sessionId);
   assert.ok(current.skills.some((skill) => skill.loaded), "learner Skills must be visible before a model run");
+  assert.ok(current.skills.every((skill) => !("content" in skill)), "the Skill list must remain metadata-only");
   const prompt = "Explain this course with short examples and ask one useful check.";
   const disabledSkill = current.skills.find((skill) => skill.enabled && !skill.required);
+  const disabledSkillContent = await getSessionModeSkillContent(sessionId, disabledSkill.id);
+  assert.ok(disabledSkillContent.content.length > 0, "one Skill body is loaded only when requested");
   const request = { sessionId, expectedSnapshotId: current.snapshotId, idempotencyKey: "edit-learner", settingsPatch: { systemPrompt: prompt, skills: [{ id: disabledSkill.id, enabled: false }] } };
   current = await updateSessionModeSettings(request);
   assert.equal(current.systemPrompt, prompt);
   assert.equal(current.skills.find((skill) => skill.id === disabledSkill.id).loaded, false);
   assert.equal(harness.getCurrentSession(sessionId).binding.courseVersionId, course.courseVersionId);
   assert.equal(harness.getCurrentSession(sessionId).binding.role, "student");
+  current = await updateSessionModeSettings({ sessionId, expectedSnapshotId: current.snapshotId, idempotencyKey: "learner-native-search", settingsPatch: { tools: ["tool_search"] } });
+  assert.deepEqual(current.tools, ["tool_search"]);
+  assert.ok(rpc.getRpcSession(sessionId).inner.getActiveToolNames().includes("tool_search"));
+  assert.ok(!rpc.getRpcSession(sessionId).inner.getAllTools().some((tool) => tool.name === "codemode"));
+  current = await updateSessionModeSettings({ sessionId, expectedSnapshotId: current.snapshotId, idempotencyKey: "learner-native-code", settingsPatch: { tools: ["codemode"] } });
+  assert.deepEqual(current.tools, ["codemode"]);
+  assert.equal(current.systemPrompt, prompt);
   await assert.rejects(updateSessionModeSettings({ ...request, idempotencyKey: "bad-tools", expectedSnapshotId: current.snapshotId, settingsPatch: { tools: ["bash"] } }), /Learner tools/);
   const file = rpc.getRpcSession(sessionId).sessionFile;
   await rpc.getRpcSession(sessionId).shutdown();
@@ -53,18 +63,24 @@ test("learner settings rebuild before the first reply, load the exact prompt, pr
   assert.ok((await live.send({ type: "get_state" })).systemPrompt.includes(prompt));
   const practice = harness.prepareProfileTransition({ sessionId, targetProfileId: "practice", expectedSnapshotId: current.snapshotId, idempotencyKey: "practice" });
   live = await rpc.warmSwitchHarnessProfile(sessionId, practice);
-  assert.ok(!live.inner.agent.state.systemPrompt.includes(prompt));
+  assert.ok(!live.systemPrompt.includes(prompt));
   const returnToTutor = harness.prepareProfileTransition({ sessionId, targetProfileId: bound.snapshot.profileId, expectedSnapshotId: practice.snapshot.resourceSnapshotId, idempotencyKey: "return" });
   live = await rpc.warmSwitchHarnessProfile(sessionId, returnToTutor);
-  assert.ok(live.inner.agent.state.systemPrompt.includes(prompt));
+  assert.ok(live.systemPrompt.includes(prompt));
   const faux = createFauxCore({});
   faux.setResponses([fauxAssistantMessage("unpublished fixture")]);
   let captured;
-  live.inner.agent.streamFunction = (model, context, options) => { captured = context.systemPrompt; return faux.stream(model, context, options); };
+  live.inner.agent.streamFunction = (model, context, options) => {
+    captured = context.messages
+      .filter((message) => message.role === "system")
+      .map((message) => typeof message.content === "string" ? message.content : message.content.map((block) => block.text ?? "").join("\n"))
+      .join("\n");
+    return faux.stream(model, context, options);
+  };
   await live.inner.prompt("What is a variable?");
   assert.ok(captured.includes(prompt), "the next real SDK turn must receive the edited mode prompt");
   assert.ok(captured.includes("submit_grounded_answer"), "the grounded publication instruction must survive prompt composition");
-  assert.ok(!captured.includes(disabledSkill.content), "disabled Skill text must not leak through an earlier instruction snapshot");
+  assert.ok(!captured.includes(disabledSkillContent.content), "disabled Skill text must not leak through an earlier instruction snapshot");
   const nextModel = models.find((model) => model.id !== live.inner.model.id);
   await live.send({ type: "set_model", provider: nextModel.provider, modelId: nextModel.id });
   const { SessionManager } = await jiti.import("@earendil-works/pi-coding-agent");

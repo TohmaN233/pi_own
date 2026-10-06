@@ -6,11 +6,15 @@
 
 网页抓取保留正文结构、代码、公式、表格和原始链接，记录来源网址；图片链接仍指向原网页资源，不表示已离线下载所有图片。动态、登录或无法可靠提取的页面明确报错，Agent 可用合适的原生浏览器/终端方法获取后再导入本地文件。一次页面抓取不代表爬取整站。其他文件不按扩展名拒绝，原始字节保留；没有阅读适配器的格式会报告实际能力限制。
 
-新增素材是按需读取的本地引用，不会全部进入上下文，也不会使已批准的大纲过期。重名不同内容保存为版本文件，保留原文件。独立素材任务使用 `materials` 交付类型；备课过程中导入只是当前教案或课件任务的辅助步骤，不改成 `visual` 任务。
+新增素材是按需读取的本地引用，不会全部进入上下文，也不会使已批准的大纲过期。从目录外导入的重名不同内容保存为版本文件，保留原文件。对课程素材目录内已经编辑的原文件再次调用 `add_material {expectedRevision: 当前项目revision, spec: {path: 原文件路径}}`，只更新该文件的索引，保留 materialId、子目录路径及其他文件，不必重新索引整个文件夹。独立素材任务使用 `materials` 交付类型；备课过程中导入只是当前教案或课件任务的辅助步骤，不改成 `visual` 任务。
 
 ## 独立交互教学可视化
 
 课堂可视化默认是课程素材目录中的单文件离线 HTML，而不是工作区内的一张静态表格或固定轨迹。Agent 在教师已经选择的课程素材目录中写入带内联 CSS/JavaScript 的完整页面，通过 `add_material` 登记，再用 `interactive_visual` 将该材料绑定到确定的单课教案。Host 分配 visual ID，并在登记和每次打开时重新校验文件身份、完整 HTML、交互控件以及 Canvas/SVG 实时图形；文件在登记后被修改时必须重新登记，不能静默展示未经验证的新内容。
+
+修订链路是：原地编辑 HTML → `add_material` 更新该文件索引 → `interactive_visual` 重新校验。成功保存的新 visual 自动成为当前交付目标；课次、原需求、版本基线与旧产物保留，模型不能通过 `delivery_route` 任意换到其他产品。素材索引更新本身不会让旧 visual 的校验哈希失效检查通过。`delivery_status.contentSources` 提供读取、索引刷新与登记模板；内容证据取自当前 HTML 或本次导入的 Rmd 等配套文件的 `read_material` 正文窗口，按 `materialId`、`offset`、`quote` 提交，不能用标题或 learningPurpose 代替。
+
+可视化交付只读取当前页面与本次提交引文的配套文件，不把历史尝试中已经替换的文件当成当前依赖；素材独立交付仍检查其全部导入。旧任务若在 visual 已保存后因 ID 更换被拒绝，Host 根据同一任务的原生工具调用、错误回执、保存时间和产品归属恢复绑定，保留审计记录；不会猜测其他对话的最新 visual，也不会因此自动完成交付。
 
 工作区的“打开交互网页”在独立标签页中打开该页面。页面允许滑块、按钮和页签直接驱动 Canvas/SVG 重绘，且必须覆盖当前课次的相关教学内容。运行策略允许页面内联脚本，但禁止网络连接、外部运行时依赖、表单提交、对象嵌入和父页面嵌套，因此上课时可离线使用。旧的 `visual` 固定 Renderer 继续用于教师明确要求的静态、确定性图示。
 
@@ -36,10 +40,11 @@
 
 右侧的 **Skills 与提示词** 展示项目根目录 `skills/`（可由 `PI_SKILLS_DIR` 指定）、模式组合、完整技能原文与实际加载状态。必需技能受合同约束；可选技能和系统提示词可以修改并应用，保存为当前会话的一份新快照。切换模式时自动换入对应提示词与组合，切回时恢复自己的修改。模型和推理等级也通过同一事务修改，保留原会话和历史。
 
-Pi Web 使用 SDK 0.85.1，包含 `openai-codex/gpt-6-astra`。Codex 订阅模型目录随 SDK 发布，浏览器刷新不会自行升级 SDK；账号权限与 `enabledModels` 设置仍决定可用列表。
+Pi Web 使用 SDK 1.0.0。Codex 订阅模型目录随 SDK 发布；新会话页会检查 Pi 稳定版，并可在本机一键同步四个核心包，重启后生效。账号权限与 `enabledModels` 设置仍决定可用列表。Codemode、MCP 与 tool-search 使用 Pi 原生能力，由各模式声明及会话开关决定加载；学习模式保留专用工具边界。
 
-本功能通过普通 Pi 会话的 `course-builder` Mode Pack 加载专用插件、物理教学 Skills 及固定工作流，
-复用 Pi 原生对话与 LearningHarness 的 SQLite 连接。不是第二套 Agent Loop。
+本功能通过普通 Pi 会话的 `course-builder` Mode Pack 加载专用插件、物理教学 Skills 及固定工作流，复用 Pi 原生对话与 LearningHarness 的 SQLite 连接。
+
+备课默认加载本项目的 `pi-caw` Workflow 插件及完整 Skill。在备课对话输入 `/caw`，点击返回的链接即可打开 Workbench；Main 使用当前对话，子节点的模型与思考等级需要在 Workbench 显式配置。开关、真实卸载和重新安装位于「设置 → 插件」。安装包随项目保存，不依赖插件开发目录。
 
 ## 开始
 
@@ -47,7 +52,7 @@ Pi Web 使用 SDK 0.85.1，包含 `openai-codex/gpt-6-astra`。Codex 订阅模�
 
 “接受当前有据版本”旁会说明未满足的条件。当前版本必须编译成功，并针对这次编译执行“检查源码和日志”；检查失败时直接列出问题。检查通过后，打开当前 PDF 逐页检查并勾选确认，即可接受。新源码版本或新的编译回执需要重新检查，旧版检查和人工确认不能沿用。系统不会代替教师验收。
 
-课程可以包含多条对话。备课 Agent 上方显示课程内的对话列表，选择即可切换，点击“新建对话”并填写名称即可创建空对话。课程资料、学期计划、单课教案、Assignment 与课件属于课程，在这些对话间共享；各条聊天记录互相独立。项目默认模型、提示词和 Skills 会在新建时继承，单条对话可以单独调整。展开“项目默认设置”，可将当前对话的设置保存为以后新对话的默认值。
+课程可以包含多条对话。在课程列表、课程工作区顶部或备课 Agent 的对话选择器中点击“新建对话”，即可直接打开一条空对话，无需先进入旧对话或填写标题。课程资料、学期计划、单课教案、Assignment 与课件在同一课程的对话间共享；聊天记录各自独立。课程列表入口继承项目默认设置；对话内入口继承当前模式及设置。展开“项目默认设置”，可将当前对话的设置保存为以后从课程列表新建对话时的默认值。
 
 主页顶部“项目与对话”打开 `/projects`：课程和普通任务都按文件夹展示，可新建普通项目和项目内对话。普通对话可整理到普通项目、移回项目外，也可选择“课程 · …”保留聊天历史并转为该课程的备课对话；Host 会先完成备课 Mode Pack 核验，再写入课程绑定。课程对话不能移出或改绑到另一门课程。顶部“新建独立对话”和原 Pi 的新建入口继续创建独立聊天，不继承当前课程。已有课程与对话会直接出现在目录中，无需重建。
 
@@ -217,6 +222,14 @@ node apps/pi-web/scripts/course-workspace-navigation-smoke.mjs
 
 
 ## Typed delivery evidence
+
+课程的限定 Workflow 使用同一个教师工作区入口。新课草案、Beamer PDF 与 Rmd 使用 `course-lesson-artifacts`；修改已有课件使用 `course-slide-revision`，默认不加载课程资料，也不重写教案或学期计划。Host 为每项任务分配工作目录、请求 ID 和课程绑定，子节点只写入该任务的 `sources/`，确定性工具负责保存及真实编译。成功编译不会自动批准教师草案。失败保留产物、诊断和版本证据；另一次修复必须使用 Host 创建的新请求身份，不能在旧回执下重放改过的文件。
+
+任务列表的 TeX、PDF、Rmd 和日志复用已有侧栏预览。修改源码后有效的旧 PDF 保留显示，并标明当前源码与原凭据的关系。个人模型绑定保存在有效的 Pi agent 目录；可分开配置 Role 与具体 Workflow 节点，导出的插件默认不携带个人模型或课程资料。
+
+普通教师对话也可通过 `course_builder.workflow_prepare` 选择已绑定的课次与所需 Workflow，再用返回的 Host taskId 调用 `workflow_start`；`workflow_status` 查看该任务。无需先读取全课程状态。准备、启动和查询都复用网页入口的实现；新 Run 接管后不再续跑旧的整课程交付循环。不可用的能力与准备错误直接返回，不能用反复唤醒模型解除。
+
+启动前先持久化准确 Run ID、请求身份及 `intent` 状态；只有核验同一 Run 的会话、Workflow、taskId 和工作目录后才记为 `confirmed`，界面才显示“已启动”。启动响应失败保留结构化错误及原身份，并核验同一 Run：存在则显示其实际状态，无法确认则保留 `unconfirmed`，不能重复启动该任务。查询仅将服务端带准确 Run ID 与 `run_directory_absent` 证据的 `RUN_NOT_FOUND` 作为未确认记录显示；普通 ENOENT、授权、绑定及损坏错误继续失败。当前目录不存在不证明从未执行或没有旧效果。旧版只有 Run ID 或字符串错误的记录明确标为待核验，原诊断保留，准确核验后记录兼容来源。
 
 `delivery_route` requires explicit `verification` per requirement: `content`, `compile-review`, `checkpoint`, or `materials`. Omitted requirement IDs are allocated deterministically by Host. The route response and `delivery_status` provide the authoritative IDs and exact `finishTemplate`. Only content requirements have model-supplied quotes. Operational proof records come from current Host receipts/checkpoints/imports and are persisted in `delivered.hostEvidence`; unrelated source quotations cannot substitute for them. Historical completed tasks remain unchanged. Legacy unfinished requirements must be explicitly classified with their original ID/text before finish.
 

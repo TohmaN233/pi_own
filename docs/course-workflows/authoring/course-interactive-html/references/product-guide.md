@@ -1,0 +1,3 @@
+# Independent classroom interaction
+
+Start from the concept and misconception. State what the learner predicts, manipulates, observes and explains. Provide meaningful controls and live Canvas or SVG redraws so a parameter change changes the visualization immediately. Label quantities, units, axes, assumptions, boundaries and comparison cost. Prefer genuine relationship exploration to a static table or decorative graphic. Use a complete UTF-8 HTML document, inline CSS and JavaScript, with no external/relative runtime dependencies. Preserve current working interaction on a local revision. Do not claim user understanding or visual inspection from structural validation.

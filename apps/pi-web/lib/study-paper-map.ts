@@ -1,4 +1,5 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { piRuntimeIdentity } from "./pi-runtime-version";
 import { contentHash } from "../../../packages/harness-core/src/index.ts";
 import type { LearningHarness } from "../../../packages/learning-harness/src/index.ts";
 import type {
@@ -271,7 +272,7 @@ function enqueueReduction(input: {
       codeHash: contentHash(PAPER_MAP_INSTRUCTION),
       parameterHash: contentHash({ provider: input.provider, modelId: input.modelId, thinkingLevel: input.thinkingLevel }),
       inputHashes: { paperMapRoot: input.artifact.rootInputHash, paperMapArtifact: contentHash(serializedArtifact) },
-      environmentHash: contentHash({ runtime: "pi-sdk-0.85.1", protocol: "study-paper-map-v1" }),
+      environmentHash: contentHash({ runtime: piRuntimeIdentity(), protocol: "study-paper-map-v1" }),
     },
     admission: { purpose: "论文全文学习地图综合", language: "none", maxWallSeconds: 3600, maxMemoryMiB: 1024 },
   }, (taskId) => {

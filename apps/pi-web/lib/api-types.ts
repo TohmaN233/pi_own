@@ -82,6 +82,14 @@ export interface AppUpdateResponse {
   releaseUrl: string;
 }
 
+export interface PiCoreInstallResponse {
+  previousVersion: string;
+  currentVersion: string;
+  updated: boolean;
+  restartRequired: boolean;
+  bundledCodeRuntimeUpdated: boolean;
+}
+
 export interface PushConfigResponse {
   publicKey: string;
 }
@@ -124,8 +132,30 @@ export interface PluginPackageInfo {
   status: "loaded" | "installed" | "missing" | "disabled";
 }
 
+/** Mode-owned extensions are selected by a portable package, not Pi's global package manager. */
+export interface ModePluginInfo {
+  modePackId: string;
+  modeTitle: string;
+  id: string;
+  source: string;
+  version?: string;
+  enabled: boolean;
+  required: boolean;
+}
+
+export interface HostPluginInfo {
+  id: string;
+  source: string;
+  version: string | null;
+  installed: boolean;
+  enabled: boolean;
+  installedPath: string;
+}
+
 export interface PluginsResponse {
   packages: PluginPackageInfo[];
+  modePlugins: ModePluginInfo[];
+  hostPlugins: HostPluginInfo[];
   totals: PluginResourceCounts;
   diagnostics: PluginDiagnostic[];
   projectResourcesLoaded: boolean;

@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { ModeSettingsPanel } from "./mode-packs/ModeSettingsPanel";
-import { orderSkillsByDormancy } from "@/lib/skill-display";
+import { groupSkillsForLibrary, orderSkillsByDormancy, skillLibrarySourceLabel } from "@/lib/skill-display";
 import { notifySessionConfiguration } from "@/lib/session-configuration-events";
+import { sendAgentCommand } from "@/lib/agent-client";
 import type {
   SkillInfo as Skill,
   SkillInstallScope,
@@ -44,14 +45,7 @@ function shortenPath(p: string): string {
   return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
 }
 
-function sourceLabel(skill: Skill): string {
-  if (skill.sourceInfo?.source === "pi-own-local-skills") return "project";
-  const src = skill.sourceInfo?.source;
-  const scope = skill.sourceInfo?.scope;
-  if (scope === "user" || src === "user") return "global";
-  if (scope === "project" || src === "project") return "project";
-  return "path";
-}
+const sourceLabel = skillLibrarySourceLabel;
 
 function updateKey(skill: Skill): string | null {
   return skill.install
@@ -66,6 +60,7 @@ function shortVersion(version?: string): string {
 function SkillDetail({
   skill,
   cwd,
+  sessionId,
   onToggle,
   toggling,
   saveError,
@@ -75,9 +70,11 @@ function SkillDetail({
   updateError,
   onCheckUpdate,
   onUpdate,
+  onDelete,
 }: {
   skill: Skill;
   cwd: string;
+  sessionId?: string | null;
   onToggle: (skill: Skill) => void;
   toggling: boolean;
   saveError: string | null;
@@ -87,6 +84,7 @@ function SkillDetail({
   updateError: string | null;
   onCheckUpdate: () => void;
   onUpdate: () => void;
+  onDelete: (skill: Skill) => void;
 }) {
   const { t } = useI18n();
   const label = sourceLabel(skill);
@@ -114,6 +112,10 @@ function SkillDetail({
             </span>
           </ConfigDetailHeaderInfo>
           <ConfigDetailActions>
+            <ConfigButton size="small" disabled={toggling || updating} onClick={() => onDelete(skill)} style={{ color: "#f87171" }}>删除文件</ConfigButton>
+            {skill.sourceInfo?.source === "portable-mode-package" ? (
+              sessionId && <a href={`/mode-packs?sessionId=${encodeURIComponent(sessionId)}`} className="skill-source-link">编辑模式包</a>
+            ) : (
             <ConfigSwitch
               checked={enabled}
               disabled={skill.sourceInfo?.source === "pi-own-local-skills"}
@@ -121,10 +123,12 @@ function SkillDetail({
               label={enabled ? t("i18n.visibleInPrompt") : t("i18n.hiddenFromPrompt")}
               onChange={() => onToggle(skill)}
             />
+            )}
           </ConfigDetailActions>
         </ConfigDetailHeader>
         <div className="skill-detail-status-row">
           {skill.sourceInfo?.source === "pi-own-local-skills" && <span>项目技能库。打开会话后，在「当前模式组合」中选择启用；这里的安装状态不代表模型已加载。</span>}
+          {skill.sourceInfo?.source === "portable-mode-package" && <span>来自 {skill.sourceInfo.scope} 工作模块；可在模式包编辑器中添加到任意模式，或从当前模式包彻底移除。</span>}
           {!enabled && (
             <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
               {t("i18n.hiddenButInvocable")}
@@ -516,17 +520,19 @@ export function SkillsConfig({
       {(["mode", "library"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} style={{ padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 6, background: tab === value ? "var(--bg-selected)" : "var(--bg-panel)", color: "var(--text)", cursor: "pointer" }}>{value === "mode" ? "当前模式组合" : "技能库 · 添加与市场"}</button>)}
     </div>
     <div style={{ display: tab === "mode" ? "block" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}><ModeSettingsPanel key={sessionId} sessionId={sessionId} section={section}/></div>
-    {tab === "library" && <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}><SkillLibraryConfig {...props} onInstalled={() => notifySessionConfiguration(sessionId)}/></div>}
+    {tab === "library" && <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}><SkillLibraryConfig {...props} sessionId={sessionId} onInstalled={() => notifySessionConfiguration(sessionId)}/></div>}
   </div>;
 }
 
 function SkillLibraryConfig({
   cwd,
+  sessionId,
   onClose,
   embedded = false,
   onInstalled,
 }: {
   cwd: string;
+  sessionId?: string | null;
   onClose: () => void;
   embedded?: boolean;
   onInstalled?: () => void;
@@ -571,6 +577,25 @@ function SkillLibraryConfig({
       setLoading(false);
     }
   }, [cwd]);
+
+  const deleteSkill = useCallback(async (skill: Skill) => {
+    if (!window.confirm(`删除 ${skill.name} 的安装文件及模式引用？\n${skill.baseDir}\n文件会从磁盘删除。`)) return;
+    setToggling(previous => new Set([...previous, skill.filePath]));
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/skills", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd, filePath: skill.filePath }) });
+      const result = await res.json() as SkillsResponse & { error?: string };
+      if (!res.ok || result.error) throw new Error(result.error ?? `HTTP ${res.status}`);
+      setSkills(result.skills);
+      setSelected(result.skills[0]?.filePath ?? null);
+      onInstalled?.();
+      if (sessionId) {
+        notifySessionConfiguration(sessionId);
+        await sendAgentCommand(sessionId, { type: "reload" });
+      }
+    } catch (error) { setSaveError(error instanceof Error ? error.message : String(error)); }
+    finally { setToggling(previous => { const next = new Set(previous); next.delete(skill.filePath); return next; }); }
+  }, [cwd, onInstalled, sessionId]);
 
   useEffect(() => {
     setUpdateStatuses({});
@@ -737,47 +762,13 @@ function SkillLibraryConfig({
                 </div>
               ) : (
                 (() => {
-                  const groups: { label: string; skills: typeof skills }[] = [];
                   const scopeLabels = {
                     project: t("skills.scope.project"),
                     global: t("skills.scope.global"),
                     path: t("skills.scope.path"),
+                    package: "工作模块包",
                   };
-                  const groupDefinitions = [
-                    {
-                      label: `${scopeLabels.project} / skills.sh`,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "project" &&
-                        Boolean(skill.install?.skillsShUrl),
-                    },
-                    {
-                      label: scopeLabels.project,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "project" &&
-                        !skill.install?.skillsShUrl,
-                    },
-                    {
-                      label: `${scopeLabels.global} / skills.sh`,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "global" &&
-                        Boolean(skill.install?.skillsShUrl),
-                    },
-                    {
-                      label: scopeLabels.global,
-                      matches: (skill: Skill) =>
-                        sourceLabel(skill) === "global" &&
-                        !skill.install?.skillsShUrl,
-                    },
-                    {
-                      label: scopeLabels.path,
-                      matches: (skill: Skill) => sourceLabel(skill) === "path",
-                    },
-                  ];
-                  for (const { label, matches } of groupDefinitions) {
-                    const grpSkills = skills.filter(matches);
-                    if (grpSkills.length > 0)
-                      groups.push({ label, skills: grpSkills });
-                  }
+                  const groups = groupSkillsForLibrary(skills, scopeLabels);
                   const renderSkillRow = (skill: Skill) => {
                     const isSelected =
                       !addMode && selected === skill.filePath;
@@ -861,7 +852,9 @@ function SkillLibraryConfig({
                 key={selectedSkill.filePath}
                 skill={selectedSkill}
                 cwd={cwd}
+                sessionId={sessionId}
                 onToggle={toggle}
+                onDelete={deleteSkill}
                 toggling={toggling.has(selectedSkill.filePath)}
                 saveError={saveError}
                 updateStatus={

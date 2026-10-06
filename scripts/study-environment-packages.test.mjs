@@ -438,7 +438,11 @@ test("R inventory and no-op final validation use the fixed Rscript with an isola
 	assert.equal(supervisedInstallers.length, 1, "the isolated R mutation must pass through one durable supervisor");
 	assert.deepEqual(exitedInstallers, supervisedInstallers, "the durable R supervisor must report the recorded exit identity");
 	assert.match(supervisedInstallers[0].processCreationIdentity, /^[0-9]{17,20}$/u);
-	assert.ok(supervisedInstallers[0].supervisorExecutablePath.startsWith(root));
+	const retainedSupervisor = supervisedInstallers[0].supervisorExecutablePath;
+	assert.equal(dirname(dirname(retainedSupervisor)), resolve(process.env.LOCALAPPDATA, "pi-own", "native"));
+	assert.match(dirname(retainedSupervisor).split(/[\\/]/u).at(-1), /^[a-f0-9]{64}$/u);
+	await access(retainedSupervisor);
+	await access(`${retainedSupervisor}.config`);
 	const evaluatedR = await execFileAsync(rscript, ["--vanilla","-e","stopifnot(fixtureParent::fixture_value()==2);cat('dependency-result=2')"], {windowsHide:true,env:{...process.env,R_LIBS_USER:rLibrary}});
 	assert.match(evaluatedR.stdout,/dependency-result=2/);
 	await writeFile(join(root, "r-inventory-evidence.json"), JSON.stringify({
@@ -546,7 +550,7 @@ test("unknown package recovery fences a live process, proves inventory, rejects 
 				pid: process.pid,
 				startedAt: "2000-01-01T00:00:00.000Z",
 				processCreationIdentity: "123456789012345678",
-				supervisorExecutablePath: join(recoveryRoot, "environment-package-supervisor.exe"),
+				supervisorExecutablePath: installerIdentity.supervisorExecutablePath,
 			},
 		});
 		reopened.failEnvironmentPackageOperation({ projectId: scope.projectId, operationId: stale.operationId, workerId: "00000000-0000-4000-8000-000000000104", status: "unknown", diagnostic: "fixture stale PID" });

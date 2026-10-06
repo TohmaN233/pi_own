@@ -1,4 +1,5 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { piRuntimeIdentity } from "./pi-runtime-version";
 import { contentHash } from "../../../packages/harness-core/src/index.ts";
 import type { SourceChunk } from "../../../packages/study-research-host/src/types.ts";
 import { getLearningHarness } from "./harness-server";
@@ -82,7 +83,7 @@ export async function startStudyReading(input: { sessionId: string; expectedPhas
     const admitted = queue.enqueueLearning({ scope, dispatchKey, intentHash, kind: "reading", evidence: evidence.map(({ id, sourceId, sourceHash, locator }) => ({ id, sourceId, sourceHash, locator })),
       context: { agentSessionId: allocation.sessionId, sessionFile: allocation.sessionFile },
       manifest: { codeHash: contentHash(READING_INSTRUCTION), parameterHash: contentHash({ provider, modelId, thinkingLevel: snapshot.thinkingLevel }),
-        inputHashes: { ...Object.fromEntries(group.map((chunk) => [chunk.chunkId, chunk.textHash])), paperMapGroup: mapGroupHash }, environmentHash: contentHash({ runtime: "pi-sdk-0.85.1", protocol: "study-agent-v1" }) },
+        inputHashes: { ...Object.fromEntries(group.map((chunk) => [chunk.chunkId, chunk.textHash])), paperMapGroup: mapGroupHash }, environmentHash: contentHash({ runtime: piRuntimeIdentity(), protocol: "study-agent-v1" }) },
       admission: { purpose: "论文分段理解与笔记同步", language: "none", maxWallSeconds: 3600, maxMemoryMiB: 1024 } }, (taskId) => {
         const packet: StudyAgentPacket = { ...fixed, taskId };
         return { packetHash: bindStudyAgentContext(packet, allocation).packetHash };

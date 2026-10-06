@@ -4,9 +4,8 @@ import { courseBuilderCommand,courseBuilderState,courseBuilderWorkspaceState,cre
 import { requireCourseBuilderWorkspace,requireCourseBuilderRuntime,readCourseBuilderJson,builderString,builderRevision,builderError } from "@/lib/course-builder-request";
 import type { CourseBuilderCommand } from "../../../../../packages/course-builder-host/src/index.ts";
 import { requestCourseRevision, type ReviewAction } from "@/lib/course-builder-revisions";
-import { courseLessonTasks, teacherNotesTask, withCourseTaskRequirements } from "@/lib/course-builder-lesson-tasks";
-import { DELIVERY_REQUEST_ENTRY, deliveryRequest } from "@/lib/course-builder-delivery";
-import type { DeliveryTarget } from "@/lib/course-builder-delivery-target";
+import { withCourseTaskRequirements } from "@/lib/course-builder-lesson-tasks";
+import { prepareCourseWorkflowTask, startCourseWorkflowTask, type CourseWorkflowPrepareInput } from "@/lib/course-workflow-tasks";
 import { cleanupApprovedAssignmentAssets } from "@/lib/course-builder-assignment-assets";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -89,24 +88,32 @@ export async function POST(request:Request) {
   }
   if(action==="prompt" || action==="lesson_task" || action==="teacher_notes_task") {
    const {wrapper}=await requireCourseBuilderRuntime(sid,true);
-   let message=b.message;
-   let deliveryTarget:DeliveryTarget|undefined;
-   if(action==="teacher_notes_task") {
-    const snapshot=host.getSnapshotForSession(sid),deck=snapshot?.decks.find(item=>item.deckId===builderString(b.deckId));
-    if(!deck)throw new Error("当前课程没有这份 Beamer；请先生成课件。");
-    message=teacherNotesTask(deck);
-    deliveryTarget={kind:"teacher-notes",deckId:deck.deckId,lessonPlanId:deck.lessonPlanId};
-   }
-   if(action==="lesson_task") {
-    if(b.task!=="plan" && b.task!=="beamer" && b.task!=="checkpoint")throw new Error("Unknown lesson task");
-    const state=courseBuilderState(sid).snapshot;
-    if(!state?.project)throw new Error("No course project selected");
-    const task=courseLessonTasks(state.semesterPlan,state.lessonPlans,builderRevision(b.week),builderRevision(b.session),state.project,state.coverageCheckpoints)[b.task];
-    if(task.disabledReason)throw new Error(task.disabledReason);
-    message=task.message;
-    if(b.teacherNotes!==undefined && typeof b.teacherNotes!=="boolean")throw new Error("teacherNotes must be boolean");
-    if(b.task!=="checkpoint")deliveryTarget={kind:b.task==="beamer" ? "deck" : "lesson",week:builderRevision(b.week),session:builderRevision(b.session),...(b.task==="beamer"&&b.teacherNotes===true ? {includeTeacherNotes:true} : {})};
-    if(b.task==="beamer"&&b.teacherNotes===true)message+=`\n${teacherNotesTask()}`;
+   const message=b.message;
+   if(action!=="prompt") {
+    if(request.headers.get("x-course-builder-teacher")!=="1") return Response.json({error:"Teacher task selection required"},{status:403});
+    if(b.additionalRequirements!==undefined && typeof b.additionalRequirements!=="string") throw new Error("Additional requirements must be text");
+    const snapshot=host.getSnapshotForSession(sid);
+    if(!snapshot)throw new Error("No course project selected");
+    let input: CourseWorkflowPrepareInput;
+    if(action==="teacher_notes_task") {
+      const deck=snapshot.decks.find(item=>item.deckId===builderString(b.deckId));
+      if(!deck)throw new Error("当前课程没有这份 Beamer；请先生成课件。");
+      input={workflowId:"course-teacher-notes",target:{lessonId:deck.lessonPlanId},task:"基于现有课件生成或修改教师讲稿 TeX/PDF，保留未要求修改的内容。"};
+    } else {
+      if(b.task!=="plan" && b.task!=="beamer" && b.task!=="checkpoint")throw new Error("Unknown lesson task");
+      if(b.teacherNotes===true)throw new Error("请先启动 Beamer Workflow，完成后单独启动教师讲稿 Workflow。");
+      if(b.teacherNotes!==undefined && typeof b.teacherNotes!=="boolean")throw new Error("teacherNotes must be boolean");
+      const week=builderRevision(b.week),session=builderRevision(b.session);
+      const lesson=snapshot.lessonPlans.find(item=>item.week===week && item.session===session);
+      if(b.task!=="plan" && !lesson)throw new Error("请先保存所选课次的单课计划。");
+      const hasDeck=lesson && snapshot.decks.some(item=>item.lessonPlanId===lesson.lessonPlanId);
+      input={workflowId:b.task==="plan" ? "course-lesson-plan" : b.task==="checkpoint" ? "course-coverage-checkpoint" : hasDeck ? "course-slide-revision" : "course-beamer-deck",
+        target:b.task==="plan" ? {week,session} : {lessonId:lesson!.lessonPlanId},task:b.task==="plan" ? "生成或修改所选课次教案，保存待审阅草案。" : b.task==="checkpoint" ? "根据已保存教案与课件整理课次覆盖记录，等待教师确认。" : "生成或按要求修改所选课件，保留已有内容与样式并编译 PDF。"};
+    }
+    input.task=withCourseTaskRequirements(input.task,typeof b.additionalRequirements==="string" ? b.additionalRequirements : "");
+    const prepared=await prepareCourseWorkflowTask(sid,input);
+    const result=await startCourseWorkflowTask(sid,prepared.taskId);
+    return Response.json({queued:true,result,...courseBuilderState(sid)});
    }
    if(typeof message!=="string"||!message.trim())throw new Error("Prompt must have 1..20000 characters");
    if(b.additionalRequirements!==undefined && typeof b.additionalRequirements!=="string")throw new Error("Additional requirements must be text");
@@ -116,7 +123,6 @@ export async function POST(request:Request) {
    host.setAgentAssignmentScope(sid,assignmentId);
    console.info("[course-builder] set agent material scope",{sessionId:sid,scope:assignmentId ? "assignment" : "course",assignmentId,action,additionalRequirementCharacters:typeof b.additionalRequirements==="string" ? b.additionalRequirements.length : 0});
    // Native Pi admission and streaming remain the only agent loop.
-   if(deliveryTarget)wrapper.inner.sessionManager.appendCustomEntry(DELIVERY_REQUEST_ENTRY,deliveryRequest(finalMessage,deliveryTarget));
    const result=await wrapper.send({type:"prompt",message:finalMessage});return Response.json({queued:true,result});
   }
   if(["review_semester","review_lesson","review_assignment","accept","revoke_acceptance"].includes(action)) {

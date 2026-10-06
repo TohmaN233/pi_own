@@ -4,13 +4,13 @@ import { recoverModePackBindingHistory, type ModePackEntryLike } from "../../../
 import type { Scope, SourceVersionInput, StudyTask } from "../../../packages/study-research-host/src/index.ts";
 import { getLearningHarness } from "./harness-server";
 import { resolveSessionPath } from "./session-reader";
-import { assertStudyModeBoundary, studyModePhase } from "./study-mode-policy";
+import { assertStudyModeBoundary, studyModePhaseForSnapshot } from "./study-mode-policy";
 import { readStudySources, type StudySourceManifest } from "./study-source-reader";
 import { preferredStudySources } from "./study-source-preference";
 import { readStudySupplement } from "./study-supplement";
 
 /** Reconcile only an explicit, committed Pi mode choice; never infer a phase from the prompt. */
-export async function studyContext(sessionId: string, expectedPhaseRevision?: number) {
+export async function studyContext(sessionId: string, expectedPhaseRevision?: number, options: { reconcilePhase?: boolean } = {}) {
   const harness = getLearningHarness();
   const membership = harness.projectWorkspaces.members().find((member) => member.sessionId === sessionId);
   if (!membership) throw new Error("Study conversation must belong to a project");
@@ -22,12 +22,15 @@ export async function studyContext(sessionId: string, expectedPhaseRevision?: nu
   if (manager.getSessionId() !== sessionId) throw new Error("Pi conversation identity mismatch");
   const recovery = recoverModePackBindingHistory(manager.getEntries() as unknown as ModePackEntryLike[], sessionId);
   const snapshot = recovery.current?.snapshot;
-  const selectedPhase = snapshot ? studyModePhase(snapshot.profileId) : null;
+  const selectedPhase = snapshot ? studyModePhaseForSnapshot(snapshot) : null;
   if (!snapshot || !selectedPhase) throw new Error("Select the Study or Research mode for this conversation first");
   assertStudyModeBoundary(snapshot);
   const host = harness.studyResearch;
-  let phase = host.currentPhase(project.id, sessionId) ?? host.bindSession(project.id, sessionId, selectedPhase);
+  let phase = host.currentPhase(project.id, sessionId);
+  if (!phase && options.reconcilePhase === false) throw new Error("Study phase binding changed; prepare a fresh Workflow task");
+  phase ??= host.bindSession(project.id, sessionId, selectedPhase);
   if (phase.phase !== selectedPhase) {
+    if (options.reconcilePhase === false) throw new Error("Study mode phase changed; prepare a fresh Workflow task");
     phase = host.setPhase({ projectId: project.id, sessionId, expectedPhaseRevision: phase.revision }, selectedPhase);
     console.info("[study-research] phase reconciled", { sessionId, phase: phase.phase, revision: phase.revision, snapshotId: snapshot.resourceSnapshotId });
   }

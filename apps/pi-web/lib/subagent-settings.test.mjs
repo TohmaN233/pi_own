@@ -11,13 +11,13 @@ const {
   writeBuiltInSubagentsEnabled,
 } = await createJiti(import.meta.url).import("./subagent-settings.ts");
 
-test("subagent settings default the built-in extension to disabled", async (t) => {
+test("subagent settings enable the integrated extension by default", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "pi-web-subagent-settings-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const settingsPath = join(root, "agents", "settings.json");
 
-  assert.deepEqual(readSubagentSettings(settingsPath), { builtInEnabled: false });
-  assert.equal(isBuiltInSubagentsEnabled(settingsPath), false);
+  assert.deepEqual(readSubagentSettings(settingsPath), { builtInEnabled: true });
+  assert.equal(isBuiltInSubagentsEnabled(settingsPath), true);
 });
 
 test("subagent settings persist both states and preserve unrelated fields", async (t) => {
@@ -27,7 +27,7 @@ test("subagent settings persist both states and preserve unrelated fields", asyn
 
   writeBuiltInSubagentsEnabled(true, settingsPath);
   assert.deepEqual(readSubagentSettings(settingsPath), { builtInEnabled: true });
-  assert.equal(isBuiltInSubagentsEnabled(settingsPath), false);
+  assert.equal(isBuiltInSubagentsEnabled(settingsPath), true);
   const first = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.deepEqual(first, { version: 1, builtInEnabled: true });
 
@@ -35,6 +35,7 @@ test("subagent settings persist both states and preserve unrelated fields", asyn
   writeBuiltInSubagentsEnabled(false, settingsPath);
   const second = JSON.parse(await readFile(settingsPath, "utf8"));
   assert.deepEqual(second, { version: 1, builtInEnabled: false, futureSetting: 3 });
+  assert.equal(isBuiltInSubagentsEnabled(settingsPath), false);
 });
 
 test("damaged settings fail closed and are not overwritten", async (t) => {
@@ -43,7 +44,7 @@ test("damaged settings fail closed and are not overwritten", async (t) => {
   const settingsPath = join(root, "settings.json");
   await writeFile(settingsPath, "{");
 
-  assert.equal(isBuiltInSubagentsEnabled(settingsPath), false);
+  assert.throws(() => isBuiltInSubagentsEnabled(settingsPath));
   assert.throws(() => readSubagentSettings(settingsPath));
   assert.throws(() => writeBuiltInSubagentsEnabled(true, settingsPath));
   assert.equal(await readFile(settingsPath, "utf8"), "{");

@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { convertMessages } from "../src/api/openai-completions.ts";
 import { getModel, stream, streamSimple } from "../src/compat.ts";
 import type { AssistantMessage, Model, SimpleStreamOptions, Tool, ToolResultMessage } from "../src/types.ts";
-import { historicalOpenCodeKimi } from "./historical-models.ts";
+import {
+	MOONSHOT_CN_KIMI_K2_6_MODEL,
+	OPENCODE_GO_KIMI_K2_6_MODEL,
+	OPENCODE_KIMI_K2_6_MODEL,
+} from "./model-fixtures.ts";
 
 const mockState = vi.hoisted(() => ({
 	lastParams: undefined as unknown,
@@ -1245,8 +1249,7 @@ describe("openai-completions tool_choice", () => {
 			},
 		];
 
-		const { compat: _compat, ...baseModel } = historicalOpenCodeKimi["opencode-go"];
-		const model = { ...baseModel, api: "openai-completions" } as const;
+		const { compat: _compat, ...model } = OPENCODE_GO_KIMI_K2_6_MODEL;
 		const response = await streamSimple(
 			model,
 			{
@@ -1292,8 +1295,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("replays OpenCode Go reasoning thinking blocks as reasoning_content", () => {
-		const { compat: _compat, ...baseModel } = historicalOpenCodeKimi["opencode-go"];
-		const model = { ...baseModel, api: "openai-completions" } as Model<"openai-completions">;
+		const model = OPENCODE_GO_KIMI_K2_6_MODEL;
 		const messages = convertMessages(
 			model,
 			{
@@ -1351,7 +1353,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("sends thinking disabled for OpenCode Go Kimi K2.6 when thinking is off", async () => {
-		const model = historicalOpenCodeKimi["opencode-go"];
+		const model = OPENCODE_GO_KIMI_K2_6_MODEL;
 		let payload: unknown;
 
 		await streamSimple(
@@ -1373,7 +1375,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("sends thinking enabled for OpenCode Go Kimi K2.6 when thinking is enabled", async () => {
-		const model = historicalOpenCodeKimi["opencode-go"];
+		const model = OPENCODE_GO_KIMI_K2_6_MODEL;
 		let payload: unknown;
 
 		await streamSimple(
@@ -1422,7 +1424,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("keeps disabled thinking for Moonshot Kimi K2.6 when thinking is off", async () => {
-		const model = getModel("moonshotai-cn", "kimi-k2.6")!;
+		const model = MOONSHOT_CN_KIMI_K2_6_MODEL;
 		let payload: unknown;
 
 		await streamSimple(
@@ -1444,7 +1446,7 @@ describe("openai-completions tool_choice", () => {
 	});
 
 	it("sends max_tokens for OpenCode completions models", async () => {
-		const cases = [historicalOpenCodeKimi["opencode-go"], historicalOpenCodeKimi.opencode] as const;
+		const cases = [OPENCODE_GO_KIMI_K2_6_MODEL, OPENCODE_KIMI_K2_6_MODEL] as const;
 
 		for (const model of cases) {
 			let payload: unknown;

@@ -19,11 +19,11 @@ import {
 
 const catalog = createDefaultResourceCatalog();
 const packs = createRuntimeBuiltinModePacks(catalog);
-const coding = packs.coding;
-assert.equal(coding.role, "general");
-assert.equal(coding.components.some((item) => item.type === "plugin" && item.id === "learning-harness"), false);
+const creative = packs.creative;
+assert.equal(creative.role, "general");
+assert.equal(creative.components.some((item) => item.type === "plugin" && item.id === "learning-harness"), false);
 const firstSnapshot = resolveModePackSnapshot({
-  pack: coding,
+  pack: creative,
   courseVersionId: null,
   catalog,
   createdAt: "2026-08-31T20:00:00.000Z",
@@ -37,17 +37,17 @@ const first = prepareModePackSessionBinding({
   sessionId: "session-mode-1",
   targetSnapshot: firstSnapshot,
   history: [],
-  idempotencyKey: "activate-coding",
+  idempotencyKey: "activate-creative",
   createdAt: "2026-08-31T20:00:01.000Z",
 });
 assert.equal(first.binding.revision, 1);
 assert.equal(first.binding.previousSnapshotId, null);
 const firstEntries = [{ type: "custom", customType: MODE_PACK_BINDING_CUSTOM_TYPE, data: first.binding }];
 const recoveredFirst = recoverModePackBindingHistory(firstEntries, "session-mode-1");
-assert.equal(recoveredFirst.current?.snapshot.profileId, "coding");
+assert.equal(recoveredFirst.current?.snapshot.profileId, "creative");
 
 const creativeSnapshot = resolveModePackSnapshot({
-  pack: packs.creative,
+  pack: packs.general,
   courseVersionId: null,
   catalog,
   createdAt: "2026-08-31T20:00:02.000Z",
@@ -56,7 +56,7 @@ const second = prepareModePackSessionBinding({
   sessionId: "session-mode-1",
   targetSnapshot: creativeSnapshot,
   history: recoveredFirst.history,
-  idempotencyKey: "activate-creative",
+  idempotencyKey: "activate-general",
   createdAt: "2026-08-31T20:00:03.000Z",
 });
 assert.equal(second.binding.revision, 2);
@@ -65,7 +65,7 @@ const recoveredSecond = recoverModePackBindingHistory([
   ...firstEntries,
   { type: "custom", customType: MODE_PACK_BINDING_CUSTOM_TYPE, data: second.binding },
 ], "session-mode-1");
-assert.equal(recoveredSecond.current?.snapshot.profileId, "creative");
+assert.equal(recoveredSecond.current?.snapshot.profileId, "general");
 assert.throws(() => recoverModePackBindingHistory([
   { type: "custom", customType: MODE_PACK_BINDING_CUSTOM_TYPE, data: { ...second.binding, revision: 3 } },
 ], "session-mode-1"), /non-contiguous revision/i);
@@ -82,7 +82,7 @@ const expected = {
   activeTools: firstSnapshot.tools,
   loadedSkillIds: ["shared.revision-discipline"],
   loadedPluginIds: [],
-  loadedPromptIds: ["coding.core", "workflow:coding"],
+  loadedPromptIds: ["creative.core"],
   loadedThemeIds: [],
 };
 const evidence = {

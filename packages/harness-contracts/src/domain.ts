@@ -1,4 +1,5 @@
 import type { HARNESS_CONTRACT_VERSION, HarnessRole, JsonValue } from "./contracts.ts";
+import type { ModePackSystemPromptMode } from "./mode-pack.ts";
 
 export const PROFILE_MODES = ["general", "student-learn", "practice", "visual-lab", "teacher-prep"] as const;
 export type ProfileMode = (typeof PROFILE_MODES)[number];
@@ -12,6 +13,9 @@ export type ExternalKnowledgePolicy = (typeof EXTERNAL_KNOWLEDGE_POLICIES)[numbe
 export const RESOURCE_KINDS = ["tool", "extension", "skill", "prompt", "theme"] as const;
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
+export const RESOURCE_DELIVERIES = ["system-instruction", "native-skill", "native-prompt-template"] as const;
+export type ResourceDelivery = (typeof RESOURCE_DELIVERIES)[number];
+
 export interface ResourceDescriptor {
 	kind: ResourceKind;
 	id: string;
@@ -19,6 +23,8 @@ export interface ResourceDescriptor {
 	contentHash: string;
 	required: boolean;
 	enabled: boolean;
+	/** Omitted by old journal entries; runtime treats it as system-instruction. */
+	delivery?: ResourceDelivery;
 }
 
 export interface ProfileDefinition {
@@ -35,6 +41,8 @@ export interface ProfileDefinition {
 	tools: string[];
 	resources: ResourceDescriptor[];
 	instructions: string[];
+	/** Immutable portable package bytes selected by this definition; omitted by legacy journals. */
+	packageContentHash?: string;
 }
 
 export interface ProfilePatch {
@@ -49,6 +57,7 @@ export interface ProfilePatch {
 	tools?: string[];
 	resources?: ResourceDescriptor[];
 	instructions?: string[];
+	packageContentHash?: string;
 }
 
 export interface ProfileLayer {
@@ -72,6 +81,13 @@ export interface ResourceSnapshot {
 	tools: string[];
 	resources: ResourceDescriptor[];
 	instructions: string[];
+	packageContentHash?: string;
+	/** Hash of the Mode Pack's uncustomized system prompt at this revision.
+	 * It distinguishes a definition default from a session prompt override when
+	 * portable definitions share immutable package bytes. */
+	modePackSystemPromptDefaultHash?: string;
+	/** Prompt ownership selected by the Mode Pack; absent on legacy snapshots. */
+	modePackSystemPromptMode?: ModePackSystemPromptMode;
 	createdAt: string;
 	contentHash: string;
 }

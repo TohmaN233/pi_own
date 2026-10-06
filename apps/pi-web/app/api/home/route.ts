@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { homedir } from "os";
+import { runtimeHomeDirectory } from "@/lib/runtime-home";
 
 export async function GET() {
-  return NextResponse.json({ home: homedir() });
+  return NextResponse.json({ home: runtimeHomeDirectory() });
 }

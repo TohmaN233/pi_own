@@ -4,13 +4,14 @@ import {
   readSubagentSettings,
   writeBuiltInSubagentsEnabled,
 } from "@/lib/subagent-settings";
+import { assertHostPluginInstalled, isHostPluginEnabled, writeHostPluginEnabled } from "@/lib/host-plugin-settings";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const settings = readSubagentSettings();
-    return NextResponse.json({ enabled: settings.builtInEnabled });
+    return NextResponse.json({ enabled: settings.builtInEnabled && isHostPluginEnabled("pi-subagents") });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
@@ -32,7 +33,10 @@ export async function PUT(req: Request) {
     if (typeof body.enabled !== "boolean") {
       return NextResponse.json({ error: "enabled must be a boolean" }, { status: 400 });
     }
+    if (body.enabled) assertHostPluginInstalled("pi-subagents");
+    writeHostPluginEnabled("pi-subagents", body.enabled);
     const settings = writeBuiltInSubagentsEnabled(body.enabled);
+    console.info("[pi-web] subagent setting updated", { enabled: settings.builtInEnabled });
     return NextResponse.json({ enabled: settings.builtInEnabled });
   } catch (error) {
     return NextResponse.json(

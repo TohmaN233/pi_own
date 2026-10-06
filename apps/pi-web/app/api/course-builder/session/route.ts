@@ -5,8 +5,8 @@ import { builderError, builderString, readCourseBuilderJson } from "@/lib/course
 import { activateGenericModePack, getGenericModePackStatus } from "@/lib/rpc-manager";
 import { isApiRequestAllowed } from "@/lib/request-security";
 import { invalidateSessionListCache } from "@/lib/session-reader";
-import { hasSessionSettings } from "../../../../../../packages/profile-resource-host/src/index.ts";
 import { COURSE_BUILDER_DRAFT } from "@/lib/course-builder-pack";
+import { isCourseBuilderSnapshot } from "@/lib/course-builder-mode";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,21 +21,21 @@ export async function POST(request: Request) {
 		const cwd = source.runtime.cwd;
 		if (!cwd) throw new Error("The original Pi session has no working directory");
 		const activeSnapshot = source.runtime.binding?.snapshot;
-		const upToDate = activeSnapshot && (hasSessionSettings(activeSnapshot) || activeSnapshot.profileRevision >= COURSE_BUILDER_DRAFT.revision);
-		const ready = source.runtime.live && source.runtime.verified && activeSnapshot?.profileId === "course-builder" && upToDate;
+		const upToDate = activeSnapshot && (activeSnapshot.packageContentHash || activeSnapshot.profileId !== "course-builder" || activeSnapshot.profileRevision >= COURSE_BUILDER_DRAFT.revision);
+		const ready = source.runtime.live && source.runtime.verified && !!activeSnapshot && isCourseBuilderSnapshot(activeSnapshot) && upToDate;
 		if (!ready && source.runtime.busy) throw new Error("Pi 正在处理消息，请等待当前回复完成。");
 		const created = ready
 			? { binding: source.runtime.binding! }
 			: await activateGenericModePack({
 				sessionId: sourceSessionId,
-				modePackId: "course-builder",
+				modePackId: activeSnapshot && isCourseBuilderSnapshot(activeSnapshot) ? activeSnapshot.profileId : "course-builder",
 				expectedSnapshotId: source.runtime.binding?.snapshot.resourceSnapshotId ?? null,
 				idempotencyKey: randomUUID(),
 			});
 		allowFileRoot(cwd);
 		invalidateSessionListCache();
 		const current = await getGenericModePackStatus(sourceSessionId);
-		if (!current.runtime.verified || current.runtime.binding?.snapshot.profileId !== "course-builder") {
+		if (!current.runtime.verified || !current.runtime.binding?.snapshot || !isCourseBuilderSnapshot(current.runtime.binding.snapshot)) {
 			throw new Error(current.runtime.diagnostic ?? "The Course Builder runtime failed verification");
 		}
 		console.info("[course-builder] activated existing session", { sessionId: sourceSessionId, resourceSnapshotId: created.binding.snapshot.resourceSnapshotId });

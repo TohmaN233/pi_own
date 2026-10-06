@@ -33,7 +33,7 @@ export function CoverageCheckpoints({ snapshot, sessionId, onReload, onGenerate,
   }
   return <section className={styles.workspaceSection} id="coverage" tabIndex={-1}>
     <span className={styles.sectionNumber}>CHECKPOINT</span><h3>备课覆盖进度</h3>
-    <p className={styles.sectionIntro}>每节课、每个文件一条记录：本课使用了什么内容，讲到哪里，下次从哪里继续。页码或行号仅作可选定位，不按读取批次拆分。记录在课程对话间共享，不代表学生已经学会。</p>
+    <p className={styles.sectionIntro}>每节课、每个文件一条记录：本课使用了什么内容，讲到哪里，下次从哪里继续。页码或行号可用于定位；同一文件的读取批次合并记录。课程对话共享这些备课记录。</p>
     {!lesson ? <div className={styles.emptyState}>保存单课教案后即可记录 Checkpoint。</div> : <>
       <label className={styles.wideField}>选择 Checkpoint 课次<select value={lesson.lessonPlanId} disabled={saving} onChange={(event) => { setSelectedId(event.target.value); setEditing(false); setError(""); setNotice(""); }}>{snapshot.lessonPlans.map((item) => <option key={item.lessonPlanId} value={item.lessonPlanId}>第 {item.week} 周第 {item.session} 次 · {item.title} · {checkpointLabel((snapshot.coverageCheckpoints ?? []).find((checkpoint) => checkpoint.lessonPlanId === item.lessonPlanId))}</option>)}</select></label>
       {checkpoint ? <article className={styles.outputArticle} aria-label="当前课次覆盖记录">

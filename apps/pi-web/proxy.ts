@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   isApiRequestAllowed,
   isApiRequestHostAllowed,
+  isOpaqueModePackFrontendAssetRequest,
 } from "@/lib/request-security";
 import {
   isValidBasicAuthorization,
@@ -12,7 +13,9 @@ export function proxy(request: NextRequest) {
   const isApiRequest = request.nextUrl.pathname === "/api"
     || request.nextUrl.pathname.startsWith("/api/");
   const isTrustedRequest = isApiRequest
-    ? isApiRequestAllowed(request)
+    ? (isOpaqueModePackFrontendAssetRequest(request)
+      ? isApiRequestHostAllowed(request)
+      : isApiRequestAllowed(request))
     : isApiRequestHostAllowed(request);
 
   if (!isTrustedRequest) {

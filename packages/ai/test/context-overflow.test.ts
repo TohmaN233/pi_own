@@ -1,4 +1,3 @@
-import { getTogetherTestModel } from "./together-test-model.ts";
 /**
  * Test context overflow error handling across providers.
  *
@@ -20,6 +19,7 @@ import type { AssistantMessage, Context, Model, Usage } from "../src/types.ts";
 import { isContextOverflow } from "../src/utils/overflow.ts";
 import { hasAzureOpenAICredentials } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -338,9 +338,10 @@ describe("Context overflow error handling", () => {
 	// Uses OpenAI-compatible Chat Completions API
 	// =============================================================================
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI", () => {
-		it("current reasoning/vision model - should detect overflow via isContextOverflow", async () => {
-			const model = getTogetherTestModel();
+	const togetherContextModel = findCurrentOpenAICompletionsModel("together");
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherContextModel)("Together AI", () => {
+		it("should detect overflow via isContextOverflow", async () => {
+			const model = requireCurrentOpenAICompletionsModel(togetherContextModel, "together");
 			const result = await testContextOverflow(model, process.env.TOGETHER_API_KEY!);
 			logResult(result);
 

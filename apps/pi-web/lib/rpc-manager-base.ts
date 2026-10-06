@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type PromptOptions } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, realpathSync, writeFileSync } from "fs";
@@ -14,6 +14,7 @@ import {
 } from "./project-command-env";
 import { cacheSessionPath, invalidateSessionListCache, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
+import { createHostFffExtensionFactory } from "./host-fff";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import { persistCommittedRuntimeSettings } from "./session-runtime-settings";
 import { notifySessionComplete } from "./web-push";
@@ -28,20 +29,15 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { createHostBaselineExtensions, preferHostBaselinePlugins, hostBaselineToolNames } from "./host-baseline-plugins";
 import {
-  createSubagentExtension,
-  preferPiWebSubagentExtension,
-} from "./subagent-extension";
-import {
-  listSubagentProfiles,
   readSubagentRun,
   readSubagentSessionResources,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
-import { createSubagentController } from "./subagent-runtime";
-import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
+import { createExactSystemPromptExtension, type ExactSystemPromptRef } from "./exact-system-prompt";
 import {
   appendSessionToolSelection,
   readSessionToolSelection,
@@ -50,6 +46,8 @@ import {
 import { appendModePackSystemPrompt, createLearningHarnessExtension, type GroundedAnswerOutboundGate } from "./learning-harness-extension";
 import { getLearningHarness } from "./harness-server";
 import type { ResourceSnapshot } from "../../../packages/harness-contracts/src/index.ts";
+import { createPiBuiltinModeExtensions } from "./pi-builtin-mode-extensions";
+import { createBuiltinModePacks, createDefaultResourceCatalog } from "../../../packages/profile-resource-host/src/index.ts";
 
 // ============================================================================
 // Types
@@ -122,7 +120,9 @@ type ExtensionCommandContextActionsLike = {
 
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
+  exactSystemPromptRef?: ExactSystemPromptRef;
   chatOnly?: boolean;
+  courseBound?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
   groundedAnswerGate?: GroundedAnswerOutboundGate;
@@ -168,7 +168,7 @@ export interface RpcSessionStartOptions {
   deferRegister?: boolean;
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"];
+const CODING_TOOL_NAMES = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode", "tool_search"];
 const THINKING_LEVEL_NAMES = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
@@ -207,14 +207,17 @@ export function withExtensionTools(session: AgentSessionLike, toolNames: string[
   const extensionToolNames = session
     .getAllTools()
     .map((t) => t.name)
-    .filter((name) => !codingToolNames.has(name));
+    .filter((name) => !codingToolNames.has(name))
+    .filter((name) => (name !== "subagent" && name !== "subagents_enable") || session.getActiveToolNames().includes(name));
 
   return [...new Set([...selectedToolNames, ...extensionToolNames, ...requiredToolNames])];
 }
 
-function harnessActiveToolAllowlist(snapshot: ResourceSnapshot): string[] {
-  if (snapshot.mode === "student-learn") return ["submit_grounded_answer"];
-  if (snapshot.mode === "practice") return [];
+function harnessActiveToolAllowlist(snapshot: ResourceSnapshot, session?: AgentSessionLike): string[] {
+  const subagentTools = session ? hostBaselineToolNames(session) : [];
+  const orchestration = snapshot.tools.filter((tool) => tool === "codemode" || tool === "tool_search");
+  if (snapshot.mode === "student-learn") return ["submit_grounded_answer", ...subagentTools, ...orchestration];
+  if (snapshot.mode === "practice") return [...subagentTools, ...orchestration];
   throw new Error(`Harness profile ${snapshot.profileId} has no installed Pi runtime.`);
 }
 
@@ -222,7 +225,7 @@ function assertHarnessRuntime(snapshot: ResourceSnapshot, session: AgentSessionL
   const requiredExtension = snapshot.resources.find((resource) => resource.kind === "extension" && resource.id === "learning-harness" && resource.enabled);
   if (!requiredExtension) throw new Error(`Harness snapshot ${snapshot.resourceSnapshotId} is missing its required learning-harness extension.`);
   const actual = [...session.getActiveToolNames()].sort();
-  const expected = harnessActiveToolAllowlist(snapshot).sort();
+  const expected = harnessActiveToolAllowlist(snapshot, session).sort();
   if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) {
     throw new Error(`Harness runtime tool verification failed for ${snapshot.resourceSnapshotId}: expected ${expected.join(",") || "no active tools"}, got ${actual.join(",") || "no active tools"}.`);
   }
@@ -255,8 +258,10 @@ export class AgentSessionWrapper {
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
-  private readonly exactSystemPrompt?: () => string;
+  private exactSystemPrompt?: () => string;
+  private readonly exactSystemPromptRef?: ExactSystemPromptRef;
   private readonly chatOnly: boolean;
+  private readonly courseBound: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
   private readonly groundedAnswerGate?: GroundedAnswerOutboundGate;
@@ -276,13 +281,14 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
+    this.exactSystemPromptRef = options.exactSystemPromptRef;
     this.chatOnly = options.chatOnly ?? false;
+    this.courseBound = options.courseBound ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.groundedAnswerGate = options.groundedAnswerGate;
     this.requiredToolNames = options.requiredToolNames ?? [];
 		this.profileSnapshot = options.profileSnapshot;
-    this.installExactSystemPromptContinuation();
     this.applyExactSystemPrompt();
   }
 
@@ -292,6 +298,11 @@ export class AgentSessionWrapper {
 
   get sessionFile(): string {
     return this.inner.sessionFile ?? "";
+  }
+
+  /** Exact host prompt when supplied, otherwise Pi's native active prompt. */
+  get systemPrompt(): string {
+    return this.exactSystemPrompt?.() ?? this.inner.systemPrompt ?? this.inner.agent.state?.systemPrompt ?? "";
   }
 
   get cwd(): string {
@@ -317,6 +328,10 @@ export class AgentSessionWrapper {
 
   isChatOnly(): boolean {
     return this.chatOnly;
+  }
+
+  isCourseBound(): boolean {
+    return this.courseBound;
   }
 
   hasSuppressedCompletionNotifications(): boolean {
@@ -410,6 +425,16 @@ export class AgentSessionWrapper {
         this.inner.extensionRunner.setUIContext?.(uiContext, "rpc");
       }
       this.extensionsBound = true;
+      if (this.courseBound) {
+        // session_start may enable plugin tools. Keep an uncommitted learner
+        // inactive, or restore the profile the Host already committed.
+        if (this.profileSnapshot) {
+          this.inner.setActiveToolsByName(harnessActiveToolAllowlist(this.profileSnapshot, this.inner));
+          assertHarnessRuntime(this.profileSnapshot, this.inner);
+        } else {
+          this.inner.setActiveToolsByName(["submit_grounded_answer"]);
+        }
+      }
       this.applyExactSystemPrompt();
       console.log(`[pi-web] session_start dispatched to extensions for session ${this.inner.sessionId}`);
     })().catch((err) => {
@@ -450,23 +475,7 @@ export class AgentSessionWrapper {
   }
 
   private applyExactSystemPrompt(): void {
-    if (!this.exactSystemPrompt || !this.inner.agent.state) return;
-    this.inner.agent.state.systemPrompt = this.exactSystemPrompt();
-  }
-
-  private installExactSystemPromptContinuation(): void {
-    if (!this.exactSystemPrompt) return;
-    const previous = this.inner.agent.prepareNextTurnWithContext;
-    this.inner.agent.prepareNextTurnWithContext = async (turn, signal) => {
-      const prepared = await previous?.(turn, signal);
-      return {
-        ...prepared,
-        context: {
-          ...(prepared?.context ?? turn.context),
-          systemPrompt: this.exactSystemPrompt!(),
-        },
-      };
-    };
+    if (this.exactSystemPromptRef) this.exactSystemPromptRef.current = this.exactSystemPrompt;
   }
 
   setActiveToolSelection(toolNames: string[]): void {
@@ -478,14 +487,18 @@ export class AgentSessionWrapper {
   }
 
   activateHarnessProfile(snapshot: ResourceSnapshot): void {
-		this.inner.setActiveToolsByName(harnessActiveToolAllowlist(snapshot));
+		this.inner.setActiveToolsByName(harnessActiveToolAllowlist(snapshot, this.inner));
 		assertHarnessRuntime(snapshot, this.inner);
 		this.profileSnapshot = snapshot;
-		if (this.inner.agent.state) this.inner.agent.state.systemPrompt = appendModePackSystemPrompt(contextFilesSystemPrompt(this.inner.resourceLoader.getAgentsFiles().agentsFiles), snapshot);
+		this.exactSystemPrompt = () => appendModePackSystemPrompt(contextFilesSystemPrompt(this.inner.resourceLoader.getAgentsFiles().agentsFiles), snapshot);
 		this.applyExactSystemPrompt();
+		this.beginExtensionBinding();
 	}
 
   private emit(event: AgentEvent): void {
+    if (event.type === "extension_error") {
+      console.error("[pi-web] extension error", { sessionId: this.inner.sessionId, ...event });
+    }
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -660,12 +673,12 @@ export class AgentSessionWrapper {
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
-          let acceptPreflight!: () => void;
+          let acceptPreflight!: (disposition: Parameters<NonNullable<PromptOptions["preflightResult"]>>[0]) => void;
           let rejectPreflight!: (error: unknown) => void;
           const preflight = new Promise<void>((resolve, reject) => {
-            acceptPreflight = () => {
+            acceptPreflight = (disposition) => {
               preflightAccepted = true;
-              this.agentRunNeedsCompletion = true;
+              if (disposition === "started") this.agentRunNeedsCompletion = true;
               if (preflightSettled) return;
               preflightSettled = true;
               resolve();
@@ -693,11 +706,11 @@ export class AgentSessionWrapper {
               source: "rpc",
               // Match pi's RPC contract: acknowledge only after synchronous prompt
               // validation and extension preflight have accepted the submission.
-              preflightResult: (success) => {
-                if (success) {
+              preflightResult: (disposition) => {
+                if (disposition === "started") {
                   this.applyExactSystemPrompt();
-                  acceptPreflight();
                 }
+                acceptPreflight(disposition);
               },
             });
           } catch (error) {
@@ -706,9 +719,9 @@ export class AgentSessionWrapper {
           }
 
           void prompt.then(() => {
-            // Compatibility fallback if a future SDK resolves without invoking
-            // the internal callback. This waits for the run, but never acks early.
-            acceptPreflight();
+            if (!preflightSettled) {
+              rejectPreflight(new Error("Pi prompt resolved without a preflight disposition"));
+            }
             finishPrompt();
             if (!streamingBehavior) this.emit({ type: "prompt_done" });
           }, (error) => {
@@ -769,7 +782,7 @@ export class AgentSessionWrapper {
           contextUsage: contextUsage
             ? { percent: contextUsage.percent, contextWindow: contextUsage.contextWindow, tokens: contextUsage.tokens }
             : null,
-          systemPrompt: this.inner.agent.state?.systemPrompt ?? "",
+          systemPrompt: this.systemPrompt,
           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
           extensionStatuses: this.getExtensionStatuses(),
           extensionWidgets: this.getExtensionWidgets(),
@@ -984,12 +997,18 @@ export class AgentSessionWrapper {
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
         await this.inner.reload();
-        this.setActiveToolSelection(activeToolNames);
+        if (this.profileSnapshot) this.activateHarnessProfile(this.profileSnapshot);
+        else if (this.courseBound) this.inner.setActiveToolsByName(["submit_grounded_answer"]);
+        else this.setActiveToolSelection(activeToolNames);
         if (typeof this.inner.bindExtensions !== "function") {
           this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
         }
         this.applyExactSystemPrompt();
         invalidateModelsCache();
+        console.info("[pi-web] session resources reloaded", {
+          sessionId: this.sessionId,
+          activeTools: this.inner.getActiveToolNames(),
+        });
         return { success: true };
       }
 
@@ -1638,6 +1657,18 @@ export class AgentSessionWrapper {
     };
   }
 
+  protected async reloadFromExtensionCommand(): Promise<void> {
+    this.extensionStatuses.clear();
+    this.resetExtensionWidgetsForReload();
+    this.syncProjectTrust();
+    await this.inner.reload({
+      beforeSessionStart: () => {
+        this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
+      },
+    });
+    this.applyExactSystemPrompt();
+  }
+
   private createExtensionCommandContextActions(): ExtensionCommandContextActionsLike {
     return {
       waitForIdle: async () => {
@@ -1652,15 +1683,7 @@ export class AgentSessionWrapper {
       },
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {
-        this.extensionStatuses.clear();
-        this.resetExtensionWidgetsForReload();
-        this.syncProjectTrust();
-        await this.inner.reload({
-          beforeSessionStart: () => {
-            this.inner.extensionRunner.setUIContext?.(this.createExtensionUiContext(), "rpc");
-          },
-        });
-        this.applyExactSystemPrompt();
+        await this.reloadFromExtensionCommand();
       },
     };
   }
@@ -1713,38 +1736,20 @@ function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
   wrapper.onDestroy(() => registry.delete(sessionId));
   registry.set(sessionId, wrapper);
   wrapper.start();
-  if (!wrapper.isChatOnly()) wrapper.beginExtensionBinding();
+  if (!wrapper.isChatOnly() || wrapper.isCourseBound()) wrapper.beginExtensionBinding();
 }
 
-const SUBAGENT_CONTROLLER = createSubagentController({
-  getSession: (sessionId) => getRegistry().get(sessionId),
-  registerSession: (inner, options) => {
-    const wrapper = new AgentSessionWrapper(inner, {
-      ...(options?.exactSystemPrompt !== undefined
-        ? { exactSystemPrompt: () => options.exactSystemPrompt! }
-        : {}),
-      chatOnly: options?.chatOnly,
-      suppressCompletionNotifications: true,
-    });
-    registerRpcWrapper(wrapper);
-  },
-  reopenSession: async (sessionId, sessionFile) =>
-    (await startRpcSession(sessionId, sessionFile, undefined)).session,
-  resolveSessionPath,
-  invalidateSessionList: invalidateSessionListCache,
-  isBuiltInSubagentsEnabled,
-});
-
-export function getSubagentRun(sessionId: string) {
-  return SUBAGENT_CONTROLLER.get(sessionId);
+/** Historical Pi Web child records remain readable; new runs are owned by pi-subagents. */
+export async function getSubagentRun(sessionId: string) {
+  const file = await resolveSessionPath(sessionId);
+  if (!file) return null;
+  return readSubagentRun(SessionManager.open(file).getEntries() as unknown as SessionEntry[], sessionId, file);
 }
-
-export function steerSubagent(sessionId: string, message: string) {
-  return SUBAGENT_CONTROLLER.steer(sessionId, message);
+export async function steerSubagent(...parameters: [sessionId: string, message: string]): Promise<void> {
+  throw new Error(`Historical run ${parameters[0]} is read-only. Manage current runs through /subagents-fleet.`);
 }
-
-export function abortSubagent(sessionId: string) {
-  return SUBAGENT_CONTROLLER.abort(sessionId);
+export async function abortSubagent(sessionId: string): Promise<void> {
+  throw new Error(`Historical run ${sessionId} is read-only. Manage current runs through /subagents-fleet.`);
 }
 
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
@@ -1788,8 +1793,8 @@ export function getHarnessRuntimeVerification(sessionId: string, snapshot: Resou
 	expectedTools: string[];
 	diagnostic: string | null;
 } {
-	const expectedTools = harnessActiveToolAllowlist(snapshot).sort();
 	const session = getRpcSession(sessionId);
+	const expectedTools = harnessActiveToolAllowlist(snapshot, session?.inner).sort();
 	if (!session?.isAlive()) {
 		return { live: false, verified: false, activeTools: [], expectedTools, diagnostic: "Pi runtime is not loaded; reopen the session to verify this snapshot." };
 	}
@@ -1843,10 +1848,15 @@ export async function setRpcSessionTools(
     && typeof existing.setActiveToolSelection === "function";
   const crossesChatOnlyBoundary = !hasCurrentResourcePolicy
     || existing.isChatOnly() !== (toolNames.length === 0);
+  // Native orchestration factories are registered only when selected. Rebuild
+  // when either switch changes, rather than activating an absent factory or
+  // leaving a disabled factory available for MCP's automatic activation.
+  const currentTools = existing.inner.getActiveToolNames();
+  const changesOrchestration = ["codemode", "tool_search"].some((name) => currentTools.includes(name) !== toolNames.includes(name));
   appendSessionToolSelection(existing.inner.sessionManager, toolNames);
   invalidateSessionListCache();
 
-  if (!crossesChatOnlyBoundary) {
+  if (!crossesChatOnlyBoundary && !changesOrchestration) {
     existing.setActiveToolSelection(toolNames);
     return { session: existing, sessionId, recreated: false };
   }
@@ -2150,6 +2160,10 @@ export async function startRpcSession(
   // Product learner sessions may be grounded. Subagent resource policies are
   // deliberately isolated and must never inherit a parent's learner tools.
 	const harnessEnabled = !subagentResources && Boolean(harnessCourseVersionId || harnessSnapshot);
+  // A new learner binds its default profile immediately after construction.
+  // Register that profile's selected orchestration factories before binding,
+  // while keeping them inactive until the Host commits the snapshot.
+  const initialHarnessTools = harnessSnapshot?.tools ?? (harnessEnabled ? createBuiltinModePacks(createDefaultResourceCatalog())["student-learn"].tools : []);
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
@@ -2181,7 +2195,7 @@ export async function startRpcSession(
       // `pi` CLI keeps them. Leaving the allow-list unset lets the SDK register all
       // tools (and activate extension tools); we narrow the ACTIVE set below.
 			toolsOption = harnessEnabled
-				? (harnessSnapshot?.mode === "practice" ? [] : ["submit_grounded_answer"])
+				? undefined
 				: selectedToolNames?.length === 0 ? [] : undefined;
     }
 
@@ -2200,6 +2214,11 @@ export async function startRpcSession(
     const learningHarnessExtension = harnessEnabled
       ? createLearningHarnessExtension(sessionManager.getSessionId())
       : null;
+    const exactSystemPromptRef: ExactSystemPromptRef = {};
+    const exactSystemPromptExtension = createExactSystemPromptExtension(exactSystemPromptRef);
+    const hostSearch = !chatOnly && (selectedToolNames === undefined || selectedToolNames.includes("grep") || selectedToolNames.includes("find"))
+      ? await createHostFffExtensionFactory()
+      : null;
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -2215,32 +2234,37 @@ export async function startRpcSession(
               ? {
                   systemPrompt: " ",
                   systemPromptOverride: () => undefined,
+                  extensionFactories: [exactSystemPromptExtension],
                 }
               : {}),
             appendSystemPrompt: subagentResources.appendSystemPrompt,
+            ...(!chatOnly ? { extensionFactories: createPiBuiltinModeExtensions(subagentResources.tools, { mcp: false }) } : {}),
           }
         : chatOnly
           ? {
               ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS,
+              extensionFactories: [
+                exactSystemPromptExtension,
+                ...createPiBuiltinModeExtensions(initialHarnessTools, { mcp: false }),
+                ...(learningHarnessExtension ? [learningHarnessExtension.extension] : []),
+                ...await createHostBaselineExtensions({ tools: harnessEnabled, modeScope: harnessSnapshot?.profileId, snapshot: harnessSnapshot ?? undefined }),
+              ],
               ...(learningHarnessExtension ? {
-                extensionFactories: [learningHarnessExtension.extension],
                 systemPromptOverride: () => appendModePackSystemPrompt("You are a course learning assistant. Use the active learning mode and its course evidence boundaries.", harnessSnapshot),
               } : {}),
             }
         : {
             extensionFactories: [
+              ...createPiBuiltinModeExtensions(harnessSnapshot?.tools ?? selectedToolNames ?? ["codemode"], { mcp: !harnessSnapshot, models: !harnessSnapshot }),
               ...(learningHarnessExtension ? [learningHarnessExtension.extension] : []),
+              ...(hostSearch ? [hostSearch] : []),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,
               }),
-              createSubagentExtension(
-                SUBAGENT_CONTROLLER.extensionRuntime,
-                () => listSubagentProfiles(sessionCwd),
-                isBuiltInSubagentsEnabled,
-              ),
+              ...await createHostBaselineExtensions({ tools: true, modeScope: harnessSnapshot?.profileId, snapshot: harnessSnapshot ?? undefined }),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            extensionsOverride: (base) => preferUserBashExtension(preferHostBaselinePlugins(base)),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
@@ -2300,13 +2324,15 @@ export async function startRpcSession(
     // requested builtin coding tools PLUS all extension/package tools, so installed
     // extensions stay usable in Pi Web just like in the `pi` CLI.
     if (harnessSnapshot) {
-		const allowed = harnessActiveToolAllowlist(harnessSnapshot);
+		const allowed = harnessActiveToolAllowlist(harnessSnapshot, inner);
 		inner.setActiveToolsByName(allowed);
 		assertHarnessRuntime(harnessSnapshot, inner);
+	} else if (harnessEnabled) {
+		inner.setActiveToolsByName(["submit_grounded_answer"]);
 	} else if (!subagentResources) {
       inner.setActiveToolsByName(withExtensionTools(
         inner,
-        selectedToolNames ?? inner.getActiveToolNames(),
+        selectedToolNames ?? [...inner.getActiveToolNames(), "codemode"],
         learningHarnessExtension ? ["submit_grounded_answer"] : [],
       ));
     }
@@ -2318,7 +2344,9 @@ export async function startRpcSession(
       : undefined;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
+      exactSystemPromptRef,
       chatOnly,
+      courseBound: harnessEnabled,
       onAgentRunComplete: (completedSessionId) => {
         void notifySessionComplete(completedSessionId).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);

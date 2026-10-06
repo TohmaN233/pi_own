@@ -21,6 +21,22 @@ test("allows same-origin and non-browser API requests", async () => {
   })), true);
 });
 
+test("restricts local update operations to loopback request hosts", async () => {
+  const { isApiRequestLoopback } = await loadSubject();
+  assert.equal(isApiRequestLoopback(new Request("http://localhost:30141/api/test", {
+    headers: { host: "localhost:30141" },
+  })), true);
+  assert.equal(isApiRequestLoopback(new Request("http://127.0.0.1:30141/api/test", {
+    headers: { host: "127.0.0.1:30141" },
+  })), true);
+  assert.equal(isApiRequestLoopback(new Request("http://[::1]:30141/api/test", {
+    headers: { host: "[::1]:30141" },
+  })), true);
+  assert.equal(isApiRequestLoopback(new Request("http://localhost:30141/api/test", {
+    headers: { host: "192.168.32.7:30141" },
+  })), false);
+});
+
 test("allows LAN same-origin requests when Next.js uses an internal localhost URL", async () => {
   const { isApiRequestAllowed } = await loadSubject();
   const request = new Request("http://localhost:30141/api/test", {
@@ -151,6 +167,26 @@ test("rejects an origin that does not match the external request host", async ()
     },
   });
   assert.equal(isApiRequestAllowed(request), false);
+});
+
+test("allows opaque-origin access only for immutable Mode Pack frontend asset paths", async () => {
+  const { isApiRequestAllowed, isApiRequestHostAllowed, isOpaqueModePackFrontendAssetRequest } = await loadSubject();
+  const headers = { host: "localhost:30141", origin: "null", "sec-fetch-site": "cross-site" };
+  const asset = new Request("http://localhost:30141/api/mode-packs/frontend/session/snapshot/nonce/ui/assets/panel.mjs", { headers });
+  assert.equal(isApiRequestAllowed(asset), false, "the normal API origin policy remains strict");
+  assert.equal(isApiRequestHostAllowed(asset), true);
+  assert.equal(isOpaqueModePackFrontendAssetRequest(asset), true);
+  const noCorsAsset = new Request(asset.url, {
+    headers: { host: "localhost:30141", "sec-fetch-site": "cross-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "style" },
+  });
+  assert.equal(isOpaqueModePackFrontendAssetRequest(noCorsAsset), true);
+  const foreignOriginAsset = new Request(asset.url, {
+    headers: { host: "localhost:30141", origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
+  });
+  assert.equal(isOpaqueModePackFrontendAssetRequest(foreignOriginAsset), false);
+  assert.equal(isOpaqueModePackFrontendAssetRequest(new Request("http://localhost:30141/api/mode-packs/spec-kit", { headers })), false);
+  assert.equal(isOpaqueModePackFrontendAssetRequest(new Request("http://localhost:30141/api/mode-packs/frontend/session/snapshot/nonce/ui/panel.html", { method: "POST", headers })), false);
+  assert.equal(isOpaqueModePackFrontendAssetRequest(new Request("http://localhost:30141/api/mode-packs/frontend/session/snapshot", { headers })), false);
 });
 
 test("rejects DNS rebinding even when browser headers say same-origin", async () => {

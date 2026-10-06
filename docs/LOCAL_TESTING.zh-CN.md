@@ -35,6 +35,8 @@ PDF 提取器按以下顺序解析：
 
 启动器不会修改用户全局配置。若未显式设置 `PI_LEARNING_HARNESS_DIR`，它只为这次本地测试把该变量设为仓库内的 `.learning-harness-data` 并创建目录；该目录已被 Git 忽略。它也会把本次进程的 `PI_CODING_AGENT_DIR` 指向该目录下的 `pi-agent`（或使用你已设置的目录），使 Demo JSONL 与 Pi Web 使用同一个本地会话目录。启动日志会打印实际使用的 Harness 与 Pi agent directory。
 
+如果也使用 `apps/pi-web` 下的 `npm run dev` 启动，请把正在使用的两个绝对路径保存到该目录的 `.env.local`：`PI_LEARNING_HARNESS_DIR` 指向课程数据库目录，`PI_CODING_AGENT_DIR` 指向原有 Pi agent 目录。这个文件已被 Git 忽略。不配置时，直接 npm 启动会使用用户目录下的 Pi 数据，导致原目录中的会话不在列表里；原文件并没有被删除。每次重启后核对 `[pi-web] runtime storage` 日志与已有会话 ID，不要用空列表作为新建数据库或迁移记录的依据。
+
 ## 手工验证路径
 
 1. 双击 `start-learning-harness.bat`，浏览器打开 `http://127.0.0.1:30141`。

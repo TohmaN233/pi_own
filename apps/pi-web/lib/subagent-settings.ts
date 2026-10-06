@@ -29,11 +29,14 @@ export function readSubagentSettings(
   settingsPath = getSubagentSettingsPath(),
 ): SubagentSettings {
   const stored = readStoredSettings(settingsPath);
-  return { builtInEnabled: stored.builtInEnabled === true };
+  if (stored.builtInEnabled !== undefined && typeof stored.builtInEnabled !== "boolean") {
+    throw new Error("Invalid subagent settings: builtInEnabled must be a boolean");
+  }
+  return { builtInEnabled: stored.builtInEnabled ?? true };
 }
 
-export function isBuiltInSubagentsEnabled(): boolean {
-  return false;
+export function isBuiltInSubagentsEnabled(settingsPath = getSubagentSettingsPath()): boolean {
+  return readSubagentSettings(settingsPath).builtInEnabled;
 }
 
 export function writeBuiltInSubagentsEnabled(

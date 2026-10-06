@@ -3,9 +3,8 @@ import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
 import { stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
 import { stream as streamOpenAIResponses } from "../src/api/openai-responses.ts";
 import { getModel, stream } from "../src/compat.ts";
-import { MODELS } from "../src/models.generated.ts";
 import type { Context, Model } from "../src/types.ts";
-import { historicalOpenCodeKimi } from "./historical-models.ts";
+import { OPENCODE_CACHE_RETENTION_MODELS } from "./model-fixtures.ts";
 
 class PayloadCaptured extends Error {
 	constructor() {
@@ -493,15 +492,7 @@ describe("Cache Retention (PI_CACHE_RETENTION)", () => {
 			expect(capturedPayload.prompt_cache_retention).toBeUndefined();
 		});
 
-		it.each([
-			MODELS.opencode["deepseek-v4-flash"],
-			MODELS.opencode["deepseek-v4-pro"],
-			MODELS.opencode["kimi-k2.5"],
-			historicalOpenCodeKimi.opencode,
-			MODELS.opencode["minimax-m2.7"],
-			historicalOpenCodeKimi["opencode-go"],
-		] as const)("should omit long cache retention for $provider/$id", async (metadata) => {
-			const model = metadata as Model<"openai-completions">;
+		it.each(OPENCODE_CACHE_RETENTION_MODELS)("should omit long cache retention for $provider/$id", async (model) => {
 			let capturedPayload: OpenAICompletionsCachePayload | undefined;
 
 			try {

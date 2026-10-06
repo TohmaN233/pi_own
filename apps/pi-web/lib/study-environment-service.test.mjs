@@ -172,7 +172,7 @@ test("environment package route rejects non-browser requests and the service enf
 		if (["succeeded", "failed", "unknown"].includes(completedWatchdogOperation?.status)) break;
 		await new Promise((ready) => setTimeout(ready, 200));
 	}
-	assert.equal(completedWatchdogOperation?.status, "succeeded", "packaged detached worker launched by state polling must validate the installed inventory");
+	assert.equal(completedWatchdogOperation?.status, "succeeded", `packaged detached worker launched by state polling must validate the installed inventory: ${JSON.stringify(completedWatchdogOperation)}`);
 	writeFileSync(resolve(".artifacts/study-research/environment-ownership/state-watchdog-launch-evidence.json"), JSON.stringify({
 		worker: watchdogState.worker,
 		operationId: queuedWatchdogOperation.operationId,

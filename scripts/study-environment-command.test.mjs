@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { lstat, mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
+import { compileWindowsNativeHelper } from "../packages/study-execution-host/src/windows-native-helper.ts";
 import { runTrustedCommand } from "../packages/study-execution-host/src/environment-package-changes.ts";
 
 const root = resolve(".artifacts/study-research/environment-command");
@@ -118,4 +119,67 @@ test("a worker crash after supervisor readiness but before durable registration 
   await delay(1500);
   assert.equal(existsSync(join(directory, "mutated.json")), false, "worker death released an installer that was not durably registered");
   assert.equal(existsSync(join(directory, "supervisor.ready.json")), true, "supervisor did not retain pre-release readiness evidence");
+});
+
+
+test("a verified cached supervisor registers before mutation at operation gate paths beyond MAX_PATH", { skip: process.platform !== "win32", timeout: 15000 }, async () => {
+  const prefix = join(root, `long-path-${Date.now()}`);
+  assert.ok(prefix.length < 240, "the fixture root must leave room for a bounded long-path component");
+  const directory = join(prefix, "owned-".repeat(30).slice(0, 245-prefix.length-1));
+  await mkdir(directory, {recursive:true});
+  const ready = join(directory, "supervisor.ready.json"), release = join(directory, "supervisor.release");
+  assert.ok(ready.length > 260 && release.length > 260, "the fixture must cover .NET gate paths beyond MAX_PATH");
+  let executable;
+  const registrations = [], exits = [], mutation = join(directory, "mutation.json");
+  const result = await runTrustedCommand(process.execPath, ["--input-type=module", "--eval",
+    "import {writeFileSync} from 'node:fs';writeFileSync(process.argv[1],JSON.stringify({mutatedAt:new Date().toISOString()}));process.stdout.write('long-path-gated-success');", mutation], {}, undefined,
+    {timeoutMs:10000,outputLimitBytes:1024,heartbeatMs:100}, {
+      supervisorDirectory:directory,
+      onStarted(identity) {
+        executable = identity.supervisorExecutablePath;
+        assert.ok(executable.startsWith(join(process.env.LOCALAPPDATA,"pi-own","native")) && executable.length < 260, "the durable identity retains a verified short application-cache executable");
+        assert.equal(existsSync(mutation), false, "the installer must remain suspended before durable registration");
+        const registration={...identity,registeredAt:new Date().toISOString()};
+        writeFileSync(join(directory,"registration.json"),JSON.stringify(registration));registrations.push(registration);
+      },
+      onExited(identity) {exits.push(identity);},
+    });
+  assert.equal(result.stdout,"long-path-gated-success");
+  assert.equal(registrations.length,1);assert.equal(exits.length,1);
+  assert.equal(exits[0].supervisorExecutablePath,executable);
+  assert.equal(exits[0].processCreationIdentity,registrations[0].processCreationIdentity);
+  assert.ok(JSON.parse(readFileSync(mutation,"utf8")).mutatedAt >= registrations[0].registeredAt);
+  assert.ok(existsSync(ready) && existsSync(release), "long gate paths retain the durable handshake evidence");
+  assert.match(readFileSync(`${executable}.config`,"utf8"),/Switch.System.IO.BlockLongPaths=false/);
+  assert.match(readFileSync(join(dirname(executable),"environment-package-supervisor.manifest"),"utf8"),/<ws2:longPathAware>true/);
+});
+
+
+test("native helper cache publication converges and corrupt settings fail without replacement", {skip:process.platform !== "win32",timeout:15000}, async(t)=>{
+  await mkdir(root,{recursive:true});
+  const sourcePath=join(root,"cache-fixture.cs");
+  await writeFile(sourcePath,`using System;public static class CacheFixture{public static void Main(){Console.Write("cache-fixture");}} // fresh publication ${Date.now()}`);
+  const options={compilerPath:join(process.env.SystemRoot ?? "C:\\Windows","Microsoft.NET","Framework64","v4.0.30319","csc.exe"),sourcePath,
+    name:"cache-fixture.exe",failure:message=>Object.assign(new Error(message),{code:"FIXTURE_COMPILE_FAILED"})};
+  const [first,second]=await Promise.all([compileWindowsNativeHelper(options),compileWindowsNativeHelper(options)]);
+  assert.equal(first,second,"concurrent builds retain one exact source-addressed helper");
+  const retained=dirname(first),nativeRoot=resolve(process.env.LOCALAPPDATA,"pi-own","native"),capturedHash=basename(retained);
+  t.after(async()=>{
+    const info=await lstat(retained),physicalRoot=await realpath(nativeRoot),physicalDirectory=await realpath(retained);
+    assert.ok(/^[a-f0-9]{64}$/.test(capturedHash) && dirname(retained)===nativeRoot && dirname(physicalDirectory)===physicalRoot && basename(physicalDirectory)===capturedHash && info.isDirectory() && !info.isSymbolicLink(),"fixture cleanup must remain inside its captured native-cache bundle");
+    assert.equal(JSON.parse(readFileSync(join(retained,"identity.json"),"utf8")).identity,capturedHash);
+    assert.equal(basename(first),"cache-fixture.exe","cleanup must never target a real runtime helper");
+    await rm(retained,{recursive:true});
+  });
+  assert.deepEqual((await readdir(dirname(first))).sort(),["cache-fixture.exe","cache-fixture.exe.config","cache-fixture.manifest","identity.json"],"only verified runtime assets remain in the cache");
+  const configPath=`${first}.config`,config=readFileSync(configPath,"utf8"),receipt=readFileSync(join(dirname(first),"identity.json"),"utf8");
+  try {
+    await writeFile(configPath,"corrupt fixture settings");
+    await assert.rejects(compileWindowsNativeHelper(options),error=>error.code==="FIXTURE_COMPILE_FAILED" && /cache is corrupt/.test(error.message));
+    assert.equal(readFileSync(configPath,"utf8"),"corrupt fixture settings","failed integrity must not rebuild over damaged retained assets");
+    assert.equal(readFileSync(join(dirname(first),"identity.json"),"utf8"),receipt);
+  } finally {await writeFile(configPath,config);}
+  assert.equal(await compileWindowsNativeHelper(options),first);
+  await writeFile(sourcePath,"invalid C# fixture source");
+  await assert.rejects(compileWindowsNativeHelper(options),error=>error.code === "FIXTURE_COMPILE_FAILED" && /error CS[0-9]+/.test(error.message), "compiler stdout diagnostics must survive a failed build");
 });

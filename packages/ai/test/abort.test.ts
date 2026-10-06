@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { complete, getModel, stream } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -178,15 +178,16 @@ describe("AI Providers Abort Tests", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider Abort", () => {
-		const llm = getTogetherTestModel();
+	const togetherAbortModel = findCurrentOpenAICompletionsModel("together", { reasoningLevel: "high" });
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherAbortModel)("Together AI Provider Abort", () => {
+		const llm = () => requireCurrentOpenAICompletionsModel(togetherAbortModel, "together");
 
 		it("should abort mid-stream", { retry: 3 }, async () => {
-			await testAbortSignal(llm, { reasoningEffort: "high" });
+			await testAbortSignal(llm(), { reasoningEffort: "high" });
 		});
 
 		it("should handle immediate abort", { retry: 3 }, async () => {
-			await testImmediateAbort(llm, { reasoningEffort: "high" });
+			await testImmediateAbort(llm(), { reasoningEffort: "high" });
 		});
 	});
 

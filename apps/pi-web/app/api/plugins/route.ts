@@ -12,6 +12,11 @@ import {
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { readModePlugins } from "@/lib/mode-plugins";
+import { HOST_PLUGIN_VERSIONS, hostPluginDirectory, isHostPluginEnabled, type HostPluginId } from "@/lib/host-plugin-settings";
+import { manageHostPlugin } from "@/lib/host-plugin-management";
+import { assertResourceDeletionTarget, deleteModePlugin, removeResourceFiles, removeResourcesFromModes, purgeResourceArchives } from "@/lib/resource-deletion";
+import { inspectModePackInventory } from "@/lib/mode-pack-inventory";
 import type {
   PluginDiagnostic,
   PluginPackageInfo,
@@ -24,7 +29,7 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
+type PluginAction = "install" | "remove" | "update" | "disable" | "enable" | "host-install" | "host-remove" | "host-enable" | "host-disable" | "mode-delete";
 
 function emptyCounts(): PluginResourceCounts {
   return { extensions: 0, skills: 0, prompts: 0, themes: 0 };
@@ -266,8 +271,19 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
     } satisfies PluginPackageInfo;
   });
 
+  const hostPlugins = (Object.keys(HOST_PLUGIN_VERSIONS) as HostPluginId[]).map(id => {
+    const installedPath = hostPluginDirectory(id);
+    const metadata = readPackageMetadata(installedPath);
+    const installed = metadata.packageName === id && metadata.version === HOST_PLUGIN_VERSIONS[id];
+    const enabled = isHostPluginEnabled(id);
+    if (enabled && !installed) diagnostics.push({ type: "error", source: id, message: `Enabled Host plugin ${id} is missing or has an unsupported version; expected ${HOST_PLUGIN_VERSIONS[id]}.` });
+    return { id, source: "Pi Web host", version: metadata.version ?? null, installed, enabled, installedPath };
+  });
+
   return {
     packages,
+    modePlugins: readModePlugins(),
+    hostPlugins,
     totals,
     diagnostics,
     projectResourcesLoaded: projectTrust.trusted,
@@ -309,12 +325,27 @@ export async function POST(req: Request) {
       source?: string;
       scope?: PluginScope;
       cwd?: string;
+      id?: string;
+      modePackId?: string;
     };
     if (!body.cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
     if (!body.action) return NextResponse.json({ error: "action required" }, { status: 400 });
     const allowedRoots = await getAllowedFileRoots();
     if (!isExistingFilePathAllowed(body.cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    if (body.action.startsWith("host-")) {
+      if (!body.id || !Object.hasOwn(HOST_PLUGIN_VERSIONS, body.id)) return NextResponse.json({ error: "Unknown Host plugin" }, { status: 400 });
+      const action = body.action.slice(5);
+      if (!["install", "remove", "enable", "disable"].includes(action)) throw new Error(`Unknown Host plugin action: ${action}`);
+      await manageHostPlugin(body.id as HostPluginId, action as "install" | "remove" | "enable" | "disable");
+      return NextResponse.json(await readPlugins(body.cwd));
+    }
+    if (body.action === "mode-delete") {
+      if (!body.id || !body.modePackId) return NextResponse.json({ error: "id and modePackId required" }, { status: 400 });
+      await deleteModePlugin(body.cwd, body.modePackId, body.id);
+      return NextResponse.json(await readPlugins(body.cwd));
     }
 
     const agentDir = getAgentDir();
@@ -342,7 +373,22 @@ export async function POST(req: Request) {
       await packageManager.installAndPersist(source, { local });
     } else if (body.action === "remove") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
+      const installed = packageManager.listConfiguredPackages().find(pkg => pkg.source === source && toPluginScope(pkg.scope) === scope);
+      if (!installed) throw new Error("Plugin is not in the current installation inventory");
+      const localFiles = installed.installedPath && !source.startsWith("npm:") && !source.startsWith("git:") && !/^[a-z]+:\/\//u.test(source);
+      if (localFiles) assertResourceDeletionTarget(installed.installedPath!, [...allowedRoots, agentDir]);
+      const inventory = await inspectModePackInventory(body.cwd);
+      const resources = inventory.resources.filter(item => (item.kind === "extension" || item.kind === "skill") && item.source === source)
+        .map(item => ({ kind: item.kind as "extension" | "skill", id: item.id }));
+      await removeResourcesFromModes(body.cwd, resources);
+      // Pi's native manager deliberately only unlinks local sources. Our Delete
+      // button also removes the directory shown in the installation inventory.
+      if (localFiles) {
+        removeResourceFiles(installed.installedPath!, [...allowedRoots, agentDir]);
+      }
       await packageManager.removeAndPersist(source, { local });
+      if (installed.installedPath && existsSync(installed.installedPath)) throw new Error(`Plugin directory remains after uninstall: ${installed.installedPath}`);
+      await purgeResourceArchives(resources);
     } else if (body.action === "update") {
       await packageManager.update(source);
     } else if (body.action === "disable") {
@@ -359,6 +405,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(await readPlugins(body.cwd));
   } catch (error) {
+    console.error("[plugins] operation failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

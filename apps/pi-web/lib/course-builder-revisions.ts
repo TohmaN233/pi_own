@@ -2,7 +2,9 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { CourseBuilderHost, CourseBuilderCommand } from "../../../packages/course-builder-host/src/index.ts";
 import { getRpcSession, type AgentSessionWrapper } from "./rpc-manager";
 import { resolveSessionPath } from "./session-reader";
-import { CourseDeliveryLoop, DELIVERY_ENTRY, DELIVERY_REQUEST_ENTRY, deliveryRequest, type DeliveryTask } from "./course-builder-delivery";
+import { CourseDeliveryLoop, DELIVERY_ENTRY, type DeliveryTask } from "./course-builder-delivery";
+import { prepareCourseWorkflowTask, startCourseWorkflowTask } from "./course-workflow-tasks";
+import { recoverFailedVisualBinding } from "./course-builder-delivery-target";
 
 export type ReviewAction = "review_semester" | "review_lesson" | "review_assignment";
 export interface CourseRevisionTask {
@@ -16,6 +18,8 @@ export interface CourseRevisionTask {
   status: "sending" | "sent" | "failed" | "completed";
   error?: string;
   completedRevision?: number;
+  workflowTaskId?: string;
+  runId?: string;
 }
 const ENTRY = "pi-web:course-revision";
 const locks = new Set<string>();
@@ -52,6 +56,7 @@ export async function readCourseDeliveryTask(sessionId: string, host: CourseBuil
   if(!manager)return null;
   return new CourseDeliveryLoop({
     snapshot:()=>{const snapshot=host.getSnapshotForSession(sessionId);if(!snapshot)throw new Error("Delivery course is unavailable");return snapshot;},
+    visualBindingRecovery:(task)=>{const snapshot=host.getSnapshotForSession(sessionId);return snapshot && task.target ? recoverFailedVisualBinding(snapshot,task.id,task.target,manager.getBranch()) : undefined;},
     load:()=>{const entry=manager.getBranch().reverse().find((item)=>item.type==="custom"&&item.customType===DELIVERY_ENTRY);return entry?.type==="custom" ? entry.data as DeliveryTask : undefined;},
     save:(task)=>{manager.appendCustomEntry(DELIVERY_ENTRY,task);console.info("[course-delivery] binding restored",{sessionId,taskId:task.id,target:task.target,repair:task.bindingRepair});},
   }).restore() ?? null;
@@ -83,19 +88,16 @@ export async function requestCourseRevision(host: CourseBuilderHost, wrapper: Ag
     const task: CourseRevisionTask = { sessionId: input.sessionId, requestId: input.requestId, action: input.action, targetId: input.id, baseRevision: input.revision, note: input.note, createdAt: new Date().toISOString(), status: "sending" };
     persist(manager, task);
     const assignment = input.action === "review_assignment";
-    const save = assignment ? "save_assignment" : input.action === "review_semester" ? "save_semester" : "save_lesson";
     try {
-      host.setAgentAssignmentScope(input.sessionId, assignment ? input.id : null);
-      const message = [
-        `The teacher requests changes to ${input.action}, target ${input.id}, revision ${input.revision}. Request ID: ${input.requestId}.`,
-        "Read the current target and its teacher review with course_builder before editing. Existing assets are the baseline. Preserve all unaffected content and styling. Do not rewrite from scratch unless the teacher explicitly says to abandon the existing asset. A request to regenerate or improve does not grant that permission. Respect source scope. Read back the saved target and report only the actual changed sections.",
-        assignment ? `Use assignment_state and only this Assignment's materials: ${input.id}.` : "Use the course material scope; do not use private Assignment materials.",
-        "Teacher's requested changes:", input.note,
-        `Apply these changes now, then save the revised target using ${save} with the current expectedRevision${input.action === "review_lesson" ? " and the approved semester's parentRevision" : ""}.`,
-        "Report the saved revision and changes. If blocked, explain what is missing; do not claim completion without a successful save. Do not approve the new draft or modify unrelated targets.",
-      ].join("\n\n");
-      manager.appendCustomEntry(DELIVERY_REQUEST_ENTRY,deliveryRequest(message,{kind:assignment ? "assignment" : input.action==="review_semester" ? "semester" : "lesson",id:input.id}));
-      await wrapper.send({ type: "prompt", message });
+      const prepared=await prepareCourseWorkflowTask(input.sessionId,{
+        workflowId:assignment ? "course-assignment-plan" : input.action==="review_semester" ? "course-semester-plan" : "course-lesson-plan",
+        target:assignment ? {assignmentId:input.id} : input.action==="review_semester" ? {course:true} : {lessonId:input.id},
+        task:`Apply the teacher's requested changes to the existing target. Preserve unaffected content, visuals and styling; replacement requires explicit abandonment. Save a new draft for teacher review.\nTeacher changes:\n${input.note}`,
+      });
+      task.workflowTaskId=prepared.taskId;
+      persist(manager,task);
+      const started=await startCourseWorkflowTask(input.sessionId,prepared.taskId);
+      task.runId=started.runId;
       const latest = tasksFrom(manager).find((item) => item.requestId === task.requestId);
       if (latest?.status === "completed") return latest;
       const sent = { ...task, status: "sent" as const };
@@ -104,13 +106,13 @@ export async function requestCourseRevision(host: CourseBuilderHost, wrapper: Ag
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       persist(manager, { ...task, status: "failed", error });
-      throw new Error(`审查意见已保存，但 Agent 修改未成功启动：${error}`);
+      throw new Error(`审查意见已保存，但 Workflow 修改未确认启动：${error}`);
     }
   } finally { locks.delete(input.sessionId); }
 }
 
 /** Called only after the delivery gate verifies every requirement for the saved target. */
-export function completeCourseRevisionTasks(sessionId: string, command: CourseBuilderCommand, result: unknown): void {
+export function completeCourseRevisionTasks(sessionId: string, command: CourseBuilderCommand, result: unknown, workflowTaskId?: string): void {
   const action = command.action === "save_semester" ? "review_semester" : command.action === "save_lesson" ? "review_lesson" : command.action === "save_assignment" ? "review_assignment" : null;
   if (!action) return;
   const manager = getRpcSession(sessionId)?.inner.sessionManager;
@@ -118,6 +120,6 @@ export function completeCourseRevisionTasks(sessionId: string, command: CourseBu
   const saved = result as { semesterPlanId?: string; lessonPlanId?: string; assignmentId?: string; revision: number };
   const targetId = saved.semesterPlanId ?? saved.lessonPlanId ?? saved.assignmentId;
   for (const task of tasksFrom(manager)) {
-    if ((task.status === "sending" || task.status === "sent") && task.action === action && task.targetId === targetId && saved.revision > task.baseRevision) persist(manager, { ...task, status: "completed", completedRevision: saved.revision });
+    if ((task.status === "sending" || task.status === "sent" || task.status === "failed" && task.workflowTaskId === workflowTaskId && Boolean(workflowTaskId)) && (workflowTaskId ? task.workflowTaskId === workflowTaskId : !task.workflowTaskId) && task.action === action && task.targetId === targetId && saved.revision > task.baseRevision) persist(manager, { ...task, status: "completed", completedRevision: saved.revision });
   }
 }

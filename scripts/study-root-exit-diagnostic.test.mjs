@@ -201,14 +201,26 @@ test("native root exit distinguishes a signaled root accounting lag from a live 
 	);
 	assert.ok(longPathRoot.length < 248, longPathRoot);
 	await rm(longPathRoot, { recursive: true, force: true });
+	// snapshotInput preserves the extension. A long extension keeps the native
+	// ProgramPath above MAX_PATH while the legacy helper's control/receipt paths
+	// stay short enough to publish the genuine pre-spawn failure.
+	const longNamedProgram = join(sourceRoot, `normal-root-exit.${"p".repeat(220)}py`);
+	await writeFile(longNamedProgram, await readFile(normalProgram));
 	const longPathRed = await prepareIsolatedWindowsRun({
-		runRootDirectory: longPathRoot,
+		runRootDirectory: runRoot,
 		language: "python",
 		executablePath: pythonExecutable,
-		programPath: normalProgram,
+		programPath: longNamedProgram,
 		preparationIdentity: { runId: "long-path-red", cancelToken: "long-path-red-cancellation-token" },
 		limits: { memoryBytes: 256 * 1024 * 1024, cpuRatePercent: 25, wallTimeMs: 10_000, outputLimitBytes: 16 * 1024 },
 	});
+	const redConfigPath = join(longPathRed.controlDirectory, "config.json");
+	const redConfig = JSON.parse(await readFile(redConfigPath, "utf8"));
+	const redReceiptTemporary = `${join(longPathRed.controlDirectory, "status.json")}.tmp-${"0".repeat(32)}`;
+	assert.ok(redConfigPath.length < 260, redConfigPath);
+	assert.ok(redReceiptTemporary.length < 260, redReceiptTemporary);
+	assert.ok(redConfig.ProgramPath.length > 260, redConfig.ProgramPath);
+	assert.deepEqual(await readFile(redConfig.ProgramPath), await readFile(normalProgram));
 	const legacyHelper = join(artifactRoot, "native-long-path-red", "study-windows-runner-without-long-path-awareness.exe");
 	await mkdir(join(artifactRoot, "native-long-path-red"), { recursive: true });
 	// Launch claims are part of the immutable native preflight. This invokes the
@@ -235,7 +247,7 @@ test("native root exit distinguishes a signaled root accounting lag from a live 
 		],
 		{ cwd: resolve("."), encoding: "utf8", stdio: "pipe" },
 	);
-	const redExecution = spawnSync(legacyHelper, ["--supervise", join(longPathRed.controlDirectory, "config.json")], {
+	const redExecution = spawnSync(legacyHelper, ["--supervise", redConfigPath], {
 		encoding: "utf8",
 		stdio: "pipe",
 		windowsHide: true,

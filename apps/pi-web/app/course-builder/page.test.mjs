@@ -31,9 +31,9 @@ test("Course Builder links a local folder for on-demand reads and keeps file cop
 test("Course Builder exposes a separately scoped Assignment workflow", () => {
 	assert.match(page, /Assignment 独立工作链/u);
 	assert.match(page, /create_assignment/u);
-	assert.match(modePackInventory, /assignment_state/u);
-	assert.match(modePackInventory, /read_assignment_material/u);
-	assert.match(modePackInventory, /save_assignment/u);
+	assert.match(page, /course-assignment-plan/u);
+	assert.match(page, /course-assignment-artifacts/u);
+	assert.doesNotMatch(page, /action: "prompt", assignmentId/u);
 	assert.match(page, /review_assignment/u);
 	assert.match(linkRoute, /syncAssignmentMaterials/u);
 	assert.match(linkRoute, /scope: assignment \? "assignment" : "course"/u);
@@ -54,9 +54,11 @@ test("Course Builder removes the decorative workflow strip and lazily renders hi
 	assert.doesNotMatch(page, /aria-label=["']备课流程["']/u);
 	assert.doesNotMatch(page, /const FLOW\s*=/u);
 	assert.match(page, /function ProgressiveList/u);
-	assert.match(page, /ordered\.slice\(0, 3\)/u);
+	assert.match(page, /previewCount = 3/u);
+	assert.match(page, /ordered\.slice\(0, previewCount\)/u);
 	assert.match(page, /查看过往 \$\{hiddenCount\} \$\{unit\}\$\{label\}/u);
-	assert.match(page, /expanded && ordered\.length > 3/u);
+	assert.match(page, /expanded && ordered\.length > previewCount/u);
+	assert.match(page, /expanded\s*\?\s*ordered\.filter/u);
 	assert.match(page, /open && <pre>\{JSON\.stringify/u);
 	for (const label of ["课程资料", "Assignment", "修改记录", "单课教案", "课件", "可视化"]) {
 		assert.match(page, new RegExp(`label=["']${label}["']`, "u"));
@@ -67,4 +69,16 @@ test("teaching visualizations expose standalone interactive pages", () => {
 	assert.match(page, /独立交互网页/u);
 	assert.match(page, /visual\.format === "interactive-html"/u);
 	assert.match(page, /打开交互网页/u);
+});
+
+test("Course Builder routes task launches through the workflow control and keeps prompts separate", () => {
+	assert.match(page, /async function launchWorkflow\(input: CourseWorkflowLaunch\)/u);
+	assert.match(page, /workflowControl\.current\.launch\(\{\s*\.\.\.input,\s*task:/u);
+	assert.match(page, /教师额外要求/u);
+	assert.match(page, /<CourseWorkflowTaskControl sessionId=\{sid\} controlRef=\{workflowControl\} additionalRequirements=\{message\}/u);
+	assert.match(page, /Field label="额外要求"/u);
+	assert.match(page, /post\(\{ action: "prompt", message \}\)/u);
+	assert.match(page, /<TeacherConversation key=\{sessionId\} sessionId=\{sessionId\}/u);
+	assert.match(page, /生成教师讲稿（TeX）/u);
+	assert.doesNotMatch(page, /label="生成内容\/操作"|selectedCourseProductionLaunch|<TexSourcePdfEditor/u);
 });

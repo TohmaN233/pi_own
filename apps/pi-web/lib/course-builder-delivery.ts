@@ -31,6 +31,7 @@ export interface DeliveryCheck { requirementId: string; quote: string; materialI
 interface IO {
   snapshot(): Snapshot;
   checkpoints?(): ReturnType<CourseBuilderHost["listCoverageCheckpoints"]>;
+  visualBindingRecovery?(task: DeliveryTask): DeliveryTarget | undefined;
   load(): DeliveryTask | undefined;
   save(task: DeliveryTask): void;
 }
@@ -57,7 +58,7 @@ export class CourseDeliveryLoop {
   restore(): DeliveryTask | undefined {
     const task = this.io.load();
     if (!task?.target || ["completed", "question", "cancelled"].includes(task.status)) return task;
-    const target = resolveDeliveryTarget(this.io.snapshot(), task.target);
+    const target = resolveDeliveryTarget(this.io.snapshot(), task.status === "blocked" ? this.io.visualBindingRecovery?.(task) ?? task.target : task.target);
     const changedId = task.target.id !== undefined && task.target.id !== target.id;
     const repairedBlock = task.status === "blocked" && (changedId || task.bindingRepair && task.reason?.includes("Wrong delivery target"));
     if (JSON.stringify(target) === JSON.stringify(task.target) && !repairedBlock) return task;
@@ -85,7 +86,7 @@ export class CourseDeliveryLoop {
   private instruction(task: DeliveryTask): string {
     return [
       'Teacher lecture scripts are independent TeX products: delivery_route {kind:"teacher-notes",deckId:"observed existing deck ID",requirements:[{text:"teacher speaking script",verification:"content"}]}. Read the deck, save_teacher_notes or patch_teacher_notes, then read_teacher_notes and compile_teacher_notes. On failure use read_teacher_notes_compile_log, repair and recompile. Only then finish with the current successful PDF receipt. For a deck task with includeTeacherNotes=true, retain the deck target and also save teacher notes for its final revision; Host will not complete until both outputs exist. Teacher notes do not require rewriting or reapproving an existing Beamer.',
-      'Supplemental reference files or website acquisition alone use delivery_route {kind:"materials",requirements:[...]}, not visual. A teacher-facing standalone interactive HTML page is different: retain kind=visual, add_material the authored page, then save it with interactive_visual using the Host-returned materialId. add_material imports into the existing material library and binds this delivery to the Host-owned project ID. While preparing a lesson/deck, reference imports remain auxiliary. Use verification=materials for registration and verification=content for captured reference content. Material content checks use read_material text with materialId and offset, never filenames as content proof.',
+      'Supplemental reference files or website acquisition alone use delivery_route {kind:"materials",requirements:[...]}, not visual. A teacher-facing standalone interactive HTML page is different: retain kind=visual, add_material the authored page, then save it with interactive_visual using the Host-returned materialId. After editing that same file, add_material refreshes only its index in place (same materialId), then interactive_visual validates and binds the new saved visual to this delivery. Do not duplicate files to escape a stale index. While preparing a lesson/deck, reference imports remain auxiliary. Use verification=materials for registration and verification=content for captured reference content. Interactive visual content checks use read_material text from the current HTML or this delivery\'s imported companions (including Rmd), with materialId and offset; registration titles/purposes are not body evidence.',
       `Course delivery task ${task.id}. First call course_builder delivery_route using the structured spec object (not a JSON-encoded string). Use structured draft for save/patch operations to avoid double-escaping TeX.`,
       'For a pure information question use {kind:"question",reason:"..."}. For a product use {kind:"deck|semester|lesson|assignment|visual|materials|teacher-notes",requirements:[{text:"one complete user requirement",verification:"content|compile-review|checkpoint|materials"}]}. The Host allocates product and requirement IDs; retain IDs returned in delivery_status when amending existing requirements. The workspace-selected target is already bound; omit IDs. In direct chat select a lesson by week/session or lessonPlanId; an existing artifact id is only a validated reference, never an ID to allocate. New IDs come from successful Host saves.',
       'For combined deck-and-script deliveries, content quotes may come from the saved deck or its accompanying teacher script. Read the appropriate exact source. The Host binds the accompanying script to the final deck revision/hash; never use notes from another deck as evidence.',
@@ -148,7 +149,12 @@ export class CourseDeliveryLoop {
     if (!task || !["routing", "active"].includes(task.status)) return;
     const kind = deliveryWriteKind(record(command).action as string);
     if (!error && result && task.target && kind === task.target.kind) {
-      task.target = mergeDeliveryTarget(task.target, resolveDeliveryTarget(this.io.snapshot(), { kind, id: identity(kind, result) }));
+      const saved = resolveDeliveryTarget(this.io.snapshot(), { kind, id: identity(kind, result) });
+      // Visual saves allocate a new immutable product ID. Only this successful
+      // Host save may advance it; route/prepare still cannot switch products.
+      const previous = task.target;
+      task.target = mergeDeliveryTarget(kind === "visual" ? {...previous,id:undefined} : previous, saved);
+      if (kind === "visual" && previous.id && previous.id !== task.target.id) task.bindingRepair = {previous,resolved:task.target};
     }
     if (!error && result && kind === "materials") {
       const materialIds=(result as {materials:{materialId:string}[]}).materials.map(m=>m.materialId);
@@ -159,11 +165,17 @@ export class CourseDeliveryLoop {
   }
 
   assertProductionAction(action: string): void {
-    if (/^(?:save_|patch_|visual$|create_visual|render_visual)/u.test(action) && this.io.load()?.status !== "active") throw new Error("Route this production request with delivery_route and its full requirements before writing artifacts");
+    if (/^(?:save_|patch_|visual$|interactive_visual$|create_visual|render_visual)/u.test(action) && this.io.load()?.status !== "active") throw new Error("Route this production request with delivery_route and its full requirements before writing artifacts");
   }
 
   materialImportsToVerify(): string[] {
     const task=this.restore();
+    if(task?.target?.kind==="visual") {
+      const visual=this.io.snapshot().visuals.find(item=>item.visualId===task.target?.id && item.format==="interactive-html");
+      // Replaced attempt files remain in the import history, not as dependencies
+      // of the current page. Companion source checks are read separately at finish.
+      if(visual?.materialId)return [visual.materialId];
+    }
     return task?.importedMaterialIds ?? [];
   }
 
@@ -176,6 +188,8 @@ export class CourseDeliveryLoop {
     const deck = task.target?.kind === "deck" ? snapshot.decks.find(item=>item.deckId === task.target?.id) : undefined;
     const checkpoint = lesson ? checkpoints.filter(item=>item.lessonPlanId === lesson.lessonPlanId).at(-1) : undefined;
     const artifact = task.target ? artifacts(snapshot,task.target.kind).find(item=>identity(task.target!.kind,item) === task.target?.id) : undefined;
+    const visualMaterialId=task.target?.kind === "visual" && artifact && "format" in artifact && artifact.format === "interactive-html" && "materialId" in artifact ? artifact.materialId : undefined;
+    const sourceChecks=task.target?.kind === "materials" || typeof visualMaterialId === "string";
     const saved = !!artifact && (task.target?.kind === "materials" ? !!task.importedMaterialIds?.length : revision(artifact) > (task.baseline[task.target!.id!] ?? 0));
     const productGate = !saved ? {ready:false,nextAction:"Save the requested product's new revision, or import the requested materials through add_material."}
       : task.target?.kind === "deck" ? resolveOperationalEvidence({snapshot,target:task.target,verification:"compile-review"})
@@ -193,26 +207,28 @@ export class CourseDeliveryLoop {
     } : null;
     const requirements = task.requirements.map((item) => ({ ...item,
       evidence: !item.verification ? { ready: false, nextAction: "Reissue delivery_route with this exact id/text and an explicit verification type; old tasks did not record evidence types." }
-        : item.verification === "content" ? { ready: false, nextAction: task.target?.kind === "materials" ? "Use read_material on an imported material; supply materialId, offset and an exact quote from that returned text window (limit 20000). Filenames do not prove document contents." : "Read the saved product and quote exact substantive source, preserving TeX/HTML markup. A matching quote checks provenance, not semantic completeness; audit the full requirement." }
-        : task.target ? resolveOperationalEvidence({snapshot,target:task.target,verification:item.verification,checkpoints,importedMaterialIds:task.importedMaterialIds ?? []}) : {ready:false,nextAction:"Route the delivery first."},
+        : item.verification === "content" ? { ready: false, nextAction: sourceChecks ? "Use read_material on the current HTML or an imported companion material; supply materialId, offset and an exact quote from that returned text window (limit 20000). Titles and learningPurpose do not prove file contents." : "Read the saved product and quote exact substantive source, preserving TeX/HTML markup. A matching quote checks provenance, not semantic completeness; audit the full requirement." }
+        : task.target ? resolveOperationalEvidence({snapshot,target:task.target,verification:item.verification,checkpoints,importedMaterialIds:typeof visualMaterialId === "string" ? [visualMaterialId] : task.importedMaterialIds ?? []}) : {ready:false,nextAction:"Route the delivery first."},
     }));
     const missingTypes = requirements.filter(item=>!item.verification).map(item=>item.id);
     return { taskId: task.id, status: task.status, target: task.target, requirements, productGate, teacherNotesGate,
       canCorrectUnboundKind: !task.workspaceSelected && !!task.target && !task.target.id,
       importedMaterialIds: task.importedMaterialIds ?? [],
+      ...(typeof visualMaterialId === "string" ? {contentSources:{primaryMaterialId:visualMaterialId,companionMaterialIds:(task.importedMaterialIds ?? []).filter(id=>id!==visualMaterialId),readTemplate:{action:"read_material",id:visualMaterialId,offset:0,limit:20000},refreshTemplate:{action:"add_material",expectedRevision:snapshot.project.revision,spec:{path:snapshot.materials.find(m=>m.materialId===visualMaterialId)?.metadata.sourcePath}},registerTemplate:{action:"interactive_visual",id:task.target?.lessonPlanId,spec:{materialId:visualMaterialId,title:""},purpose:""}}} : {}),
       checkpoint: lesson ? {current:checkpoint ?? null,saveTemplate:{action:"save_checkpoint",expectedRevision:checkpoint?.revision ?? 0,draft:{lessonPlanId:lesson.lessonPlanId,lessonRevision:lesson.revision,deckId:deck?.deckId ?? null,deckRevision:deck?.revision ?? null,coverage:checkpoint?.coverage ?? [],completed:[],remaining:[],nextLesson:""}},instruction:"Fill actual coverage and handoff. expectedRevision belongs to this lesson's checkpoint record, NOT the deck, lesson, or another lesson's checkpoint. Refresh delivery_status after content saves or conflicts."} : null,
-      finishTemplate: missingTypes.length ? null : { checks: requirements.filter(item=>item.verification === "content").map(item=>({requirementId:item.id, ...(task.target?.kind === "materials" ? {materialId:"",offset:0} : {}),quote:""})) },
+      finishTemplate: missingTypes.length ? null : { checks: requirements.filter(item=>item.verification === "content").map(item=>({requirementId:item.id, ...(sourceChecks ? {materialId:visualMaterialId ?? "",offset:0} : {}),quote:""})) },
       nextAction: missingTypes.length ? `Classify legacy requirements before finishing: ${missingTypes.join(", ")}` : "Fill only the content quotes in finishTemplate. Host obtains operational evidence itself; never submit receipt claims as quotes.",
     };
   }
 
   materialChecks(value: unknown): DeliveryCheck[] {
     const task = this.restore(), spec = record(value);
-    if (task?.target?.kind !== "materials") return [];
+    const visual=task?.target?.kind === "visual" ? this.io.snapshot().visuals.find(item=>item.visualId===task.target?.id && item.format==="interactive-html") : undefined;
+    if (task?.target?.kind !== "materials" && !visual) return [];
     if (!Array.isArray(spec.checks)) throw new Error("Use the checks array from delivery_status.finishTemplate");
     return spec.checks.map(value=>{
-      const item=record(value), materialId=text(item.materialId,"material ID"), offset=item.offset ?? 0;
-      if (!task.importedMaterialIds?.includes(materialId)) throw new Error("Content evidence must reference a material imported by this delivery; call delivery_status for IDs");
+      const item=record(value), materialId=text(item.materialId ?? visual?.materialId,"material ID"), offset=item.offset ?? 0;
+      if (materialId!==visual?.materialId && !task?.importedMaterialIds?.includes(materialId)) throw new Error("Content evidence must reference the current visual HTML or a material imported by this delivery; call delivery_status for IDs");
       if (!Number.isSafeInteger(offset) || (offset as number)<0) throw new Error("Material evidence offset must be a non-negative character offset from read_material");
       return {requirementId:text(item.requirementId,"requirement ID"),quote:text(item.quote,"evidence quote"),materialId,offset:offset as number};
     });
@@ -267,17 +283,19 @@ export class CourseDeliveryLoop {
     const body = normalized(strings(artifact)+(accompanyingNotes ? `\n${accompanyingNotes.source}` : ""));
     for (const requirement of contentRequirements) {
       const check = checks.find((item) => item.requirementId === requirement.id);
-      const evidenceBody = task.target.kind === "materials" ? normalized(materialText[requirement.id] ?? "") : body;
-      if (!check || normalized(check.quote).length < 8 || !evidenceBody.includes(normalized(check.quote))) throw new Error(`Requirement ${requirement.id} has no matching substantive evidence in ${task.target.kind === "materials" ? "the read_material text window (not registration metadata)" : "the saved product source"}. Read exact source including markup, then fill delivery_status.finishTemplate. Do not rewrite correct content to fix a quote.`);
+      const sourceCheck=materialChecks.find(item=>item.requirementId===requirement.id);
+      const evidenceBody = sourceCheck ? normalized(materialText[requirement.id] ?? "") : body;
+      if (!check || normalized(check.quote).length < 8 || !evidenceBody.includes(normalized(check.quote))) throw new Error(`Requirement ${requirement.id} has no matching substantive evidence in ${sourceCheck ? "the read_material text window (not registration metadata)" : "the saved product source"}. Read exact source including markup, then fill delivery_status.finishTemplate. Do not rewrite correct content to fix a quote.`);
     }
     const hostEvidence = contract.requirements.filter(item=>item.verification && item.verification !== "content").map(item=>{
-      if (!item.evidence.ready || !("records" in item.evidence)) throw new Error(`Requirement ${item.id} (${item.verification}) is unfinished: ${item.evidence.nextAction}. Host verifies records; a body quote cannot satisfy this requirement.`);
-      return {requirementId:item.id,records:item.evidence.records};
+      const evidence=task.target?.kind==="visual" && item.verification==="materials" ? resolveOperationalEvidence({snapshot,target:task.target,verification:"materials",importedMaterialIds:[...new Set([...this.materialImportsToVerify(),...materialChecks.map(check=>check.materialId!)])]}) : item.evidence;
+      if (!evidence.ready || !("records" in evidence)) throw new Error(`Requirement ${item.id} (${item.verification}) is unfinished: ${evidence.nextAction}. Host verifies records; a body quote cannot satisfy this requirement.`);
+      return {requirementId:item.id,records:evidence.records};
     });
     if (!contract.productGate.ready) throw new Error(`Delivery is unfinished: compile this revision successfully and pass its current review. ${contract.productGate.nextAction}`);
     if(contract.teacherNotesGate && !contract.teacherNotesGate.ready)throw new Error(`Teacher notes delivery is unfinished: ${contract.teacherNotesGate.nextAction}`);
     const additionalArtifacts=task.target.includeTeacherNotes && contract.teacherNotesGate?.notesId ? [{notesId:contract.teacherNotesGate.notesId,revision:contract.teacherNotesGate.revision!,sourceHash:contract.teacherNotesGate.sourceHash!}] : [];
-    const next: DeliveryTask = { ...task, status: "completed", lastError:undefined, delivered: { ...(contract.teacherNotesGate?.compileReceipt?.succeeded ? {teacherNotesCompileReceiptId:contract.teacherNotesGate.compileReceipt.receiptId} : {}), id, revision: revision(artifact), checks:task.target.kind === "materials" ? materialChecks : checks, hostEvidence,additionalArtifacts } };
+    const next: DeliveryTask = { ...task, status: "completed", lastError:undefined, delivered: { ...(contract.teacherNotesGate?.compileReceipt?.succeeded ? {teacherNotesCompileReceiptId:contract.teacherNotesGate.compileReceipt.receiptId} : {}), id, revision: revision(artifact), checks:materialChecks.length ? materialChecks : checks, hostEvidence,additionalArtifacts } };
     this.io.save(next); return next;
   }
 

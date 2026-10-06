@@ -22,6 +22,8 @@ const tasks = new Set();
 const pageViews = [];
 const fileIdentity = new URLSearchParams(location.search).get("file");
 const sourceSync = new URLSearchParams(location.search).get("sourceSync") === "1";
+const parentOrigin = new URLSearchParams(location.search).get("parentOrigin") === "null" ? "null" : location.origin;
+const parentTargetOrigin = parentOrigin === "null" ? "*" : location.origin;
 let sourceLocation;
 function markSource(view) {
   view.element.querySelector(".source-location")?.remove();
@@ -34,7 +36,7 @@ function markSource(view) {
 }
 window.addEventListener("message", (event) => {
   const value = event.data;
-  if (!sourceSync || !pdf || event.source !== parent || event.origin !== location.origin || value?.type !== "pi-pdf-jump" || value.file !== fileIdentity) return;
+  if (!sourceSync || !pdf || event.source !== parent || event.origin !== parentOrigin || value?.type !== "pi-pdf-jump" || value.file !== fileIdentity) return;
   if (!Number.isSafeInteger(value.page) || value.page < 1 || value.page > pdf.numPages || ![value.x, value.y, value.width, value.height].every(Number.isFinite)) return;
   sourceLocation = value;
   for (const view of pageViews) markSource(view);
@@ -74,7 +76,7 @@ async function draw(view, epoch) {
   if (sourceSync) canvas.addEventListener("dblclick", (event) => {
     const bounds = canvas.getBoundingClientRect();
     const natural = view.page.getViewport({ scale: 1 });
-    parent.postMessage({ type: "pi-pdf-source-location", file: fileIdentity, page: view.number, x: (event.clientX - bounds.left) * natural.width / bounds.width, y: (event.clientY - bounds.top) * natural.height / bounds.height }, location.origin);
+    parent.postMessage({ type: "pi-pdf-source-location", file: fileIdentity, page: view.number, x: (event.clientX - bounds.left) * natural.width / bounds.width, y: (event.clientY - bounds.top) * natural.height / bounds.height }, parentTargetOrigin);
   });
   const task = view.page.render({ canvas, viewport, transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0] });
   tasks.add(task);
@@ -114,7 +116,7 @@ async function open() {
   const file = new URLSearchParams(location.search).get("file");
   if (!file) throw new Error("缺少 PDF 地址");
   const url = new URL(file, location.origin);
-  if (url.origin !== location.origin || !(url.pathname === "/api/course-builder/export" || url.pathname === "/api/course-builder/assignment-assets" || url.pathname === "/api/study-research/source" || url.pathname === "/api/study-research/execution/artifact" || url.pathname.startsWith("/api/files/"))) throw new Error("只允许预览本机工作区文件");
+  if (url.origin !== location.origin || !(url.pathname === "/api/course-builder/export" || url.pathname === "/api/course-builder/assignment-assets" || url.pathname === "/api/study-research/source" || url.pathname === "/api/study-research/execution/artifact" || url.pathname.startsWith("/api/files/") || url.pathname.startsWith("/api/mode-packs/runtime/"))) throw new Error("只允许预览本机工作区文件");
   // Native download managers may hijack even fetch(application/pdf), replacing
   // its response with 204 and launching a download. Only JSON crosses the network.
   const response = await fetch(`/api/pdf-content?file=${encodeURIComponent(url.pathname + url.search)}`, { cache: "no-store" });
@@ -140,7 +142,7 @@ async function open() {
   }
   for (const control of [pageNumber, zoomIn, zoomOut, fit]) control.disabled = false;
   updatePage(1); layout();
-  parent.postMessage({ type: "pi-pdf-ready", file: fileIdentity }, location.origin);
+  parent.postMessage({ type: "pi-pdf-ready", file: fileIdentity }, parentTargetOrigin);
 }
 previous.onclick = () => goToPage(Number(pageNumber.value) - 1);
 next.onclick = () => goToPage(Number(pageNumber.value) + 1);

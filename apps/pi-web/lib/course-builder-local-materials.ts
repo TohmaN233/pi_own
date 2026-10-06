@@ -108,7 +108,7 @@ export async function readLinkedCourseBuilderMaterialBytes(material: CourseBuild
 	if (!isInside(root, filePath)) throw new Error(`Linked material escaped its selected folder: ${material.name}`);
 	const current = await stat(filePath);
 	if (!current.isFile()) throw new Error(`Linked material is no longer a file: ${material.name}`);
-	if (current.size !== source.size || Math.trunc(current.mtimeMs) !== source.modifiedAtMs) throw new Error(`Linked material changed on disk; relink the folder before using it: ${material.name}`);
+	if (current.size !== source.size || Math.trunc(current.mtimeMs) !== source.modifiedAtMs) throw new Error(`Linked material changed on disk: ${material.name}. Read state for project.revision, then call add_material {expectedRevision: project.revision, spec: {path: ${JSON.stringify(source.path)}}} to refresh this file in place. For an interactive visual, call interactive_visual again with its lessonPlanId and returned materialId to validate and bind the updated page. Do not rewrite correct content or duplicate the file to bypass validation.`);
 	if (current.size > MAX_ON_DEMAND_BYTES) throw new Error(`Linked material exceeds the 64 MiB on-demand read budget: ${material.name}`);
 	return new Uint8Array(await readFile(filePath));
 }
@@ -122,7 +122,7 @@ export async function inspectLinkedCourseBuilderMaterial(material: CourseBuilder
 		if (!isInside(root,path)) return {materialId:material.materialId,name:material.name,status:"invalid" as const,reason:"Linked path escaped its material folder"};
 		const current=await stat(path);
 		const valid=current.isFile() && current.size===source.size && Math.trunc(current.mtimeMs)===source.modifiedAtMs;
-		return {materialId:material.materialId,name:material.name,status:valid ? "available" as const : "changed" as const,...(!valid ? {reason:"Relink this changed source before using it; the saved source identity is stale"} : {})};
+		return {materialId:material.materialId,name:material.name,status:valid ? "available" as const : "changed" as const,...(!valid ? {reason:"Refresh this file with add_material using its path and current project revision; register the updated interactive_visual afterward",refreshSpec:{path:source.path}} : {})};
 	} catch(error) {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 		return {materialId:material.materialId,name:material.name,status:"missing" as const,reason:`File no longer exists at ${source.path}; restore it or explicitly select a verified replacement`};

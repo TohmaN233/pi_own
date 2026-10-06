@@ -2,13 +2,13 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { complete, getModel } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions, ToolResultMessage } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Empty schema for test tools - must be proper OBJECT type for Cloud Code Assist
@@ -546,22 +546,30 @@ describe("AI Providers Unicode Surrogate Pair Tests", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider Unicode Handling", () => {
-		const llm = getTogetherTestModel();
-		const options = { reasoningEffort: "high" } satisfies StreamOptionsWithExtras;
+	const togetherUnicodeModel = findCurrentOpenAICompletionsModel("together", { reasoningLevel: "high" });
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherUnicodeModel)(
+		"Together AI Provider Unicode Handling",
+		() => {
+			const llm = () => requireCurrentOpenAICompletionsModel(togetherUnicodeModel, "together");
+			const options = { reasoningEffort: "high" } satisfies StreamOptionsWithExtras;
 
-		it("should handle emoji in tool results", { retry: 3, timeout: 30000 }, async () => {
-			await testEmojiInToolResults(llm, options);
-		});
+			it("should handle emoji in tool results", { retry: 3, timeout: 30000 }, async () => {
+				await testEmojiInToolResults(llm(), options);
+			});
 
-		it("should handle real-world LinkedIn comment data with emoji", { retry: 3, timeout: 30000 }, async () => {
-			await testRealWorldLinkedInData(llm, options);
-		});
+			it("should handle real-world LinkedIn comment data with emoji", { retry: 3, timeout: 30000 }, async () => {
+				await testRealWorldLinkedInData(llm(), options);
+			});
 
-		it("should handle unpaired high surrogate (0xD83D) in tool results", { retry: 3, timeout: 30000 }, async () => {
-			await testUnpairedHighSurrogate(llm, options);
-		});
-	});
+			it(
+				"should handle unpaired high surrogate (0xD83D) in tool results",
+				{ retry: 3, timeout: 30000 },
+				async () => {
+					await testUnpairedHighSurrogate(llm(), options);
+				},
+			);
+		},
+	);
 
 	describe.skipIf(!process.env.BASETEN_API_KEY)("Baseten Provider Unicode Handling", () => {
 		const llm = getModel("baseten", "zai-org/GLM-5.2");

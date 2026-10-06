@@ -25,6 +25,8 @@ worker 在每个固定包管理器命令期间每 30 秒续租；每条命令最
 
 若 worker 租约到期或在可能已运行安装器后失败，操作变为 `unknown`，锁保持，后续同环境请求显示需要人工处理而不会自动重试或并发写入。普通 `environmentPackageDrainState` 读取本身会事务性地把过期的 sole running 操作改为 `unknown`，不需要等另一 worker 来 claim。没有持久 supervisor 证据的 `unknown` 即使当前库存恰好等于初始库存也不能解锁；reconcile 必须先证明记录的 supervisor 已停止，再接受不可变初始库存或精确批准的最终库存。
 
+Windows 原生 helper 在短临时路径编译，并复用 `%LOCALAPPDATA%/pi-own/native/<identity>` 中经校验的可执行文件和长路径配置；操作的 gate 与证据仍留在原操作目录。编译失败会保留编译器 stdout／stderr 诊断。恢复操作依赖记录中的 helper 路径，不要清理仍被操作引用的缓存；临时编译输入和测试 fixture 会单独清理。
+
 claim 按创建顺序检查所有 queued 行，领取最早的可运行且未锁环境；未知的环境 A 只阻塞 A，不能饿死后面的可运行环境 B。`environmentPackageDrainState` 区分短暂等待的执行/安装锁和 `needsInput` 的 unknown 锁；worker 只有在没有 runnable 行时才因 `needsInput` 退出，因此会先 drain B 再报告 A 的人工处理。
 
 ## 已知解析边界

@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
+import { useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { resolveLocalFileHref } from "@/lib/file-links";
+import { resolveLocalFileHref, isAppNavigationHref } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { LocalFileLink } from "./LocalFileLink";
 
 interface MarkdownBodyProps {
   children: string;
@@ -44,6 +45,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
+      if (isAppNavigationHref(href)) return <a href={href} {...props}>{children}</a>;
       const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
       const openFile = onOpenFile;
       if (!filePath || !openFile) {
@@ -54,19 +56,10 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         );
       }
 
-      const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-        if (event.defaultPrevented || event.button !== 0) return;
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-        const target = event.currentTarget.getAttribute("target");
-        if (target && target !== "_self") return;
-        event.preventDefault();
-        openFile(filePath);
-      };
-
       return (
-        <a href={href} {...props} onClick={handleClick}>
+        <LocalFileLink href={href} {...props} filePath={filePath} onOpenFile={openFile}>
           {children}
-        </a>
+        </LocalFileLink>
       );
     },
     img({ src, alt, ...props }) {

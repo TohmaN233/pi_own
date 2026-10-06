@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "package": "pi-lsp-extension",
+      "version": "1.3.0",
+      "license": "MIT",
+      "repository": "git+https://github.com/samfoy/pi-lsp-extension.git",
+      "integrity": "sha512-OGR9q1aqGV1MmYIu9yOrqHJnIS4nfjoBbHSslHNVBPWkmrQBAlayb6I1LxBwkMh864KrEZhag3FMPLGzzxKwXQ==",
+      "tarball": "https://registry.npmjs.org/pi-lsp-extension/-/pi-lsp-extension-1.3.0.tgz",
+      "pi": {
+        "extensions": [
+          "./src/index.ts"
+        ]
+      },
+      "bin": null
+    },
+    {
+      "package": "pi-permission-system",
+      "version": "0.8.0",
+      "license": "MIT",
+      "repository": "git+https://github.com/MasuRii/pi-permission-system.git",
+      "integrity": "sha512-pGogaOxM5HQpjW4sVUkrJI7+6+HrENp0hBxUF3YYriNWesL5PqC5SECvfJvw0LRJAEMvOtM82gCk5A2gzpnh1w==",
+      "tarball": "https://registry.npmjs.org/pi-permission-system/-/pi-permission-system-0.8.0.tgz",
+      "pi": {
+        "extensions": [
+          "./index.ts"
+        ]
+      },
+      "bin": null
+    },
+    {
+      "package": "pi-workspace-history",
+      "version": "0.4.3",
+      "license": "MIT",
+      "repository": "git+https://github.com/wcldyx/pi-workspace-history.git",
+      "integrity": "sha512-dGLoWNK3fgMVKVL+QPfkXAm4yRk2j5eH1fPh4T/WiU0cFlb+g8g6wgNIz4sQ8gPMwU45VKSgf+wMf0kbOLKm2A==",
+      "tarball": "https://registry.npmjs.org/pi-workspace-history/-/pi-workspace-history-0.4.3.tgz",
+      "pi": {
+        "extensions": [
+          ".pi/extensions/workspace-history.ts"
+        ]
+      },
+      "bin": null
+    },
+    {
+      "package": "pi-web-access",
+      "version": "0.30.0",
+      "license": "MIT",
+      "repository": "git+https://github.com/nicobailon/pi-web-access.git",
+      "integrity": "sha512-BvqLP36JXfH9OBrmLiJ6IXeeCi9LVqJdLxpexeODM+LoVdCBV13vYiVEG8SQ3J+p+egbGmfPxdDQJ6V631LLUg==",
+      "tarball": "https://registry.npmjs.org/pi-web-access/-/pi-web-access-0.30.0.tgz",
+      "pi": {
+        "video": "https://github.com/nicobailon/pi-web-access/raw/refs/heads/main/pi-web-fetch-demo.mp4",
+        "extensions": [
+          "./dist"
+        ]
+      },
+      "bin": null
+    },
+    {
+      "package": "pi-mcp-adapter",
+      "version": "2.34.0",
+      "license": "MIT",
+      "repository": "git+https://github.com/nicobailon/pi-mcp-adapter.git",
+      "integrity": "sha512-3YzoYQlxwKQjk4co0MMnRrhTNWzw5XsoCKCuhfZkIa9XSRBbrOLbi32yu7KOn6Unyk/K0rTof1lX/7cSLobudg==",
+      "tarball": "https://registry.npmjs.org/pi-mcp-adapter/-/pi-mcp-adapter-2.34.0.tgz",
+      "pi": {
+        "video": "https://github.com/nicobailon/pi-mcp-adapter/raw/refs/heads/main/pi-mcp.mp4",
+        "skills": [
+          "./skills"
+        ],
+        "extensions": [
+          "./index.ts"
+        ]
+      },
+      "bin": {
+        "pi-mcp-adapter": "cli.js"
+      }
+    },
+    {
+      "package": "@playwright/cli",
+      "version": "0.1.21",
+      "license": "Apache-2.0",
+      "repository": "git+https://github.com/microsoft/playwright-cli.git",
+      "integrity": "sha512-FfxmVJj2wJlsxPksUO+4N7gqimPEQPajpocl2Mk97ENIGfAVZ4aElzPb5sDdGXHI9J/3Y8EtUiUTas0VsTm/sg==",
+      "tarball": "https://registry.npmjs.org/@playwright/cli/-/cli-0.1.21.tgz",
+      "pi": null,
+      "bin": {
+        "playwright-cli": "playwright-cli.js"
+      }
+    },
+    {
+      "package": "chrome-devtools-mcp",
+      "version": "1.9.0",
+      "license": "Apache-2.0",
+      "repository": "git+https://github.com/ChromeDevTools/chrome-devtools-mcp.git",
+      "integrity": "sha512-RnzXoJiUQ44hpOihWk90uOhLD/CnwDkDy0ldHMZONJ2nYQ+dWN1fq1luHHqyd+7FuYnyIlCY6uTThbN5ut9kSQ==",
+      "tarball": "https://registry.npmjs.org/chrome-devtools-mcp/-/chrome-devtools-mcp-1.9.0.tgz",
+      "pi": null,
+      "bin": {
+        "chrome-devtools": "build/src/bin/chrome-devtools.js",
+        "chrome-devtools-mcp": "build/src/bin/chrome-devtools-mcp.js"
+      }
+    },
+    {
+      "package": "typescript-language-server",
+      "version": "5.0.0",
+      "license": "Apache-2.0",
+      "repository": "https://github.com/typescript-language-server/typescript-language-server.git",
+      "integrity": "sha512-Glr+4Ss9g6AupBPj3tnk3mrlSH1ROS2Zmr5h0Vmy3DA+MVq+5qq4tv4+SogB8VsEZ13Z9xU01zm54MMyI7Gdzw==",
+      "tarball": "https://registry.npmjs.org/typescript-language-server/-/typescript-language-server-5.0.0.tgz",
+      "pi": null,
+      "bin": {
+        "typescript-language-server": "lib/cli.mjs"
+      }
+    },
+    {
+      "package": "typescript",
+      "version": "5.9.3",
+      "license": "Apache-2.0",
+      "repository": "git+https://github.com/microsoft/TypeScript.git",
+      "integrity": "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
+      "tarball": "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz",
+      "pi": null,
+      "bin": {
+        "tsc": "bin/tsc",
+        "tsserver": "bin/tsserver"
+      }
+    },
+    {
+      "package": "@earendil-works/pi-coding-agent",
+      "version": "1.0.4",
+      "license": "MIT",
+      "repository": "git+https://github.com/earendil-works/pi.git",
+      "integrity": "sha512-+956nfMFHr5lDUVY/2Q4k+YzojzBuCaBXFgj0eSlXVGr7QVliVddKdc1Pz6yVg1dOlJQmb67doOVrlMsIcIdaw==",
+      "tarball": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.0.4.tgz",
+      "pi": null,
+      "bin": null
+    }
+  ]
+}

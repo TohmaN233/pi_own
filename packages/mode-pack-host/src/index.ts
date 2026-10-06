@@ -13,6 +13,8 @@ import {
 	type ResourceCatalog,
 } from "../../profile-resource-host/src/index.ts";
 
+export * from "./portable-mode-package.ts";
+
 export const MODE_PACK_BINDING_CUSTOM_TYPE = "pi-own:mode-pack-binding";
 
 export interface ModePackSessionBinding {
@@ -114,6 +116,11 @@ function snapshotPayload(snapshot: ResourceSnapshot): Record<string, unknown> {
 		tools: snapshot.tools,
 		resources: snapshot.resources,
 		instructions: snapshot.instructions,
+		...(snapshot.packageContentHash ? { packageContentHash: snapshot.packageContentHash } : {}),
+		...(snapshot.modePackSystemPromptDefaultHash
+			? { modePackSystemPromptDefaultHash: snapshot.modePackSystemPromptDefaultHash }
+			: {}),
+		...(snapshot.modePackSystemPromptMode ? { modePackSystemPromptMode: snapshot.modePackSystemPromptMode } : {}),
 	};
 }
 
@@ -356,7 +363,8 @@ export function assertModePackDefinitionIntegrity(value: unknown): ModePackDefin
 }
 
 export function createRuntimeBuiltinModePacks(catalog: ResourceCatalog): Readonly<Record<string, ModePackDefinition>> {
-	const entries = Object.entries(BUILTIN_MODE_PACK_DRAFTS).map(([modePackId, draft]) => {
+	const entries: Array<readonly [string, ModePackDefinition]> = [];
+	for (const [modePackId, draft] of Object.entries(BUILTIN_MODE_PACK_DRAFTS)) {
 		const normalized: ModePackDraft =
 			draft.role === "general" && !draft.courseRequired
 				? {
@@ -366,8 +374,8 @@ export function createRuntimeBuiltinModePacks(catalog: ResourceCatalog): Readonl
 						),
 					}
 				: draft;
-		return [modePackId, compileModePackDraft(normalized, catalog)] as const;
-	});
+		entries.push([modePackId, compileModePackDraft(normalized, catalog)] as const);
+	}
 	return Object.freeze(Object.fromEntries(entries));
 }
 

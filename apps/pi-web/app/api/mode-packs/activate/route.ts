@@ -22,6 +22,8 @@ export async function POST(request: Request) {
   if (!isApiRequestAllowed(request)) {
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   }
+  const startedAt = Date.now();
+  let operation: { sessionId: string; modePackId: string } | undefined;
   try {
     const raw = await request.json();
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Expected a JSON object");
@@ -30,6 +32,8 @@ export async function POST(request: Request) {
     const modePackId = requiredString(body.modePackId, "modePackId");
     const idempotencyKey = requiredString(body.idempotencyKey, "idempotencyKey");
     const expectedSnapshotId = nullableString(body.expectedSnapshotId, "expectedSnapshotId");
+    operation = { sessionId, modePackId };
+    console.info("[mode-pack] activation requested", operation);
     const learner = getLearningHarness().findCurrentSession(sessionId);
     if (learner) {
       if (expectedSnapshotId === null) throw new Error("Learning Mode Pack activation requires the active snapshot id");
@@ -69,6 +73,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    console.error("[mode-pack] activation failed", { ...operation, durationMs: Date.now() - startedAt, reason: message });
     const status = /not found|unknown mode pack/iu.test(message)
       ? 404
       : /conflict|changed before|already in progress|wait for/iu.test(message)

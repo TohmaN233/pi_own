@@ -10,6 +10,7 @@ import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib
 import { workspaceKeyOf } from "@/lib/workspace-memory";
 import { formatRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
+import type { AppUpdateResponse } from "@/lib/api-types";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 
@@ -309,8 +310,13 @@ function useScramble(target: string, running: boolean): string {
 }
 
 function PiWebTitle() {
+  const { t } = useI18n();
   const [showVersion, setShowVersion] = useState(false);
   const [scrambling, setScrambling] = useState(false);
+  const [piUpdate, setPiUpdate] = useState<AppUpdateResponse | null>(null);
+  const [webUpdate, setWebUpdate] = useState<AppUpdateResponse | null>(null);
+  const [webCheck, setWebCheck] = useState<"idle" | "checking" | "current" | "error">("idle");
+  const [webCheckError, setWebCheckError] = useState<string | null>(null);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const target = showVersion ? `${process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}p${process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}` : "Pi Web";
@@ -335,19 +341,72 @@ function PiWebTitle() {
 
   useEffect(() => () => { if (revertTimerRef.current) clearTimeout(revertTimerRef.current); }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/pi-core-update", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Pi core update check returned HTTP ${response.status}`);
+        return await response.json() as AppUpdateResponse;
+      })
+      .then((result) => {
+        if (!cancelled && result.updateAvailable && result.latestVersion && result.releaseUrl) setPiUpdate(result);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) console.warn("[pi-web] Pi core update status is unavailable", error);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const checkWebUpdate = useCallback(async () => {
+    setWebCheck("checking");
+    setWebCheckError(null);
+    try {
+      const response = await fetch("/api/app-update?refresh=1", { cache: "no-store" });
+      const result = await response.json() as AppUpdateResponse & { error?: string };
+      if (!response.ok || result.error) throw new Error(result.error ?? `HTTP ${response.status}`);
+      setWebUpdate(result.updateAvailable ? result : null);
+      setWebCheck(result.updateAvailable ? "idle" : "current");
+    } catch (error) {
+      setWebCheckError(error instanceof Error ? error.message : String(error));
+      setWebCheck("error");
+      console.warn("[pi-web] manual update check failed", error);
+    }
+  }, []);
+
   return (
-    <button
-      onClick={handleClick}
-      style={{
-        background: "none", border: "none", padding: 0, cursor: "default",
-        fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
-        color: showVersion ? "var(--accent)" : "var(--text)",
-        fontFamily: "var(--font-mono)",
-        minWidth: "6ch",
-      }}
-    >
-      {display}
-    </button>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <button
+        onClick={handleClick}
+        style={{
+          background: "none", border: "none", padding: 0, cursor: "default",
+          fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em",
+          color: showVersion ? "var(--accent)" : "var(--text)",
+          fontFamily: "var(--font-mono)",
+          minWidth: "6ch",
+        }}
+      >
+        {display}
+      </button>
+      <button type="button" onClick={() => void checkWebUpdate()} disabled={webCheck === "checking"} title={webCheckError ?? "检查 Pi Web 更新"} aria-label="检查 Pi Web 更新" style={{ background: "none", border: 0, padding: 0, color: webCheck === "error" ? "#f87171" : "var(--text-muted)", cursor: "pointer", fontSize: 10, whiteSpace: "nowrap" }}>
+        {webCheck === "checking" ? "检查中…" : webCheck === "current" ? "已是最新" : webCheck === "error" ? "检查失败" : "检查更新"}
+      </button>
+      {webUpdate && <a href={webUpdate.releaseUrl} target="_blank" rel="noopener noreferrer" title={t("appUpdate.releaseNotes", { version: webUpdate.latestVersion })} style={{ color: "var(--accent)", fontSize: 10, whiteSpace: "nowrap" }}>web ↑ v{webUpdate.latestVersion}</a>}
+      {piUpdate && (
+        <a
+          href={piUpdate.releaseUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={t("piCoreUpdate.releaseNotes", { version: piUpdate.latestVersion })}
+          aria-label={t("piCoreUpdate.releaseNotes", { version: piUpdate.latestVersion })}
+          style={{
+            color: "var(--accent)", fontSize: 10, lineHeight: 1.3, fontWeight: 600,
+            fontFamily: "var(--font-mono)", whiteSpace: "nowrap", textDecoration: "none",
+          }}
+        >
+          ↑ v{piUpdate.latestVersion}
+        </a>
+      )}
+    </div>
   );
 }
 

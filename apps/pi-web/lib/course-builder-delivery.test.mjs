@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createJiti } from "jiti";
 const { CourseDeliveryLoop } = await createJiti(import.meta.url).import("./course-builder-delivery.ts");
+const { recoverFailedVisualBinding } = await createJiti(import.meta.url).import("./course-builder-delivery-target.ts");
 function fixture() {
   let saved;
   const snapshot = { project:{projectId:"project",revision:1},materials:[],semesterPlan: null, lessonPlans: [], assignments: [], visuals: [], decks: [{ deckId: "deck", revision: 17, sourceHash: "old", source: "The R Workspace" }], compileReceipts: [], deckReviews: [] };
@@ -227,6 +228,45 @@ test("visual identity uses visualId, never its lessonPlanId", () => {
   f.snapshot.visuals.push(visual); f.loop.observe({ action: "visual" }, visual);
   assert.equal(f.task().target.id, "host-visual");
   assert.equal(f.loop.finish({ checks: [{ requirementId: "workspace", quote: "The R Workspace" }, { requirementId: "help", quote: "Getting Help in R" }] }).delivered.id, "host-visual");
+});
+
+test("a saved replacement visual becomes this delivery's target without losing its contract", () => {
+  const f=fixture();f.snapshot.lessonPlans.push({lessonPlanId:"lesson",revision:1},{lessonPlanId:"other",revision:1});
+  f.loop.route({kind:"visual",lessonPlanId:"lesson",requirements:f.requirements});
+  const old={visualId:"old-visual",lessonPlanId:"lesson",learningPurpose:"Old content"};
+  f.snapshot.visuals.push(old);f.loop.observe({action:"interactive_visual",id:"lesson"},old);
+  const baseline=structuredClone(f.task().baseline);
+  const updated={visualId:"new-visual",lessonPlanId:"lesson",learningPurpose:"The R Workspace and Getting Help in R"};
+  f.snapshot.visuals.push(updated);
+  f.loop.observe({action:"interactive_visual",id:"lesson"},updated);
+  assert.equal(f.task().target.id,updated.visualId);
+  assert.deepEqual(f.task().baseline,baseline);assert.deepEqual(f.task().requirements,f.requirements);
+  assert.equal(f.task().bindingRepair.previous.id,old.visualId);
+  assert.throws(()=>f.loop.route({kind:"visual",id:old.visualId,requirements:f.requirements}),/product target/);
+  const wrong={visualId:"other-visual",lessonPlanId:"other"};f.snapshot.visuals.push(wrong);
+  assert.throws(()=>f.loop.observe({action:"interactive_visual",id:"other"},wrong),/product target/);
+  assert.equal(f.loop.finish({checks:[{requirementId:"workspace",quote:"The R Workspace"},{requirementId:"help",quote:"Getting Help in R"}]}).delivered.id,updated.visualId);
+});
+
+test("legacy blocked visual binding recovers only from the same task's proven failed save",()=>{
+  const f=fixture();f.snapshot.lessonPlans.push({lessonPlanId:"lesson",revision:1});
+  const old={projectId:"project",visualId:"old",lessonPlanId:"lesson"};
+  const updated={projectId:"project",visualId:"updated",lessonPlanId:"lesson",format:"interactive-html",materialId:"html",title:"Explorer",learningPurpose:"Predict and explain",createdAt:"2026-10-01T19:39:49.400Z"};
+  const concurrent={...updated,visualId:"concurrent",createdAt:"2026-10-01T19:39:50.000Z"};
+  f.snapshot.visuals.push(old,updated,concurrent);
+  f.loop.route({kind:"visual",id:"old",requirements:f.requirements});
+  const original=f.task();f.io.save({...original,status:"blocked"});
+  const entries=[{type:"custom",customType:"pi-web:course-delivery",data:{id:original.id}},
+    {type:"message",timestamp:"2026-10-01T19:39:49.321Z",message:{role:"assistant",content:[{type:"toolCall",id:"call",name:"course_builder",arguments:{action:"interactive_visual",id:"lesson",spec:{materialId:"html",title:"Explorer"},purpose:"Predict and explain"}}]}},
+    {type:"message",timestamp:"2026-10-01T19:39:49.500Z",message:{role:"toolResult",toolCallId:"call",toolName:"course_builder",isError:true,content:[{type:"text",text:"Finish the active delivery before changing its product target (id)"}]}}];
+  const recovery=task=>recoverFailedVisualBinding(f.snapshot,task.id,task.target,entries);
+  const restored=new CourseDeliveryLoop({...f.io,visualBindingRecovery:recovery});restored.restore();
+  assert.equal(f.task().target.id,updated.visualId);assert.equal(f.task().status,"blocked");
+  assert.deepEqual(f.task().baseline,original.baseline);assert.deepEqual(f.task().requirements,original.requirements);
+  assert.equal(f.task().bindingRepair.previous.id,old.visualId);
+  assert.equal(recoverFailedVisualBinding(f.snapshot,"unrelated-task",original.target,entries),undefined);
+  const unrelated=structuredClone(entries);unrelated[1].message.content[0].arguments.id="other-lesson";
+  assert.equal(recoverFailedVisualBinding(f.snapshot,original.id,original.target,unrelated),undefined);
 });
 test("follow-up instructions retain original requirements and baseline; a status question does not drop active work", () => {
   const f = fixture(); f.loop.route({ kind: "deck", id: "deck", requirements: f.requirements });

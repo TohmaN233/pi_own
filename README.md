@@ -33,10 +33,14 @@ pi-own 基于 Pi 与 Pi Web，探索一个在本地保存资料、课程资产�
 - [THU-MAIC/OpenMAIC](https://github.com/THU-MAIC/OpenMAIC)：教学技能、显式加载技能、目标与评估对齐、复述诊断、来源审查及教学交互设计的重要参考。这里是面向 Pi Own 工具和工作流的适配，并非完整移植。见[署名与许可证](third_party/openmaic-skills/NOTICE.md)。
 - [Noi1r/beamer-skill](https://github.com/Noi1r/beamer-skill)：参考其 Beamer 创建、编译、审查与修订流程。见[署名与许可证](third_party/noi1r-beamer-skill/NOTICE.md)。
 - [Mozilla PDF.js](https://github.com/mozilla/pdf.js)：浏览器中的 PDF 预览。
+- [nicobailon/pi-subagents](https://github.com/nicobailon/pi-subagents)：统一子代理调度、角色配置和运行看板（0.74.0）。
+- [eko24ive/pi-ask](https://github.com/eko24ive/pi-ask)：交互式澄清问题（1.2.0）；[pi-context-usage](https://www.npmjs.com/package/pi-context-usage)：上下文用量查看（2.1.0）。
+- [ff-labs/fff](https://github.com/ff-labs/fff)：工作区搜索，使用 `@ff-labs/pi-fff`（0.11.0）。
+- `pi-CAW`：本项目独立迁移的 Pi Workflow 插件（0.2.31），保留 Codex Agents Workflow 的图形工作台、7 个完整通用 Role、两套系统创作 Workflow 及备课／学习领域 Workflow、Skill 转换、资源与版本管理、恢复、并行补丁审阅和人工发布。备课默认开启，输入 `/caw` 打开工作台；子节点模型与思考强度需显式配置，Main 使用当前对话。沿用 Pi 1.0 原生 MCP；[安装来源](third_party/pi-caw.json)与完整 `pi-caw` Skill 随项目保存。
 
 ## Credits · Skills
 
-教学模式使用的本地适配技能位于 [`skills/`](skills/)：
+教学参考方法保留在本地技能与按需加载的 Workflow 指导中；已迁移的旧技能存于 [`skill-backups/`](skill-backups/)，并不全部注入每次对话：
 
 | 本地技能 | 用途与主要参考 |
 | --- | --- |

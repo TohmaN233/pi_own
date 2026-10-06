@@ -30,10 +30,10 @@ function request(body, contentType = "application/json") {
   });
 }
 
-test("settings route defaults off and persists both switch states", async () => {
+test("settings route defaults on and persists both switch states", async () => {
   let response = await GET();
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { enabled: false });
+  assert.deepEqual(await response.json(), { enabled: true });
 
   response = await PUT(request({ enabled: true }));
   assert.equal(response.status, 200);

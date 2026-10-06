@@ -11,6 +11,7 @@ import { createJiti } from "jiti";
 const {
   createProjectCommandBashExtension,
   createProjectCommandBashOperations,
+  createProjectCommandPowerShellOperations,
   preferUserBashExtension,
   sanitizeProjectCommandEnvironment,
 } = await createJiti(import.meta.url).import("./project-command-env.ts");
@@ -95,12 +96,13 @@ test("agent bash removes host variables while preserving SDK and user environmen
         getShellPath: () => undefined,
       },
     });
-    let registeredTool;
+    const registeredTools = new Map();
     await extension.factory({
       registerTool(tool) {
-        registeredTool = tool;
+        registeredTools.set(tool.name, tool);
       },
     });
+    const registeredTool = registeredTools.get("bash");
 
     const result = await registeredTool.execute(
       "issue-484",
@@ -144,12 +146,13 @@ test("agent bash reads current shell settings for every execution", async () => 
       getShellPath: () => undefined,
     },
   });
-  let registeredTool;
+  const registeredTools = new Map();
   await extension.factory({
     registerTool(tool) {
-      registeredTool = tool;
+      registeredTools.set(tool.name, tool);
     },
   });
+  const registeredTool = registeredTools.get("bash");
   const execute = () => registeredTool.execute(
     "settings-reload",
     { command: "printf %s \"$PI_WEB_PREFIX\"" },
@@ -251,6 +254,26 @@ test("direct bash updates the platform PATH key", async () => {
   for (const { options, expected } of cases) {
     assert.deepEqual(await captureOperationEnvironment(options), expected);
   }
+});
+
+test("PowerShell receives the same command-local private runtime path", async () => {
+  let environment;
+  const runtimeBin = "C:\\mode-runtime\\node_modules\\.bin";
+  const operations = createProjectCommandPowerShellOperations({
+    agentBinDir: "C:\\pi-agent\\bin",
+    runtimeBinDirs: [runtimeBin],
+    baseEnvironment: { Path: "C:\\Windows", PORT: "30141" },
+    platform: "win32",
+    localOperations: {
+      async exec(_command, _cwd, executionOptions) {
+        environment = executionOptions.env;
+        return { exitCode: 0 };
+      },
+    },
+  });
+  await operations.exec("Get-Command playwright", "C:\\project", { onData() {} });
+  assert.equal(environment.PORT, undefined);
+  assert.equal(environment.Path, `${"C:\\pi-agent\\bin"};${runtimeBin};C:\\Windows`);
 });
 
 test("a user extension keeps priority over the Pi Web fallback bash tool", async () => {

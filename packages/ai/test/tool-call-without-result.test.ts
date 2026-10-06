@@ -2,13 +2,13 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { complete, getModel } from "../src/compat.ts";
 import type { Api, Context, Model, StreamOptions, Tool } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -191,11 +191,12 @@ describe("Tool Call Without Result Tests", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider", () => {
-		const model = getTogetherTestModel();
+	const togetherToolModel = findCurrentOpenAICompletionsModel("together", { reasoningLevel: "high" });
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherToolModel)("Together AI Provider", () => {
+		const model = () => requireCurrentOpenAICompletionsModel(togetherToolModel, "together");
 
 		it("should filter out tool calls without corresponding tool results", { retry: 3, timeout: 30000 }, async () => {
-			await testToolCallWithoutResult(model, { reasoningEffort: "high" });
+			await testToolCallWithoutResult(model(), { reasoningEffort: "high" });
 		});
 	});
 

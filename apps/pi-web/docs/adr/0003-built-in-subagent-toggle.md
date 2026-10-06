@@ -1,23 +1,30 @@
-# Built-in sub-agent activation and extension precedence
+# One Host subagent implementation
 
-Pi Web's integrated sub-agent implementation is an inline, hidden extension.
-It is disabled by default and controlled by the global
-`~/.pi/agent/agents/settings.json` setting `builtInEnabled`.
+Pi Web pins `pi-subagents@0.74.0` as its sole subagent engine. The old `Agent`
+controller, separate profile CRUD and 0.67.0 Code dependency are deleted.
+Historical Pi JSONL remains readable without restarting the old engine.
 
-The inline extension factory remains installed in every ordinary, non-Chat-only
-resource loader so an AgentSession reload can enable or disable its tools without
-recreating the wrapper. When disabled, the factory registers no tools. A runtime
-guard also rejects stale `Agent` calls after the setting is turned off but before
-the parent session is reloaded.
+The Host loads upstream factories through private Jiti instances. Windows
+detached runners drain cleanup before successful exit; selected permission
+policy is forwarded without altering Host globals. The public capability
+ceiling is keyed to the parent session and disposed with it. Native dynamic
+tool activation stays dynamic: do not force both the full schema and lazy loader.
 
-When the integrated extension is enabled, it takes precedence over an enabled
-legacy `pi-subagents` extension. A legacy extension is suppressed when its package
-source or path identifies it as `pi-subagents` and it registers any of the reserved
-tool names: `Agent`, `get_subagent_result`, or `steer_subagent`. Unrelated extensions
-are never removed solely because they use one of those names; the SDK reports those
-collisions normally.
+`/subagents` manages upstream roles, prompts, models and thinking levels.
+`/subagents-fleet` manages upstream runs. Settings uses these same commands
+through the existing Web custom UI, not a second role registry.
 
-When the integrated extension is disabled, Pi Web does not suppress the legacy
-package, so users can continue to manage and use that implementation through the
-Plugins settings. Existing child sessions remain readable, and already-running
-children are not aborted when the setting changes.
+The Host baseline also includes `@eko24ive/pi-ask@1.2.0`,
+`pi-context-usage@2.1.0` and existing `@ff-labs/pi-fff@0.11.0`.
+Ask and context commands use the Web interactive contract. Installation does
+not require the model to read a Skill or delegate without task authorization.
+Chat-only sessions do not receive question/delegation tools.
+
+Settings distinguishes disabled resources from actual uninstall. Skill deletion
+removes its full installation directory and metadata. npm plugin deletion uses
+npm uninstall; local plugin deletion also removes its files. Portable deletion
+builds a new current package without the resource and removed offline dependencies,
+then erases retired archives and unused runtimes containing that resource.
+An uninstall journal allows old conversations to rebase onto the current mode
+while retaining transcripts and personal settings. Unexpected missing or corrupt
+resources still fail; explicit uninstall records are evidence, not a fallback.

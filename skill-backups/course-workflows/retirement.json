@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "retiredAt": "2026-10-02",
+  "skills": [
+    {
+      "id": "course-planning-beamer",
+      "replacementIds": [
+        "course-production"
+      ],
+      "skillSha256": "9246968e35d7c91aeb074eebef5edbe34e0a9abb91d308d64952ddefce99cbbe",
+      "files": [
+        {
+          "sha256": "9246968e35d7c91aeb074eebef5edbe34e0a9abb91d308d64952ddefce99cbbe",
+          "bytes": 31743,
+          "path": "SKILL.md"
+        }
+      ],
+      "path": "skill-backups/course-workflows/2026-10-02/course-planning-beamer"
+    },
+    {
+      "id": "course-lesson-artifact-workflow",
+      "replacementIds": [
+        "course-production"
+      ],
+      "skillSha256": "4f6e7acd4e2326793b7a2a3dafbb0b93240c27d19a1058b3deba6331e74a4ff8",
+      "files": [
+        {
+          "sha256": "4f6e7acd4e2326793b7a2a3dafbb0b93240c27d19a1058b3deba6331e74a4ff8",
+          "bytes": 5744,
+          "path": "SKILL.md"
+        },
+        {
+          "sha256": "d9f7f358a67e7f1b6730fbf73a1ba6f2e596c4ec86effc94b6c0358497370776",
+          "bytes": 2550,
+          "path": "references/lesson-and-beamer.md"
+        },
+        {
+          "sha256": "4ddda053104aa142e69037ebfd3b3b4e1e944998bc1465eb8c417afe664c29a2",
+          "bytes": 3210,
+          "path": "references/semantic-output.md"
+        }
+      ],
+      "path": "skill-backups/course-workflows/2026-10-02/course-lesson-artifact-workflow"
+    },
+    {
+      "id": "course-slide-revision-workflow",
+      "replacementIds": [
+        "course-production"
+      ],
+      "skillSha256": "a8930a08b30c2ff184cbb858371a9fd0b35171f9e5967357203869d847aba400",
+      "files": [
+        {
+          "sha256": "a8930a08b30c2ff184cbb858371a9fd0b35171f9e5967357203869d847aba400",
+          "bytes": 3420,
+          "path": "SKILL.md"
+        }
+      ],
+      "path": "skill-backups/course-workflows/2026-10-02/course-slide-revision-workflow"
+    }
+  ],
+  "reason": "Replaced by scoped certified Pi-CAW Workflows; full original text retained outside automatic Skill discovery"
+}

@@ -9,7 +9,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const { GET, POST } = await jiti.import("./[id]/route.ts");
 
-const id = "subagent-route-test";
+const id = "historical-subagent-route-test";
 const context = { params: Promise.resolve({ id }) };
 
 function request(body) {
@@ -20,94 +20,31 @@ function request(body) {
   });
 }
 
-function installRunningSubagent(t) {
-  const previousRegistry = globalThis.__piSessions;
-  const previousRuns = globalThis.__piSubagentRuns;
-  let running = true;
-  const steered = [];
-  let aborts = 0;
-  const entries = [{
-    type: "custom",
-    customType: "pi-web:subagent",
-    id: "meta",
-    parentId: null,
-    timestamp: "2026-01-01T00:00:00.000Z",
-    data: {
-      version: 1,
-      parentSessionId: "parent",
-      parentSessionPath: "/tmp/parent.jsonl",
-      parentToolCallId: "tool-call",
-      profile: "Explore",
-      description: "Inspect",
-      task: "Inspect files",
-      runInBackground: true,
-      createdAt: "2026-01-01T00:00:00.000Z",
-    },
-  }];
-  globalThis.__piSubagentRuns = new Map();
-  globalThis.__piSessions = new Map([[id, {
-    isAlive: () => true,
-    isRunning: () => running,
-    sessionFile: `/tmp/${id}.jsonl`,
-    inner: {
-      sessionManager: { getEntries: () => entries },
-      steer: async (message) => { steered.push(message); },
-      abort: async () => { aborts += 1; },
-    },
-  }]]);
-  t.after(() => {
-    globalThis.__piSessions = previousRegistry;
-    globalThis.__piSubagentRuns = previousRuns;
-  });
-  return {
-    steered,
-    get aborts() { return aborts; },
-    stop() { running = false; },
-  };
-}
-
-test("subagent route reads live state and accepts steer and abort actions", async (t) => {
-  const state = installRunningSubagent(t);
-
-  const getResponse = await GET(new Request(`http://localhost/api/subagents/${id}`), context);
-  const getBody = await getResponse.json();
-  assert.equal(getResponse.status, 200);
-  assert.equal(getBody.run.status, "running");
-  assert.equal(getBody.run.profile, "Explore");
-
-  const steerResponse = await POST(request({ action: "steer", message: "  focus on tests  " }), context);
-  assert.equal(steerResponse.status, 200);
-  assert.deepEqual(state.steered, ["focus on tests"]);
-
-  const abortResponse = await POST(request({ action: "abort" }), context);
-  assert.equal(abortResponse.status, 200);
-  assert.equal(state.aborts, 1);
+test("historical subagent runs cannot be steered or aborted through the retired Pi Web controls", async () => {
+  for (const body of [
+    { action: "steer", message: "focus on tests" },
+    { action: "abort" },
+  ]) {
+    const response = await POST(request(body), context);
+    assert.notEqual(response.status, 200);
+    assert.equal(
+      (await response.json()).error,
+      `Historical run ${id} is read-only. Manage current runs through /subagents-fleet.`,
+    );
+  }
 });
 
-test("subagent route validates actions and rejects commands after completion", async (t) => {
-  const state = installRunningSubagent(t);
-
+test("historical subagent mutation requests still validate their payloads", async () => {
   let response = await POST(request({ action: "steer", message: "  " }), context);
   assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "message required" });
+
   response = await POST(request({ action: "unknown" }), context);
   assert.equal(response.status, 400);
-
-  state.stop();
-  response = await POST(request({ action: "abort" }), context);
-  assert.equal(response.status, 409);
-  assert.match((await response.json()).error, /not running/);
+  assert.deepEqual(await response.json(), { error: "action must be steer or abort" });
 });
 
-test("subagent GET returns 404 for an unknown session", async (t) => {
-  const previousRegistry = globalThis.__piSessions;
-  const previousRuns = globalThis.__piSubagentRuns;
-  globalThis.__piSessions = new Map();
-  globalThis.__piSubagentRuns = new Map();
-  t.after(() => {
-    globalThis.__piSessions = previousRegistry;
-    globalThis.__piSubagentRuns = previousRuns;
-  });
-
+test("subagent GET returns 404 for an unknown historical session", async () => {
   const missingId = `missing-subagent-${Date.now()}`;
   const response = await GET(
     new Request(`http://localhost/api/subagents/${missingId}`),

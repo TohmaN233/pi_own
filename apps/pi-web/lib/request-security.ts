@@ -44,6 +44,12 @@ function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname.endsWith(".localhost");
 }
 
+export function isApiRequestLoopback(request: Request): boolean {
+  const host = request.headers.get("host");
+  const hostname = host ? hostnameFromAuthority(host) : null;
+  return hostname !== null && (isLoopbackHostname(hostname) || hostname === "127.0.0.1" || hostname === "::1");
+}
+
 function configuredHostnamesFromEnvironment(): string[] {
   return [
     process.env.PI_WEB_HOSTNAME,
@@ -152,6 +158,27 @@ export function isApiRequestAllowed(
   if (!isApiRequestHostAllowed(request, configuredHostnames)) return false;
   if (isUserInitiatedSessionExportNavigation(request)) return true;
   return !shouldCheckApiRequestOrigin(request) || isApiRequestOriginAllowed(request);
+}
+
+/** An opaque sandbox is cross-site by design. Script and stylesheet fetches in
+ * a sandbox commonly use no-cors and omit Origin altogether, while fetch/XHR
+ * sends Origin:null. This is the only API-shaped request allowed to do either:
+ * immutable frontend bytes still undergo the route's active
+ * session/snapshot/package asset checks. */
+export function isOpaqueModePackFrontendAssetRequest(request: Request): boolean {
+  if (request.method !== "GET") return false;
+  const origin = request.headers.get("origin");
+  if ((origin !== null && origin !== "null") || request.headers.get("sec-fetch-site") !== "cross-site") return false;
+  try {
+    const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+    return segments.length >= 7
+      && segments[0] === "api"
+      && segments[1] === "mode-packs"
+      && segments[2] === "frontend"
+      && segments.slice(3).every((segment) => Boolean(segment));
+  } catch {
+    return false;
+  }
 }
 
 export function hasJsonContentType(request: Request): boolean {

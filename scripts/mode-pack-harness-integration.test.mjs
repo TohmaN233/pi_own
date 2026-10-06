@@ -71,7 +71,7 @@ test("LearningHarness activates and recovers a custom course-bound Mode Pack", a
 	const availability = harness.availableProfiles(opened.sessionId);
 	assert.equal(availability.find((item) => item.profileId === "teach-back")?.selectable, true);
 	assert.equal(availability.find((item) => item.profileId === "visual-lab")?.selectable, false);
-	assert.equal(availability.find((item) => item.profileId === "coding")?.selectable, false);
+	assert.equal(availability.some((item) => item.profileId === "coding"), false, "hosts without the Code package registry must not block course modes");
 
 	const prepared = harness.prepareProfileTransition({
 		sessionId: opened.sessionId,

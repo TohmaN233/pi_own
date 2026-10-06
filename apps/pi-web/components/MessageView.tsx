@@ -2,6 +2,8 @@
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
 import { MarkdownBody } from "./MarkdownBody";
+import { WorkflowRunCard } from "./WorkflowRunCard";
+import cawStyles from "./PiCawMessage.module.css";
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
@@ -12,7 +14,7 @@ import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import type { SubagentToolDetails } from "@/lib/subagent-extension";
+import type { SubagentToolDetails } from "@/lib/subagents";
 import type {
   AgentMessage,
   UserMessage,
@@ -260,6 +262,10 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     return null;
   }
   if (message.role === "custom") {
+    if (message.customType === "pi-caw:status" && message.display !== false) {
+      return <WorkflowRunCard message={message} sessionId={sessionId} cwd={cwd} onOpenFile={onOpenFile}
+        renderMessage={(child, results) => <MessageView message={child} toolResults={results} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} />} />;
+    }
     if ((message as CustomMessage).customType === "compaction") {
       return <CompactionMessageView message={message as CustomMessage} />;
     }
@@ -1459,8 +1465,9 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
 
 function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
   const { t } = useI18n();
+  const isCaw = message.customType.startsWith("pi-caw:");
   const isHiddenDisplay = message.display === false;
-  const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
+  const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay && (!isCaw || message.customType === "pi-caw:status"));
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const text = getMessageText(message.content);
@@ -1482,13 +1489,22 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
       <div
         style={{
           border: "1px solid var(--border)",
-          borderRadius: 8,
+          borderRadius: isCaw ? 12 : 8,
           overflow: "hidden",
-          background: isHiddenDisplay ? "var(--bg-subtle)" : "var(--bg)",
+          background: isCaw ? "var(--bg-panel)" : isHiddenDisplay ? "var(--bg-subtle)" : "var(--bg)",
           opacity: isHiddenDisplay && !contentExpanded ? 0.82 : 1,
         }}
       >
-        <div
+        {isCaw ? (
+          <button type="button" className={cawStyles.header} aria-expanded={contentExpanded}
+            onClick={() => setContentExpanded((value) => !value)}>
+            <span className={cawStyles.icon} aria-hidden="true">◇</span>
+            <span className={cawStyles.name}>pi-CAW</span>
+            <span className={cawStyles.label}>{message.customType === "pi-caw:status" ? "Workflow · 任务状态" : message.customType === "pi-caw:workbench" ? "Workbench" : message.customType === "pi-caw:completion" ? "Workflow · Result" : title}</span>
+            {time && <span className={cawStyles.time}>{time}</span>}
+            <svg className={cawStyles.chevron} data-expanded={contentExpanded} width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m6 3 5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        ) : <div
           style={{
             display: "flex",
             alignItems: "center",
@@ -1505,8 +1521,9 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
           </span>
            {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("i18n.hiddenExtensionMessage")}</span>}
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
-        </div>
+        </div>}
 
+        {(!isCaw || contentExpanded) && <div className={isCaw ? cawStyles.body : undefined}>
         {contentExpanded ? (
           <div style={{ padding: "6px 9px" }}>
             {images.length > 0 && (
@@ -1616,6 +1633,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
             {detailsText}
           </pre>
         )}
+        </div>}
       </div>
     </div>
   );

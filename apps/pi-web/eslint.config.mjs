@@ -2,6 +2,9 @@ import coreWebVitals from "eslint-config-next/core-web-vitals";
 import typescript from "eslint-config-next/typescript";
 
 const eslintConfig = [
+  // Generated, bundled and compressed runtime payloads are verified by their
+  // builders and package hashes. Lint their source modules, not emitted bytes.
+  { ignores: ["runtime/**", ".tmp-*/**", ".artifacts/**"] },
   ...coreWebVitals,
   ...typescript,
   {

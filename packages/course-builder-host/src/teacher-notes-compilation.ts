@@ -22,6 +22,9 @@ const SYNCTEX_TIMEOUT_MS = 10_000;
 const SYNCTEX_MAX_OUTPUT_BYTES = 1 * 1024 * 1024;
 
 export interface TeacherNotesCompileOptions {
+	signal?: AbortSignal;
+	/** Private owner-scoped compiler scratch; never a model-selected path. */
+	workDirectory?: string;
 	trustedTex: boolean;
 	assertActive?: () => void | Promise<void>;
 	compiler?: string;
@@ -280,7 +283,9 @@ function parseBackwardResult(
 }
 
 function assertAllocatedSyncTexDirectory(directory: string): void {
-	const root = resolve(tmpdir());
+	// path.relative resolves both operands itself. Calling resolve(tmpdir())
+	// makes Node file tracing treat the entire OS temp directory as an asset.
+	const root = tmpdir();
 	const candidate = resolve(directory);
 	const relativePath = relative(root, candidate);
 	if (
@@ -1113,6 +1118,8 @@ export class CourseTeacherNotesCompiler {
 		const observedDeck = requireObservedDeck(initialSnapshot, notes);
 		await options.assertActive?.();
 		const result = await compileLatexDocument({
+			signal: options.signal,
+			workDirectory: options.workDirectory,
 			source: notes.source,
 			sourceHash: notes.sourceHash,
 			documentKind: "teacher-notes",

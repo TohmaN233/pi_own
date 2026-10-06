@@ -10,9 +10,6 @@ export function ProjectConversations({ sessionId }: { sessionId: string }) {
   const [data, setData] = useState<ProjectDirectoryState | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [title, setTitle] = useState("");
-  const [requestId, setRequestId] = useState("");
   const [notice, setNotice] = useState("");
   const reload = useCallback(async () => { setData(await readProjects()); }, []);
   useEffect(() => {
@@ -36,15 +33,14 @@ export function ProjectConversations({ sessionId }: { sessionId: string }) {
         <select aria-label="切换项目内对话" value={sessionId} onChange={(event) => { const target = conversations.find((item) => item.id === event.target.value); if (target) router.push(target.href); }}>
           {conversations.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
         </select>
-        <button disabled={busy} type="button" onClick={() => { setCreating(!creating); setRequestId(crypto.randomUUID()); }}>新建对话</button>
+        <button disabled={busy} type="button" onClick={() => void perform(async () => {
+          const result = await projectAction({ action: "new_from_session", sourceSessionId: sessionId, requestId: crypto.randomUUID() });
+          if (!result.href) throw new Error("新对话已创建，但没有返回入口。");
+          router.push(result.href);
+        })}>新建对话</button>
       </div>
-      {creating && <form className={styles.row} onSubmit={(event) => { event.preventDefault(); void perform(async () => {
-        const result = await projectAction({ action: "new_conversation", projectId: project.id, title: title.trim(), requestId });
-        if (!result.href) throw new Error("新对话已创建，但没有返回入口。");
-        router.push(result.href);
-      }); }}><input aria-label="新对话名称" placeholder="例如：第二课课件 / 作业设计" maxLength={200} value={title} onChange={(event) => { setTitle(event.target.value); setRequestId(crypto.randomUUID()); }}/><button disabled={busy || !title.trim()}>创建</button><button type="button" onClick={() => setCreating(false)}>取消</button></form>}
-      <details><summary>项目默认设置</summary><p>资料与成果由项目共享。新对话继承项目的模型、提示词与 Skills；每条对话可单独调整，聊天记录互不混入。</p>
-        <p>{project.defaults ? `${project.defaults.mode} · ${project.defaults.model ?? "默认模型"} · ${project.defaults.skills.length} 个 Skills` : "首次新建时，采用现有备课对话的设置。"}</p>
+      <details><summary>项目默认设置</summary><p>资料与成果由项目共享。此处新对话沿用当前对话的模式与设置，聊天记录独立；从课程列表新建时使用项目默认设置。</p>
+        <p>{project.defaults ? `${project.defaults.mode} · ${project.defaults.model ?? "默认模型"} · ${project.defaults.skills.length} 个 Skills` : "首次从课程列表新建时，采用现有备课对话的设置。"}</p>
         <button type="button" disabled={busy} onClick={() => void perform(async () => { await projectAction({ action: "save_defaults", projectId: project.id, sessionId, expectedRevision: project.revision }); await reload(); setNotice("已保存项目默认设置；后续新对话自动继承。"); })}>将当前对话设置保存为项目默认</button>
       </details>
     </>}

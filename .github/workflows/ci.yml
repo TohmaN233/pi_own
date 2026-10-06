@@ -35,6 +35,12 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Install pinned Pi Web dependencies
+        run: npm ci --prefix apps/pi-web --ignore-scripts
+
+      - name: Prepare portable runtime assets required by regression tests
+        run: npm run prepare:runtime --prefix apps/pi-web
+
       - name: Check
         run: npm run check
 

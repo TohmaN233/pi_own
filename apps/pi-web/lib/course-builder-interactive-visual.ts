@@ -43,6 +43,6 @@ export async function validateLinkedInteractiveVisual(material: CourseBuilderMat
 export async function readValidatedInteractiveVisual(material: CourseBuilderMaterial, expectedHash: string) {
 	const bytes = await readLinkedCourseBuilderMaterialBytes(material);
 	const validation = validateStandaloneInteractiveVisual(bytes, material.name);
-	if (validation.sourceHash !== expectedHash) throw new Error("Interactive visualization changed after Host validation; relink and register its current version");
+	if (validation.sourceHash !== expectedHash) throw new Error("Interactive visualization changed after Host validation. Refresh the authored file with add_material, then call interactive_visual using its lessonPlanId and returned materialId. The Host binds the newly validated visual to the active delivery; do not rewrite correct content or create duplicate files.");
 	return { bytes, validation };
 }

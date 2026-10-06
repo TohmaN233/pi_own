@@ -6,7 +6,7 @@ import {
 	type ThinkingLevel,
 } from "../../harness-contracts/src/index.ts";
 import { contentHash } from "../../harness-core/src/index.ts";
-import { type ResourceCatalog, resolveProfileSnapshot } from "./profile-resource-host.ts";
+import { MODE_PACK_TOOL_NAMES, type ResourceCatalog, resolveProfileSnapshot } from "./profile-resource-host.ts";
 
 export interface ModePackSettingsPatch {
 	provider?: string;
@@ -35,7 +35,7 @@ export function parseModePackSettingsPatch(value: unknown): ModePackSettingsPatc
 	if (typeof item.systemPrompt === "string" && item.systemPrompt.length > 64_000)
 		throw new Error("System prompt exceeds 64000 characters");
 	if (item.tools !== undefined) {
-		const builtinTools = new Set(["bash", "powershell", "read", "write", "edit", "grep", "find", "ls"]);
+		const builtinTools = new Set<string>(MODE_PACK_TOOL_NAMES);
 		if (!Array.isArray(item.tools) || item.tools.some((tool) => typeof tool !== "string" || !builtinTools.has(tool)))
 			throw new Error("tools must contain only built-in tool names");
 		if (new Set(item.tools).size !== item.tools.length) throw new Error("Duplicate tool selection");
@@ -70,6 +70,14 @@ export function hasSessionSettings(snapshot: ResourceSnapshot): boolean {
 	return snapshot.instructions[1]?.startsWith("Session Mode Pack settings hash:") ?? false;
 }
 
+/** Returns whether a portable snapshot's prompt differs from the definition
+ * default committed with that snapshot. Older journal records have no durable
+ * baseline, so callers can retain their established compatibility fallback. */
+export function modePackSystemPromptIsCustomized(snapshot: ResourceSnapshot): boolean | undefined {
+	if (!snapshot.modePackSystemPromptDefaultHash) return undefined;
+	return contentHash({ systemPrompt: modeSystemPrompt(snapshot) }) !== snapshot.modePackSystemPromptDefaultHash;
+}
+
 /** Revise user settings while retaining role, learner tool and source boundaries. */
 export function reviseModePackSettings(
 	snapshotValue: ResourceSnapshot,
@@ -79,7 +87,13 @@ export function reviseModePackSettings(
 ): ResourceSnapshot {
 	const snapshot = parseResourceSnapshot(snapshotValue);
 	const patch = parseModePackSettingsPatch(value);
-	if (patch.tools !== undefined && snapshot.role === "student")
+	const nativeOrchestration = new Set(["codemode", "tool_search"]);
+	if (
+		patch.tools !== undefined &&
+		snapshot.role === "student" &&
+		JSON.stringify(patch.tools.filter((tool) => !nativeOrchestration.has(tool)).sort()) !==
+			JSON.stringify(snapshot.tools.filter((tool) => !nativeOrchestration.has(tool)).sort())
+	)
 		throw new Error(
 			"Learner tools are controlled by the learning activity; change its mode to select another activity",
 		);
@@ -90,6 +104,10 @@ export function reviseModePackSettings(
 		(instruction, index) => index < 3 || !resourceInstructions.has(instruction),
 	);
 	modeSystemPrompt(snapshot);
+	// Missing provenance is meaningful for older journal records. Do not guess
+	// that their current prompt is a default: it may already be a user override.
+	const modePackSystemPromptDefaultHash = snapshot.modePackSystemPromptDefaultHash;
+	const modePackSystemPromptMode = snapshot.modePackSystemPromptMode;
 	if (patch.systemPrompt !== undefined) instructions[2] = patch.systemPrompt.trim();
 	const resources = snapshot.resources.map((resource) => ({ ...resource }));
 	for (const selection of patch.skills ?? []) {
@@ -107,6 +125,7 @@ export function reviseModePackSettings(
 				contentHash: installed.contentHash,
 				required: false,
 				enabled: true,
+				...(installed.delivery ? { delivery: installed.delivery } : {}),
 			});
 		} else throw new Error(`Skill is not part of this mode: ${selection.id}`);
 	}
@@ -124,12 +143,15 @@ export function reviseModePackSettings(
 		tools: [...(patch.tools ?? snapshot.tools)],
 		resources,
 		instructions,
+		...(snapshot.packageContentHash ? { packageContentHash: snapshot.packageContentHash } : {}),
 	};
 	instructions[1] = `Session Mode Pack settings hash: ${contentHash({ ...base, instructions: instructions.filter((_, index) => index !== 1) })}`;
 	return resolveProfileSnapshot({
 		base,
 		catalog,
 		courseVersionId: snapshot.courseVersionId,
+		...(modePackSystemPromptDefaultHash ? { modePackSystemPromptDefaultHash } : {}),
+		...(modePackSystemPromptMode ? { modePackSystemPromptMode } : {}),
 		...(createdAt ? { createdAt } : {}),
 	});
 }

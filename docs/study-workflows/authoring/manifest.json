@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "products": [
+    {
+      "id": "study-explanation",
+      "name": "当前问题讲解",
+      "kind": "study-explanation",
+      "sourceHash": "498ca8b0dde317bb6a2094959eac0f007738cb07745058e18c2453ea12ea0d79",
+      "references": [
+        {
+          "path": "references/learning-to-learn.md",
+          "sha256": "87124d92ed9039d6ac9596c1294e6a9b76633a7dc7bbd730834cbab663f1f2b5",
+          "sourceHash": "735051ce8cd7ab6e43f3de98839505842cf6b6dbf7865c99eb18b06407663518"
+        },
+        {
+          "path": "references/evidence-ledger.md",
+          "sha256": "7bcf42eb68569eb1b42f79efd99b43fd47d39eb97f5f8543ce65eba8fe08c222",
+          "sourceHash": "1c514605946d0d29a8f6f1c58c725c70200bc8254b140d5e70ced9f1cbfb4256"
+        }
+      ],
+      "authorSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "answer"
+        ],
+        "properties": {
+          "answer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        }
+      }
+    }
+  ]
+}

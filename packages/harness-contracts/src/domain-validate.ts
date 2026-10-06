@@ -7,6 +7,7 @@ import {
 	MATERIAL_KINDS,
 	PROFILE_MODES,
 	type ProfileDefinition,
+	RESOURCE_DELIVERIES,
 	RESOURCE_KINDS,
 	type ResourceDescriptor,
 	type ResourceSnapshot,
@@ -16,12 +17,25 @@ import {
 	VISUALIZATION_KINDS,
 	type VisualizationSpec,
 } from "./domain.ts";
+import { MODE_PACK_SYSTEM_PROMPT_MODES } from "./mode-pack.ts";
 import { HarnessContractError } from "./validate.ts";
 
 type RecordValue = Record<string, unknown>;
+const PACKAGE_CONTENT_HASH = /^sha256:[a-f0-9]{64}$/u;
 
 function fail(path: string, message: string): never {
 	throw new HarnessContractError(path, message);
+}
+
+function exactWithOptional(
+	value: RecordValue,
+	required: readonly string[],
+	optional: readonly string[],
+	path: string,
+): void {
+	const allowed = new Set([...required, ...optional]);
+	for (const key of Object.keys(value)) if (!allowed.has(key)) fail(`${path}.${key}`, "unknown field");
+	for (const key of required) if (!(key in value)) fail(`${path}.${key}`, "missing required field");
 }
 
 function record(value: unknown, path: string): RecordValue {
@@ -38,6 +52,12 @@ function exact(value: RecordValue, keys: readonly string[], path: string): void 
 function stringValue(value: unknown, path: string): string {
 	if (typeof value !== "string" || !value.trim()) fail(path, "expected non-empty string");
 	return value;
+}
+
+function packageContentHash(value: unknown, path: string): string {
+	const result = stringValue(value, path);
+	if (!PACKAGE_CONTENT_HASH.test(result)) fail(path, "expected sha256:<64 lowercase hex characters>");
+	return result;
 }
 
 function textValue(value: unknown, path: string): string {
@@ -92,21 +112,28 @@ function json(value: unknown, path: string): JsonValue {
 
 export function parseResourceDescriptor(value: unknown, path = "resource"): ResourceDescriptor {
 	const item = record(value, path);
-	exact(item, ["kind", "id", "version", "contentHash", "required", "enabled"], path);
+	exactWithOptional(item, ["kind", "id", "version", "contentHash", "required", "enabled"], ["delivery"], path);
+	const kind = enumValue(item.kind, RESOURCE_KINDS, `${path}.kind`);
+	const delivery =
+		item.delivery === undefined ? undefined : enumValue(item.delivery, RESOURCE_DELIVERIES, `${path}.delivery`);
+	if (delivery === "native-skill" && kind !== "skill") fail(`${path}.delivery`, "native-skill requires kind=skill");
+	if (delivery === "native-prompt-template" && kind !== "prompt")
+		fail(`${path}.delivery`, "native-prompt-template requires kind=prompt");
 	return {
-		kind: enumValue(item.kind, RESOURCE_KINDS, `${path}.kind`),
+		kind,
 		id: stringValue(item.id, `${path}.id`),
 		version: stringValue(item.version, `${path}.version`),
 		contentHash: stringValue(item.contentHash, `${path}.contentHash`),
 		required: booleanValue(item.required, `${path}.required`),
 		enabled: booleanValue(item.enabled, `${path}.enabled`),
+		...(delivery ? { delivery } : {}),
 	};
 }
 
 export function parseProfileDefinition(value: unknown): ProfileDefinition {
 	const path = "profile";
 	const item = record(value, path);
-	exact(
+	exactWithOptional(
 		item,
 		[
 			"version",
@@ -123,6 +150,7 @@ export function parseProfileDefinition(value: unknown): ProfileDefinition {
 			"resources",
 			"instructions",
 		],
+		["packageContentHash"],
 		path,
 	);
 	if (item.version !== HARNESS_CONTRACT_VERSION) fail(`${path}.version`, "unsupported contract version");
@@ -147,13 +175,16 @@ export function parseProfileDefinition(value: unknown): ProfileDefinition {
 			parseResourceDescriptor(resource, `${path}.resources[${index}]`),
 		),
 		instructions: strings(item.instructions, `${path}.instructions`),
+		...(item.packageContentHash === undefined
+			? {}
+			: { packageContentHash: packageContentHash(item.packageContentHash, `${path}.packageContentHash`) }),
 	};
 }
 
 export function parseResourceSnapshot(value: unknown): ResourceSnapshot {
 	const path = "resourceSnapshot";
 	const item = record(value, path);
-	exact(
+	exactWithOptional(
 		item,
 		[
 			"version",
@@ -173,6 +204,7 @@ export function parseResourceSnapshot(value: unknown): ResourceSnapshot {
 			"createdAt",
 			"contentHash",
 		],
+		["packageContentHash", "modePackSystemPromptDefaultHash", "modePackSystemPromptMode"],
 		path,
 	);
 	if (item.version !== HARNESS_CONTRACT_VERSION) fail(`${path}.version`, "unsupported contract version");
@@ -202,6 +234,26 @@ export function parseResourceSnapshot(value: unknown): ResourceSnapshot {
 		instructions: strings(item.instructions, `${path}.instructions`),
 		createdAt,
 		contentHash: stringValue(item.contentHash, `${path}.contentHash`),
+		...(item.packageContentHash === undefined
+			? {}
+			: { packageContentHash: packageContentHash(item.packageContentHash, `${path}.packageContentHash`) }),
+		...(item.modePackSystemPromptDefaultHash === undefined
+			? {}
+			: {
+					modePackSystemPromptDefaultHash: packageContentHash(
+						item.modePackSystemPromptDefaultHash,
+						`${path}.modePackSystemPromptDefaultHash`,
+					),
+				}),
+		...(item.modePackSystemPromptMode === undefined
+			? {}
+			: {
+					modePackSystemPromptMode: enumValue(
+						item.modePackSystemPromptMode,
+						MODE_PACK_SYSTEM_PROMPT_MODES,
+						`${path}.modePackSystemPromptMode`,
+					),
+				}),
 	};
 }
 

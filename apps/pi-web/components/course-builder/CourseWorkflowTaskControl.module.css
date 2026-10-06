@@ -1,0 +1,12 @@
+.control { min-width: 0; }
+.launch { width: 100%; display: flex; flex-direction: column; gap: 7px; text-align: left; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: inherit; cursor: pointer; }
+.launch:disabled { cursor: default; opacity: .6; }
+.launch small, .hint { color: var(--text-muted, #667085); font-size: 12px; line-height: 1.5; }
+.hint { margin: 7px 0; overflow-wrap: anywhere; }
+.selector { display: flex; flex-direction: column; gap: 5px; font-size: 12px; margin: 10px 0; }
+.selector select { min-width: 0; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: inherit; }
+.error { color: #b42318; font-size: 12px; overflow-wrap: anywhere; }
+.status { font-size: 12px; border-top: 1px solid var(--border, #d7dce3); margin-top: 12px; padding-top: 6px; overflow-wrap: anywhere; }
+.status ul { padding-left: 18px; line-height: 1.7; }
+.status button, .cleanup { color: inherit; font-size: 12px; background: transparent; border: 1px solid var(--border, #d7dce3); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+.cleanup { margin-top: 9px; }

@@ -26,27 +26,8 @@ const MAX_CANCELLATION_TERMINAL_WAIT_MS = 120_000;
 const MAX_WALL_TIME_MS = 24 * 60 * 60 * 1_000;
 const MAX_OUTPUT_LIMIT_BYTES = 64 * 1024 * 1024;
 const MAX_MEMORY_BYTES = Math.min(1024 * 1024 * 1024 * 1024, Math.floor(totalmem() / 2));
-// The helper copies a bounded Python/R runtime after the coordinator has
-// materialized it under the caller's artifact root.  That tree can legitimately
-// contain package paths beyond MAX_PATH.  This is a process-wide Windows/.NET
-// capability declaration, rather than a path-shortening workaround for one
-// coordinator directory name.
-const RUNNER_HELPER_MANIFEST = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings xmlns:ws2="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
-      <ws2:longPathAware>true</ws2:longPathAware>
-    </windowsSettings>
-  </application>
-</assembly>
-`;
-const RUNNER_HELPER_APP_CONFIG = `<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <runtime>
-    <AppContextSwitchOverrides value="Switch.System.IO.UseLegacyPathHandling=false;Switch.System.IO.BlockLongPaths=false" />
-  </runtime>
-</configuration>
-`;
+
+import { compileWindowsNativeHelper } from "./windows-native-helper.ts";
 
 export type IsolatedWindowsLanguage = "node" | "python" | "rscript";
 
@@ -277,7 +258,7 @@ export async function prepareIsolatedWindowsRun(request: IsolatedWindowsRunReque
 	const limits = normalizeLimits(request.limits);
 	const runRootDirectory = resolve(request.runRootDirectory);
 	await mkdir(runRootDirectory, { recursive: true });
-	const helperPath = await compileRunnerHelper(runRootDirectory);
+	const helperPath = await compileRunnerHelper();
 	const preparationIdentity = normalizePreparationIdentity(request.preparationIdentity);
 	const runId = preparationIdentity.runId;
 	const cancelToken = preparationIdentity.cancelToken;
@@ -487,7 +468,7 @@ export async function recoverPreparedIsolatedWindowsRun(
 ): Promise<IsolatedWindowsRunHandle> {
 	const runRootDirectory = resolve(locator.runRootDirectory);
 	const preparationIdentity = normalizePreparationIdentity(locator.preparationIdentity);
-	const helperPath = await compileRunnerHelper(runRootDirectory);
+	const helperPath = await compileRunnerHelper();
 	const handle = await completeHandleFromDirectory({ runRootDirectory, preparationIdentity }, helperPath);
 	if (handle) return handle;
 	throw new StudyWindowsRunnerError(
@@ -526,7 +507,7 @@ export async function abandonIsolatedWindowsPreparation(
 		}
 		return finishIncompletePreparationAbandonment(paths, preparationIdentity, journal);
 	}
-	const helperPath = join(runRootDirectory, "helper", "study-windows-runner.exe");
+	const helperPath = await compileRunnerHelper();
 	const complete = await completeHandleFromDirectory({ runRootDirectory, preparationIdentity }, helperPath);
 	if (complete) {
 		const status = await abandonPreparedIsolatedWindowsRun(complete);
@@ -1116,43 +1097,14 @@ function helperPathFromHandle(handle: IsolatedWindowsRunHandle): string {
 	return resolve(handle.helperPath);
 }
 
-async function compileRunnerHelper(runRootDirectory: string): Promise<string> {
-	const sourcePath = fileURLToPath(new URL("./windows-runner.cs", import.meta.url));
-	const helperDirectory = join(runRootDirectory, "helper");
-	const helperPath = join(helperDirectory, "study-windows-runner.exe");
-	const manifestPath = join(helperDirectory, "study-windows-runner.manifest");
-	const appConfigPath = `${helperPath}.config`;
-	await mkdir(helperDirectory, { recursive: true });
-	const helperSettingsChanged =
-		(await readFile(manifestPath, "utf8").catch(() => null)) !== RUNNER_HELPER_MANIFEST ||
-		(await readFile(appConfigPath, "utf8").catch(() => null)) !== RUNNER_HELPER_APP_CONFIG;
-	if (helperSettingsChanged) {
-		await writeFile(manifestPath, RUNNER_HELPER_MANIFEST, "utf8");
-		await writeFile(appConfigPath, RUNNER_HELPER_APP_CONFIG, "utf8");
-	}
-	const source = await stat(sourcePath);
-	const helper = await stat(helperPath).catch(() => null);
-	if (helper && helper.mtimeMs >= source.mtimeMs && !helperSettingsChanged) return helperPath;
-	const compile = spawnSync(
-		CSC_PATH,
-		[
-			"/nologo",
-			"/target:exe",
-			"/platform:x64",
-			`/win32manifest:${manifestPath}`,
-			`/out:${helperPath}`,
-			"/r:System.Web.Extensions.dll",
-			sourcePath,
-		],
-		{ encoding: "utf8", stdio: "pipe", windowsHide: true, timeout: 30_000 },
-	);
-	if (compile.status !== 0) {
-		throw new StudyWindowsRunnerError(
-			"RUNNER_COMPILE_FAILED",
-			String(compile.stderr || compile.stdout || compile.error?.message || "csc.exe failed").trim(),
-		);
-	}
-	return helperPath;
+async function compileRunnerHelper(): Promise<string> {
+	return compileWindowsNativeHelper({
+		compilerPath: CSC_PATH,
+		sourcePath: fileURLToPath(new URL("./windows-runner.cs", import.meta.url)),
+		name: "study-windows-runner.exe",
+		compilerArgs: ["/platform:x64", "/r:System.Web.Extensions.dll"],
+		failure: (message) => new StudyWindowsRunnerError("RUNNER_COMPILE_FAILED", message),
+	});
 }
 
 async function snapshotRuntime(

@@ -2,12 +2,18 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
+import { getFireworksThinkingLevelMap } from "../scripts/fireworks-reasoning-options.ts";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
-import { getModel, getModels, streamSimple } from "../src/compat.ts";
+import { getModels, streamSimple } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
-import { hasApi } from "../src/models.ts";
 import type { Context, Model, Tool } from "../src/types.ts";
-import { historicalFireworksGlm, historicalFireworksKimi } from "./historical-models.ts";
+import {
+	FIREWORKS_GLM_5P2_FAST_MODEL,
+	FIREWORKS_GLM_5P2_MODEL,
+	FIREWORKS_KIMI_K2_6_MODEL,
+	FIREWORKS_KIMI_K3_FAST_MODEL,
+	FIREWORKS_KIMI_K3_MODEL,
+} from "./model-fixtures.ts";
 
 const originalFireworksApiKey = process.env.FIREWORKS_API_KEY;
 
@@ -20,49 +26,52 @@ afterEach(() => {
 });
 
 describe("Fireworks models", () => {
-	it("registers current models with the endpoint for their API", () => {
+	it("registers the current Fireworks catalog with compatible endpoints and cache policy", () => {
 		const models = getModels("fireworks");
 		expect(models.length).toBeGreaterThan(0);
+
 		for (const model of models) {
 			expect(model.provider).toBe("fireworks");
-			expect(["anthropic-messages", "openai-completions"]).toContain(model.api);
-			expect(model.baseUrl).toBe(
-				model.api === "anthropic-messages"
-					? "https://api.fireworks.ai/inference"
-					: "https://api.fireworks.ai/inference/v1",
-			);
+			if (model.api === "anthropic-messages") {
+				expect(model.baseUrl).toBe("https://api.fireworks.ai/inference");
+				expect(model.compat).toMatchObject({
+					sendSessionAffinityHeaders: true,
+					supportsEagerToolInputStreaming: false,
+					supportsCacheControlOnTools: false,
+					supportsLongCacheRetention: false,
+				});
+			} else if (model.api === "openai-completions") {
+				expect(model.baseUrl).toBe("https://api.fireworks.ai/inference/v1");
+				expect(model.compat).toMatchObject({
+					sendSessionAffinityHeaders: true,
+					supportsLongCacheRetention: false,
+				});
+			} else {
+				throw new Error(`Unexpected Fireworks API registration: ${model.api}`);
+			}
 		}
 	});
 
-	it("serializes historical GLM 5.2 and Fast with the same OpenAI-compatible controls", async () => {
-		const base = historicalFireworksGlm["accounts/fireworks/models/glm-5p2"];
-		const fast = historicalFireworksGlm["accounts/fireworks/routers/glm-5p2-fast"];
-		const payloads: Record<string, unknown>[] = [];
-		for (const model of [base, fast]) {
-			await streamSimple(
-				model,
-				{ messages: [{ role: "user", content: "test", timestamp: 0 }] },
-				{
-					apiKey: "test-fireworks-key",
-					reasoning: "max",
-					onPayload: (payload) => {
-						payloads.push(payload as Record<string, unknown>);
-						throw new Error("payload captured");
-					},
-				},
-			).result();
-		}
-		expect(payloads).toHaveLength(2);
-		const { model: _baseId, ...basePayload } = payloads[0];
-		const { model: _fastId, ...fastPayload } = payloads[1];
-		expect(fastPayload).toEqual(basePayload);
-		expect(basePayload.reasoning_effort).toBe("max");
+	it("aligns the retired GLM 5.2 model and router protocol fixtures", () => {
+		const base = FIREWORKS_GLM_5P2_MODEL;
+		const fast = FIREWORKS_GLM_5P2_FAST_MODEL;
+
+		expect(fast.api).toBe(base.api);
+		expect(fast.baseUrl).toBe(base.baseUrl);
+		expect(fast.compat).toEqual(base.compat);
+		expect(fast.thinkingLevelMap).toEqual(base.thinkingLevelMap);
+		expect(getFireworksThinkingLevelMap(base.id)).toEqual({
+			off: "none",
+			minimal: null,
+			low: "high",
+			medium: "high",
+			max: "max",
+		});
 	});
 
-	it.each(["accounts/fireworks/models/glm-5p2", "accounts/fireworks/routers/glm-5p2-fast"] as const)(
-		"omits unsupported long cache retention for %s",
-		async (modelId) => {
-			const model = historicalFireworksGlm[modelId];
+	it.each([FIREWORKS_GLM_5P2_MODEL, FIREWORKS_GLM_5P2_FAST_MODEL])(
+		"omits unsupported long cache retention for $id",
+		async (model) => {
 			let payload: Record<string, unknown> | undefined;
 			const response = streamSimple(
 				model,
@@ -85,8 +94,8 @@ describe("Fireworks models", () => {
 	);
 
 	it("routes Kimi K3 through the OpenAI-compatible API with native effort controls", async () => {
-		const base = getModel("fireworks", "accounts/fireworks/models/kimi-k3");
-		const fast = getModel("fireworks", "accounts/fireworks/routers/kimi-k3-fast");
+		const base = FIREWORKS_KIMI_K3_MODEL;
+		const fast = FIREWORKS_KIMI_K3_FAST_MODEL;
 		const compat = {
 			supportsStore: false,
 			supportsDeveloperRole: false,
@@ -141,15 +150,13 @@ describe("Fireworks models", () => {
 	});
 
 	it("sets Fireworks-specific compat for session affinity and unsupported tool fields", () => {
-		const models = getModels("fireworks").filter((model) => hasApi(model, "anthropic-messages"));
-		expect(models.length).toBeGreaterThan(0);
-		for (const model of models) {
-			expect(model.compat).toBeDefined();
-			expect(model.compat?.sendSessionAffinityHeaders).toBe(true);
-			expect(model.compat?.supportsEagerToolInputStreaming).toBe(false);
-			expect(model.compat?.supportsCacheControlOnTools).toBe(false);
-			expect(model.compat?.supportsLongCacheRetention).toBe(false);
-		}
+		const model = FIREWORKS_KIMI_K2_6_MODEL;
+
+		expect(model.compat).toBeDefined();
+		expect(model.compat?.sendSessionAffinityHeaders).toBe(true);
+		expect(model.compat?.supportsEagerToolInputStreaming).toBe(false);
+		expect(model.compat?.supportsCacheControlOnTools).toBe(false);
+		expect(model.compat?.supportsLongCacheRetention).toBe(false);
 	});
 });
 
@@ -177,7 +184,7 @@ function createFireworksModel(
 	compat: Model<"anthropic-messages">["compat"] = FIREWORKS_ANTHROPIC_COMPAT,
 ): Model<"anthropic-messages"> {
 	return {
-		...historicalFireworksKimi,
+		...FIREWORKS_KIMI_K2_6_MODEL,
 		baseUrl: "http://127.0.0.1:0", // overridden by captureAnthropicRequest
 		compat,
 	};

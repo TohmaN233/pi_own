@@ -1,15 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   activateModePack,
   getModePackStatus,
+  importModePackArchive,
+  importModePackBundle,
+  PortableModePackImportError,
+  sendPortableImportPrompt,
   type ModePackStatusResponse,
 } from "@/lib/mode-pack-client";
 import styles from "./ModePackOverlay.module.css";
 import { subscribeSessionConfiguration } from "@/lib/session-configuration-events";
-import { studyModePhase } from "@/lib/study-mode-policy";
+import { studyModePhase } from "@/lib/study-mode-phase";
+import { ModePackFrontend } from "./ModePackFrontend";
+import { projectAction } from "@/lib/project-workspaces-client";
 
 export type ModePackStatusKind = ModePackStatusResponse["kind"] | null;
 
@@ -23,9 +29,13 @@ export function SessionModePackOverlay({ sessionId, onStatusKind }: {
   sessionId: string;
   onStatusKind?: (kind: ModePackStatusKind) => void;
 }) {
+  const router = useRouter();
   const [status, setStatus] = useState<ModePackStatusResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAgentPrompt, setPendingAgentPrompt] = useState<string | null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
   const operationKeys = useRef(new Map<string, string>());
   const refreshRequest = useRef<AbortController | null>(null);
   const activationRequest = useRef<AbortController | null>(null);
@@ -77,6 +87,7 @@ export function SessionModePackOverlay({ sessionId, onStatusKind }: {
     const idempotencyKey = operationKeys.current.get(operation) ?? crypto.randomUUID();
     operationKeys.current.set(operation, idempotencyKey);
     setBusy(true);
+    setSwitchingTo(status.packs.find((pack) => pack.modePackId === modePackId)?.title ?? modePackId);
     setError(null);
     try {
       await activateModePack({
@@ -93,12 +104,80 @@ export function SessionModePackOverlay({ sessionId, onStatusKind }: {
         setError(value instanceof Error ? value.message : String(value));
       }
     } finally {
-      if (!request.signal.aborted) setBusy(false);
+      if (!request.signal.aborted) { setBusy(false); setSwitchingTo(null); }
       if (activationRequest.current === request) activationRequest.current = null;
     }
   };
 
-  if (!sessionId || !status || status.sessionId !== sessionId) return <div className={styles.overlay}><a className={styles.link} href="/projects">项目与对话</a><a className={styles.workspaceLink} href="/course-builder">备课 · 继续已有课程</a></div>;
+  const importWorkModule = async (file: File) => {
+    if (busy || !status || status.sessionId !== sessionId) return;
+    setError(null);
+    setPendingAgentPrompt(null);
+    const binary = file.name.toLocaleLowerCase("en-US").endsWith(".mode-pack.tar") || file.name.toLocaleLowerCase("en-US").endsWith(".tar");
+    let archive: unknown = null;
+    if (!binary) {
+      try { archive = JSON.parse(await file.text()); }
+      catch (cause) { setError(`工作模块文件不是有效 JSON：${cause instanceof Error ? cause.message : String(cause)}`); return; }
+    }
+    const sourceId = (archive as { moduleId?: unknown; definition?: { modePackId?: unknown } } | null)?.moduleId
+      ?? (archive as { definition?: { modePackId?: unknown } } | null)?.definition?.modePackId;
+    const sourceName = binary ? file.name.replace(/(?:\.mode-pack)?\.tar$/iu, "") : sourceId;
+    const suggestedId = typeof sourceName === "string" && sourceName.trim()
+      ? `custom.${sourceName.replace(/^custom\./u, "").replace(/[^a-z0-9.-]+/giu, "-").replace(/^-+|-+$/gu, "").toLocaleLowerCase("en-US")}`
+      : "custom.imported-mode";
+    const newModePackId = window.prompt("导入后的工作模块 ID（以 custom. 开头）", suggestedId)?.trim();
+    if (!newModePackId) return;
+    setBusy(true);
+    try {
+      if (binary) await importModePackBundle({ sessionId, file, newModePackId });
+      else await importModePackArchive({ sessionId, archive, newModePackId });
+      await refresh();
+    } catch (cause) {
+      if (cause instanceof PortableModePackImportError) {
+        setError(`${cause.message}${cause.details.agentDelivery === "accepted" ? "\n诊断已发送给 Pi agent。" : cause.details.agentDeliveryError ? `\nPi agent 未收到诊断：${cause.details.agentDeliveryError}` : ""}`);
+        if (cause.details.agentDelivery !== "accepted") setPendingAgentPrompt(cause.details.agentPrompt ?? null);
+      } else {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendConflictToPi = async () => {
+    if (!pendingAgentPrompt || busy) return;
+    setBusy(true);
+    try {
+      await sendPortableImportPrompt(sessionId, pendingAgentPrompt);
+      setPendingAgentPrompt(null);
+      setError("导入预检诊断已发送给 Pi agent；工作模块仍未安装。");
+    } catch (cause) {
+      setError(`Pi agent 未收到诊断：${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createInCurrentMode = async () => {
+    if (busy || !sessionId || !status?.currentModePackId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await projectAction({ action: "new_from_session", sourceSessionId: sessionId, requestId: crypto.randomUUID() });
+      if (!result.href) throw new Error("新对话已创建，但没有返回入口。");
+      router.push(result.href);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!sessionId || !status || status.sessionId !== sessionId) return <div className={styles.overlay}>
+    <a className={styles.link} href="/projects">项目与对话</a>
+    <a className={styles.workspaceLink} href="/course-builder">备课 · 继续已有课程</a>
+    {error && <><span className={styles.warning} role="alert">{error}</span><button className={styles.link} type="button" onClick={() => void refresh()}>重试加载模式</button></>}
+  </div>;
   if (status.kind !== "generic") return null;
   const canSwitch = !status.busy && !busy;
   return (
@@ -121,29 +200,36 @@ export function SessionModePackOverlay({ sessionId, onStatusKind }: {
             disabled={!pack.selectable}
             title={[
               ...pack.missingRequiredResources.map((item) => `missing ${item}`),
-              ...pack.identityMismatches.map((item) => `changed ${item}`),
+              ...(!pack.selectable ? pack.identityMismatches.map((item) => `changed ${item}`) : []),
+              ...(pack.packageError ? [pack.packageError] : []),
             ].join(", ") || pack.description}
           >
             {pack.title} · {pack.modePackId}
           </option>
         ))}
       </select>
+      {switchingTo && <span className={styles.progress} role="status" title="首次加载新版本可能需要安装组件；完成后会显示已生效的模式。">正在切换到 {switchingTo}…</span>}
+      <button className={styles.link} type="button" disabled={busy || !status.currentModePackId} onClick={() => void createInCurrentMode()}>新建此模式对话</button>
+      <input ref={importInput} type="file" accept=".tar,.json,application/json,application/vnd.pi-own.mode-pack+tar" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) void importWorkModule(file); }} />
+      <button className={styles.link} type="button" disabled={busy} onClick={() => importInput.current?.click()}>导入工作模块</button>
       <a className={styles.link} href={`/mode-packs?sessionId=${encodeURIComponent(sessionId)}`}>Customize</a>
-      {studyModePhase(status.currentModePackId ?? "") && <a className={`${styles.link} ${styles.workspaceLink}`} href={`/study?sessionId=${encodeURIComponent(sessionId)}`}>打开学习与研究工作区</a>}
-      <a
+      {status.frontend?.presentation !== "workspace" && studyModePhase(status.currentModePackId ?? "") && <a className={`${styles.link} ${styles.workspaceLink}`} href={`/study?sessionId=${encodeURIComponent(sessionId)}`}>打开学习与研究工作区</a>}
+      {status.frontend?.presentation !== "workspace" && <a
         className={`${styles.link} ${styles.workspaceLink}`}
         href={`/course-builder?sessionId=${encodeURIComponent(sessionId)}`}
         aria-label="打开备课工作区"
         title={status.live ? "打开教师备课工作区" : "恢复当前会话并打开教师备课工作区"}
       >
         打开备课工作区
-      </a>
+      </a>}
       {(error || status.diagnostic) && (
-        <span className={styles.warning} title={error ?? status.diagnostic ?? undefined}>
+        <span className={styles.warning} role="alert" title={error ?? status.diagnostic ?? undefined}>
           {error ?? status.diagnostic}
         </span>
       )}
+      {pendingAgentPrompt && <button className={styles.link} type="button" disabled={busy} onClick={() => void sendConflictToPi()}>交给 Pi agent 处理</button>}
       {selectable.length === 0 && <span className={styles.warning}>No selectable Mode Packs</span>}
+      <ModePackFrontend sessionId={sessionId} packageContentHash={status.packageContentHash} snapshotId={status.currentSnapshotId} entry={status.frontend?.entry ?? status.frontendEntry} runtimeId={status.runtimeId} presentation={status.frontend?.presentation} projectCapabilities={status.projectCapabilities} />
     </div>
   );
 }

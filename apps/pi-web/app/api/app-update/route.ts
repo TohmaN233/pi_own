@@ -45,9 +45,9 @@ async function fetchLatestVersion(): Promise<AppUpdateResponse> {
   };
 }
 
-async function loadUpdateStatus(): Promise<AppUpdateResponse> {
+async function loadUpdateStatus(refresh = false): Promise<AppUpdateResponse> {
   const cache = getCache();
-  if (cache.value && cache.expiresAt > Date.now()) return cache.value;
+  if (!refresh && cache.value && cache.expiresAt > Date.now()) return cache.value;
   if (!cache.inFlight) {
     cache.inFlight = fetchLatestVersion().then((value) => {
       cache.value = value;
@@ -58,15 +58,10 @@ async function loadUpdateStatus(): Promise<AppUpdateResponse> {
     });
   }
 
-  try {
-    return await cache.inFlight;
-  } catch (error) {
-    if (cache.value) return cache.value;
-    throw error;
-  }
+  return await cache.inFlight;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (SKIP_VERSION_CHECK) {
     return NextResponse.json({
       currentVersion: CURRENT_VERSION,
@@ -76,8 +71,9 @@ export async function GET() {
     } satisfies AppUpdateResponse);
   }
   try {
-    return NextResponse.json(await loadUpdateStatus());
+    return NextResponse.json(await loadUpdateStatus(new URL(request.url).searchParams.get("refresh") === "1"));
   } catch (error) {
+    console.warn("[pi-web] app update check failed", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status: 502 },

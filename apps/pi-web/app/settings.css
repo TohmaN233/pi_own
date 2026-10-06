@@ -284,6 +284,20 @@
   min-width: 0;
 }
 
+.permissions-config { overflow-y: auto; height: 100%; }
+.permissions-config .config-field { max-width: 420px; margin: 16px 0; }
+.permissions-presets { display: grid; gap: 10px; margin: 16px 0; }
+.permissions-preset { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.permissions-preset:has(input:checked) { border-color: var(--text-muted); background: var(--bg-hover); }
+.permissions-preset input, .permissions-external input { margin-top: 3px; flex-shrink: 0; }
+.permissions-preset span span { display: block; color: var(--text-muted); margin-top: 4px; }
+.permissions-external { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0 8px; }
+.permissions-config summary { cursor: pointer; margin: 12px 0; }
+.permissions-source { width: 100%; min-height: 240px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: 12px; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; }
+.permissions-inherited { white-space: pre-wrap; overflow-wrap: anywhere; }
+.permissions-path { color: var(--text-dim); font-size: 11px; overflow-wrap: anywhere; }
+.permissions-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
+
 .config-detail-stack.is-fill {
   min-height: 100%;
 }

@@ -63,3 +63,9 @@ docs/LOCAL_UPGRADE_*.md
 .env.*
 !.env.example
 !.env.*.example
+skills/.deleted-skills.json
+Rscript*
+apps/pi-web/.tmp-*/
+# Only the current pinned plugin archive belongs in a release.
+apps/pi-web/host-plugins/pi-caw-*.tgz
+!apps/pi-web/host-plugins/pi-caw-0.2.31.tgz

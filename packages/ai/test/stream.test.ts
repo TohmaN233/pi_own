@@ -6,7 +6,6 @@ import { fileURLToPath } from "url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { complete, getModel, stream } from "../src/compat.ts";
 import type { Api, Context, ImageContent, Model, StreamOptions, Tool, ToolResultMessage } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
@@ -14,6 +13,7 @@ import { StringEnum } from "../src/utils/typebox-helpers.ts";
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -759,33 +759,40 @@ describe("Generate E2E Tests", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider (current model via OpenAI Completions)", () => {
-		const llm = getTogetherTestModel();
-
-		it("should complete basic text generation", { retry: 3 }, async () => {
-			await basicTextGeneration(llm);
-		});
-
-		it("should handle tool calling", { retry: 3 }, async () => {
-			await handleToolCall(llm);
-		});
-
-		it("should handle streaming", { retry: 3 }, async () => {
-			await handleStreaming(llm);
-		});
-
-		it("should handle thinking mode", { retry: 3 }, async () => {
-			await handleThinking(llm, { reasoningEffort: "high" });
-		});
-
-		it("should handle multi-turn with thinking and tools", { retry: 3 }, async () => {
-			await multiTurn(llm, { reasoningEffort: "high" });
-		});
-
-		it("should handle image input", { retry: 3 }, async () => {
-			await handleImage(llm);
-		});
+	const togetherStreamModel = findCurrentOpenAICompletionsModel("together", {
+		inputs: ["image"],
+		reasoningLevel: "high",
 	});
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherStreamModel)(
+		"Together AI Provider (OpenAI Completions)",
+		() => {
+			const llm = () => requireCurrentOpenAICompletionsModel(togetherStreamModel, "together");
+
+			it("should complete basic text generation", { retry: 3 }, async () => {
+				await basicTextGeneration(llm());
+			});
+
+			it("should handle tool calling", { retry: 3 }, async () => {
+				await handleToolCall(llm());
+			});
+
+			it("should handle streaming", { retry: 3 }, async () => {
+				await handleStreaming(llm());
+			});
+
+			it("should handle thinking mode", { retry: 3 }, async () => {
+				await handleThinking(llm(), { reasoningEffort: "high" });
+			});
+
+			it("should handle multi-turn with thinking and tools", { retry: 3 }, async () => {
+				await multiTurn(llm(), { reasoningEffort: "high" });
+			});
+
+			it("should handle image input", { retry: 3 }, async () => {
+				await handleImage(llm());
+			});
+		},
+	);
 
 	describe.skipIf(!process.env.BASETEN_API_KEY)("Baseten Provider (GLM 5.2 via OpenAI Completions)", () => {
 		const llm = getModel("baseten", "zai-org/GLM-5.2");

@@ -9,7 +9,33 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { AgentSessionWrapper, startRpcSession, warmSwitchHarnessProfile, withExtensionTools } = await jiti.import("./rpc-manager.ts");
 const { getLearningHarness, bindHarnessCourse } = await jiti.import("./harness-server.ts");
+const { writeBuiltInSubagentsEnabled } = await jiti.import("./subagent-settings.ts");
 const { RuntimeSessionHost } = await jiti.import("../../../packages/pi-runtime-host/src/index.ts");
+
+function assertNativeSubagentProtocol(session, enabled = true) {
+  const names = new Set(session.inner.getActiveToolNames());
+  for (const retired of ["Agent", "get_subagent_result", "steer_subagent"]) assert.equal(names.has(retired), false, `${retired} is retired`);
+  assert.equal(names.has("subagent"), enabled, "the native subagent tool follows the selected profile");
+  assert.equal(names.has("subagent_supervisor"), enabled, "the native supervisor tool follows the selected profile");
+  if (!enabled) assert.equal(names.has("bg_wait"), false, "background wait is unavailable when built-in subagents are disabled");
+}
+
+function registerRpcTestCleanup(t, directory, savedEnvironment, sessions) {
+  t.after(async () => {
+    const errors = [];
+    for (const session of sessions) {
+      if (!session.isAlive()) continue;
+      try { await session.shutdown(); } catch (error) { errors.push(error); }
+    }
+    try { globalThis.__piLearningHarness?.close(); } catch (error) { errors.push(error); }
+    globalThis.__piLearningHarness = undefined;
+    for (const [key, value] of Object.entries(savedEnvironment)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    try { await rm(directory, { recursive: true, force: true }); } catch (error) { errors.push(error); }
+    if (errors.length) throw new AggregateError(errors, "RPC test cleanup failed");
+  });
+}
 
 function materializeSessionJsonl(manager) {
   manager.appendMessage({ role: "user", content: "persist transcript", timestamp: Date.now() });
@@ -39,59 +65,67 @@ test("bound chat-only sessions retain only the internal grounded submit tool", (
   assert.deepEqual(withExtensionTools(session, [], []), []);
 });
 
-test("startRpcSession installs the submit tool only for an explicitly course-bound chat-only session", async () => {
+test("startRpcSession keeps the grounded tool course-bound until a profile is committed", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "pi-web-rpc-grounded-tools-"));
-  const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
-  const originalSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
-  const originalHarnessDir = process.env.PI_LEARNING_HARNESS_DIR;
+  const savedEnvironment = { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, PI_CODING_AGENT_SESSION_DIR: process.env.PI_CODING_AGENT_SESSION_DIR, PI_LEARNING_HARNESS_DIR: process.env.PI_LEARNING_HARNESS_DIR };
+  const sessions = [];
+  registerRpcTestCleanup(t, directory, savedEnvironment, sessions);
   process.env.PI_CODING_AGENT_DIR = join(directory, "agent");
   process.env.PI_CODING_AGENT_SESSION_DIR = join(directory, "sessions");
   process.env.PI_LEARNING_HARNESS_DIR = join(directory, "harness");
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
-  try {
     const bound = await startRpcSession(`bound-${Date.now()}`, "", directory, {
       toolNames: [],
       harnessCourseVersionId: "course-version-fixture",
     });
+    sessions.push(bound.session);
+    await bound.session.waitUntilReady();
     assert.deepEqual(bound.session.inner.getActiveToolNames(), ["submit_grounded_answer"]);
     assert.ok(bound.session.inner.getAllTools().some((tool) => tool.name === "submit_grounded_answer"));
+    await bound.session.send({ type: "reload" });
+    assert.deepEqual(bound.session.inner.getActiveToolNames(), ["submit_grounded_answer"]);
+    assertNativeSubagentProtocol(bound.session, false);
     await bound.session.shutdown();
 
     const ordinary = await startRpcSession(`ordinary-${Date.now()}`, "", directory, { toolNames: [] });
+    sessions.push(ordinary.session);
     assert.deepEqual(ordinary.session.inner.getActiveToolNames(), []);
     assert.equal(ordinary.session.inner.getAllTools().some((tool) => tool.name === "submit_grounded_answer"), false);
     await ordinary.session.shutdown();
-  } finally {
-    globalThis.__piLearningHarness?.close();
-    globalThis.__piLearningHarness = undefined;
-    if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
-    if (originalSessionDir === undefined) delete process.env.PI_CODING_AGENT_SESSION_DIR;
-    else process.env.PI_CODING_AGENT_SESSION_DIR = originalSessionDir;
-    if (originalHarnessDir === undefined) delete process.env.PI_LEARNING_HARNESS_DIR;
-    else process.env.PI_LEARNING_HARNESS_DIR = originalHarnessDir;
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
-test("warm profile switch rebuilds one bound Pi session with a strict snapshot allowlist", async () => {
+test("warm profile switch rebuilds one bound Pi session with a strict snapshot allowlist", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "pi-web-rpc-profile-switch-"));
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-  const previousHarnessDir = process.env.PI_LEARNING_HARNESS_DIR;
+  const savedEnvironment = { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, PI_LEARNING_HARNESS_DIR: process.env.PI_LEARNING_HARNESS_DIR };
+  const sessions = [];
+  registerRpcTestCleanup(t, directory, savedEnvironment, sessions);
   process.env.PI_CODING_AGENT_DIR = join(directory, "agent");
   process.env.PI_LEARNING_HARNESS_DIR = join(directory, "harness");
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
-  try {
     const harness = getLearningHarness();
     const course = await harness.publishCourseVersion("switch-course", [{
       name: "course.md", kind: "markdown", mediaType: "text/markdown", content: "# Switch\n\nGrounded evidence.",
     }], { createdAt: "2026-08-30T18:00:00.000Z" });
-    const started = await startRpcSession(`switch-${Date.now()}`, "", directory, { harnessCourseVersionId: course.courseVersionId });
+    let started = await startRpcSession(`switch-${Date.now()}`, "", directory, { harnessCourseVersionId: course.courseVersionId });
+    sessions.push(started.session);
     const bound = bindHarnessCourse(started.session.inner.sessionManager, course.courseVersionId);
     started.session.activateHarnessProfile(bound.snapshot);
-    const sessionId = started.realSessionId;
+    assert.deepEqual(started.session.inner.getActiveToolNames(), ["submit_grounded_answer", "subagent", "bg_wait", "subagent_supervisor", "ask_user", "codemode"]);
+    assertNativeSubagentProtocol(started.session);
+    await started.session.send({ type: "reload" });
+    assert.deepEqual(started.session.inner.getActiveToolNames(), ["submit_grounded_answer", "subagent", "bg_wait", "subagent_supervisor", "ask_user", "codemode"]);
+    const subagentSettingsPath = join(process.env.PI_CODING_AGENT_DIR, "agents", "settings.json");
+    writeBuiltInSubagentsEnabled(false, subagentSettingsPath);
+    await started.session.send({ type: "reload" });
+    assertNativeSubagentProtocol(started.session, false);
+    assert.deepEqual(started.session.inner.getActiveToolNames(), ["submit_grounded_answer", "ask_user", "codemode"]);
+    writeBuiltInSubagentsEnabled(true, subagentSettingsPath);
+    await started.session.send({ type: "reload" });
+    assert.deepEqual(started.session.inner.getActiveToolNames(), ["submit_grounded_answer", "subagent", "bg_wait", "subagent_supervisor", "ask_user", "codemode"]);
+    assertNativeSubagentProtocol(started.session);
 		materializeSessionJsonl(started.session.inner.sessionManager);
-    const sessionFile = started.session.sessionFile;
+    const sessionId = started.realSessionId;
+		const sessionFile = started.session.sessionFile;
 		assert.ok(sessionFile);
     const practice = harness.prepareProfileTransition({
       sessionId,
@@ -113,8 +147,10 @@ test("warm profile switch rebuilds one bound Pi session with a strict snapshot a
       throw error;
     }
     assert.equal(switched.sessionId, sessionId);
+    sessions.push(switched);
     assert.equal(switched.sessionFile, sessionFile);
-    assert.deepEqual(switched.inner.getActiveToolNames(), []);
+    assert.deepEqual(switched.inner.getActiveToolNames(), ["ask_user", "caw", "codemode"]);
+    assertNativeSubagentProtocol(switched, false);
     assert.equal(harness.findCurrentSession(sessionId)?.snapshot.profileId, "practice");
     assert.equal(harness.findCurrentSession(sessionId)?.binding.revision, 2);
 		const journalEntries = switched.inner.sessionManager.getEntries()
@@ -125,30 +161,22 @@ test("warm profile switch rebuilds one bound Pi session with a strict snapshot a
       /Profile selector instead of set_tools/,
     );
     await switched.shutdown();
-  } finally {
-    globalThis.__piLearningHarness?.close();
-    globalThis.__piLearningHarness = undefined;
-    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-    if (previousHarnessDir === undefined) delete process.env.PI_LEARNING_HARNESS_DIR;
-    else process.env.PI_LEARNING_HARNESS_DIR = previousHarnessDir;
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
-test("profile candidate failure aborts pending state and the transition lock rejects mutations", async () => {
+test("profile candidate failure aborts pending state and the transition lock rejects mutations", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "pi-web-rpc-profile-abort-"));
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-  const previousHarnessDir = process.env.PI_LEARNING_HARNESS_DIR;
+  const savedEnvironment = { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, PI_LEARNING_HARNESS_DIR: process.env.PI_LEARNING_HARNESS_DIR };
+  const sessions = [];
+  registerRpcTestCleanup(t, directory, savedEnvironment, sessions);
   process.env.PI_CODING_AGENT_DIR = join(directory, "agent");
   process.env.PI_LEARNING_HARNESS_DIR = join(directory, "harness");
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
-  try {
     const harness = getLearningHarness();
     const course = await harness.publishCourseVersion("abort-course", [{
       name: "course.md", kind: "markdown", mediaType: "text/markdown", content: "# Abort\n\nEvidence.",
     }], { createdAt: "2026-08-30T19:00:00.000Z" });
     const started = await startRpcSession(`abort-${Date.now()}`, "", directory, { harnessCourseVersionId: course.courseVersionId });
+    sessions.push(started.session);
     const bound = bindHarnessCourse(started.session.inner.sessionManager, course.courseVersionId);
     started.session.activateHarnessProfile(bound.snapshot);
     materializeSessionJsonl(started.session.inner.sessionManager);
@@ -183,15 +211,6 @@ test("profile candidate failure aborts pending state and the transition lock rej
     }).targetProfileId, "practice");
     harness.abortPreparedProfileTransition(started.realSessionId, "retry-after-candidate-failure", bound.snapshot.resourceSnapshotId);
     await started.session.shutdown();
-  } finally {
-    globalThis.__piLearningHarness?.close();
-    globalThis.__piLearningHarness = undefined;
-    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-    if (previousHarnessDir === undefined) delete process.env.PI_LEARNING_HARNESS_DIR;
-    else process.env.PI_LEARNING_HARNESS_DIR = previousHarnessDir;
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
 test("profile transition acquisition rejects a prompt already waiting for extension admission", async () => {
@@ -208,7 +227,7 @@ test("profile transition acquisition rejects a prompt already waiting for extens
     extensionRunner: { emit: async () => undefined },
     bindExtensions: async () => binding,
     agent: { state: {} },
-    prompt: async (_message, options) => { options.preflightResult?.(true); },
+    prompt: async (_message, options) => { options.preflightResult?.("started"); },
     dispose() {},
   });
   wrapper.start();
@@ -223,19 +242,20 @@ test("profile transition acquisition rejects a prompt already waiting for extens
   wrapper.destroy();
 });
 
-test("reopening a journal-ahead profile uses the reconciled snapshot allowlist in both directions", async () => {
+test("reopening a journal-ahead profile uses the reconciled snapshot allowlist in both directions", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "pi-web-rpc-profile-reopen-"));
-  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
-  const previousHarnessDir = process.env.PI_LEARNING_HARNESS_DIR;
+  const savedEnvironment = { PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR, PI_LEARNING_HARNESS_DIR: process.env.PI_LEARNING_HARNESS_DIR };
+  const sessions = [];
+  registerRpcTestCleanup(t, directory, savedEnvironment, sessions);
   process.env.PI_CODING_AGENT_DIR = join(directory, "agent");
   process.env.PI_LEARNING_HARNESS_DIR = join(directory, "harness");
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
-  try {
     let harness = getLearningHarness();
     const course = await harness.publishCourseVersion("reopen-course", [{
       name: "course.md", kind: "markdown", mediaType: "text/markdown", content: "# Reopen\n\nEvidence.",
     }], { createdAt: "2026-08-30T20:00:00.000Z" });
     let started = await startRpcSession(`reopen-${Date.now()}`, "", directory, { harnessCourseVersionId: course.courseVersionId });
+    sessions.push(started.session);
     const bound = bindHarnessCourse(started.session.inner.sessionManager, course.courseVersionId);
     started.session.activateHarnessProfile(bound.snapshot);
     materializeSessionJsonl(started.session.inner.sessionManager);
@@ -269,9 +289,11 @@ test("reopening a journal-ahead profile uses the reconciled snapshot allowlist i
     harness.close();
     globalThis.__piLearningHarness = undefined;
     started = await startRpcSession(sessionId, sessionFile, undefined);
+    sessions.push(started.session);
     harness = getLearningHarness();
     assert.equal(harness.findCurrentSession(sessionId)?.snapshot.profileId, "practice");
-    assert.deepEqual(started.session.inner.getActiveToolNames(), []);
+    assert.deepEqual(started.session.inner.getActiveToolNames(), ["ask_user", "caw", "codemode"]);
+    assertNativeSubagentProtocol(started.session, false);
 
     const learn = harness.prepareProfileTransition({
       sessionId, targetProfileId: "student-learn", expectedSnapshotId: practice.snapshot.resourceSnapshotId,
@@ -282,18 +304,11 @@ test("reopening a journal-ahead profile uses the reconciled snapshot allowlist i
     harness.close();
     globalThis.__piLearningHarness = undefined;
     started = await startRpcSession(sessionId, sessionFile, undefined);
+    sessions.push(started.session);
     assert.equal(getLearningHarness().findCurrentSession(sessionId)?.snapshot.profileId, "student-learn");
-    assert.deepEqual(started.session.inner.getActiveToolNames(), ["submit_grounded_answer"]);
+    assert.deepEqual(started.session.inner.getActiveToolNames(), ["submit_grounded_answer", "ask_user", "caw", "codemode"]);
+    assertNativeSubagentProtocol(started.session, false);
     await started.session.shutdown();
-  } finally {
-    globalThis.__piLearningHarness?.close();
-    globalThis.__piLearningHarness = undefined;
-    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
-    if (previousHarnessDir === undefined) delete process.env.PI_LEARNING_HARNESS_DIR;
-    else process.env.PI_LEARNING_HARNESS_DIR = previousHarnessDir;
-    await rm(directory, { recursive: true, force: true });
-  }
 });
 
 test("get_tools preserves the SDK tool definition fields", async () => {
@@ -317,32 +332,11 @@ test("RPC session startup preloads extension-registered providers before restori
   assert.doesNotMatch(startupSource, /await createAgentSession\(/);
 });
 
-test("built-in subagents persist their selected resource policy", async () => {
+test("obsolete child records remain readable without the old dispatcher", async () => {
   const source = await readFile(new URL("./rpc-manager-base.ts", import.meta.url), "utf8");
-  const subagentSource = await readFile(new URL("./subagent-runtime.ts", import.meta.url), "utf8");
-  const startupSource = source.slice(source.indexOf("export async function startRpcSession"));
-
-  assert.match(subagentSource, /SessionManager\.create\(parent\.cwd, undefined, \{ parentSession: parent\.sessionFile \}\)/);
-  assert.match(subagentSource, /appendCustomEntry\(SUBAGENT_META_TYPE/);
-  assert.match(subagentSource, /appendCustomEntry\(SUBAGENT_RESULT_TYPE/);
-  assert.match(subagentSource, /dependencies\.registerSession\(inner, \{/);
-  assert.match(subagentSource, /noExtensions: !profile\.loadExtensions/);
-  assert.match(subagentSource, /noSkills: !profile\.loadSkills/);
-  assert.match(subagentSource, /excludeTools: \[\.\.\.SUBAGENT_CONTROL_TOOL_NAMES\]/);
-  assert.match(subagentSource, /withSubagentExtensionTools\(profile\.tools, extensionToolNames\)/);
-  assert.match(subagentSource, /resourceSnapshot:/);
-  assert.match(startupSource, /readSubagentSessionResources\(/);
-  assert.match(startupSource, /resourceLoaderOptions: subagentResources/);
-  assert.match(startupSource, /appendSystemPrompt: subagentResources\.appendSystemPrompt/);
-  assert.match(startupSource, /noExtensions: !subagentResources\.loadExtensions/);
-  assert.match(startupSource, /noSkills: !subagentResources\.loadSkills/);
-  assert.match(startupSource, /excludeTools: \[\.\.\.SUBAGENT_CONTROL_TOOL_NAMES\]/);
-  assert.match(startupSource, /let toolsOption: string\[\] \| undefined = subagentResources\?\.tools/);
-  assert.match(source, /createSubagentController\(/);
-  assert.match(source, /suppressCompletionNotifications: true/);
-  assert.match(source, /suppressCompletionNotifications: Boolean\(subagentResources\)/);
-  assert.match(startupSource, /createSubagentExtension\([\s\S]*?SUBAGENT_CONTROLLER\.extensionRuntime,[\s\S]*?\(\) => listSubagentProfiles\(sessionCwd\),[\s\S]*?isBuiltInSubagentsEnabled/);
-  assert.match(startupSource, /preferPiWebSubagentExtension\(base\)/);
+  assert.match(source, /readSubagentSessionResources\(/);
+  assert.match(source, /createHostBaselineExtensions\(/);
+  assert.doesNotMatch(source, /createSubagentController|createSubagentExtension|listSubagentProfiles/);
 });
 
 test("running snapshots expose sessions with suppressed completion notifications", async () => {
@@ -599,7 +593,7 @@ test("session replacement rejects active work and clone writes one reopenable ch
     isBashRunning: false,
     prompt: (_message, options) => new Promise((resolve) => {
       finishPrompt = resolve;
-      options.preflightResult?.(true);
+      options.preflightResult?.("started");
     }),
     modelRuntime: {
       getModel: () => undefined,
@@ -698,7 +692,7 @@ test("cancelled session replacement releases its lock", async () => {
   }
 });
 
-test("clone cancels an assistant-free branch without creating a file", async () => {
+test("clone cancels an assistant-free branch without creating a child session", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-web-clone-empty-"));
   const sessionDir = join(root, "sessions");
   await mkdir(sessionDir);
@@ -719,11 +713,11 @@ test("clone cancels an assistant-free branch without creating a file", async () 
 
   try {
     assert.deepEqual(await wrapper.send({ type: "clone" }), { cancelled: true });
-    assert.equal((await SessionManager.list(root, sessionDir)).length, 0);
+    const sessions = await SessionManager.list(root, sessionDir);
+    assert.deepEqual(sessions.map((session) => session.id), [manager.getSessionId()]);
   } finally {
     wrapper.destroy();
-    await rmdir(sessionDir);
-    await rmdir(root);
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -759,7 +753,7 @@ test("the wrapper reapplies an exact prompt after SDK preflight", async () => {
     source.indexOf('case "abort"'),
   );
 
-  assert.match(promptSource, /preflightResult: \(success\) => \{[\s\S]*?this\.applyExactSystemPrompt\(\);[\s\S]*?acceptPreflight\(\)/);
+  assert.match(promptSource, /preflightResult: \(disposition\) => \{[\s\S]*?disposition === "started"[\s\S]*?this\.applyExactSystemPrompt\(\);[\s\S]*?acceptPreflight\(disposition\)/);
   assert.doesNotMatch(promptSource, /requestedToolNames/);
 });
 
@@ -807,7 +801,7 @@ test("normal sessions restore persisted tool selections before loading resources
   assert.ok(startupSource.indexOf("const chatOnly") < startupSource.indexOf("createAgentSessionServices("));
   assert.match(startupSource, /\.\.\.CHAT_ONLY_RESOURCE_LOADER_OPTIONS/);
   assert.match(startupSource, /const trustReloadOptions = subagentResources[\s\S]*?subagentLoadsResources[\s\S]*?projectTrustReloadOptions\(sessionCwd, agentDir\)/);
-  assert.match(registrationSource, /if \(!wrapper\.isChatOnly\(\)\) wrapper\.beginExtensionBinding\(\)/);
+  assert.match(registrationSource, /if \(!wrapper\.isChatOnly\(\) \|\| wrapper\.isCourseBound\(\)\) wrapper\.beginExtensionBinding\(\)/);
 });
 
 test("crossing the Chat-only boundary persists and rebuilds the wrapper", async () => {

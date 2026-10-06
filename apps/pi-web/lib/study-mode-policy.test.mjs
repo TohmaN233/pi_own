@@ -14,7 +14,7 @@ function fixture(draft) {
     kind: component.type === "plugin" ? "extension" : component.type,
     id: component.id, version: "1", contentHash: "sha256:test-resource",
   }));
-  const catalog = new ResourceCatalog(resources);
+  const catalog = new ResourceCatalog([...resources, ...["codemode", "tool_search"].map((id) => ({ kind: "tool", id, version: "1", contentHash: "sha256:test-tool" }))]);
   const pack = compileModePackDraft(draft, catalog);
   const snapshot = resolveModePackSnapshot({ pack, catalog, courseVersionId: null, createdAt: "2026-09-12T00:00:00Z" });
   return { snapshot, catalog, pack };
@@ -25,6 +25,8 @@ test("both phase snapshots retain required learning resources and no raw tools",
     const { snapshot } = fixture(draft);
     assert.doesNotThrow(() => assertStudyModeBoundary(snapshot));
     assert.equal(snapshot.courseVersionId, null);
+    assert.deepEqual(snapshot.tools, ["codemode"]);
+    assert.doesNotThrow(() => assertStudyModeBoundary(reviseModePackSettings(snapshot, { tools: ["tool_search"] }, fixture(draft).catalog)));
   }
 });
 

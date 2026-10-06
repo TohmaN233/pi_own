@@ -1,6 +1,8 @@
 import {
   createBashToolDefinition,
   createLocalBashOperations,
+  createLocalPowerShellOperations,
+  createPowerShellToolDefinition,
   getAgentDir,
   type BashOperations,
   type InlineExtension,
@@ -10,6 +12,7 @@ import { join } from "node:path";
 
 const HOST_EXTENSION_NAME = "pi-web-project-command-environment";
 const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
+const HOST_POWERSHELL_EXTENSION_NAME = "pi-web-project-command-environment-powershell";
 
 type ProjectShellSettings = {
   getShellCommandPrefix(): string | undefined;
@@ -18,6 +21,7 @@ type ProjectShellSettings = {
 
 type ProjectCommandBashOperationsOptions = {
   agentBinDir?: string;
+  runtimeBinDirs?: string[];
   baseEnvironment?: NodeJS.ProcessEnv;
   localOperations?: BashOperations;
   platform?: NodeJS.Platform;
@@ -42,9 +46,9 @@ export function sanitizeProjectCommandEnvironment(
   return environment;
 }
 
-function withAgentBinDirectory(
+function withBinDirectories(
   environment: NodeJS.ProcessEnv,
-  agentBinDir: string,
+  binDirectories: readonly string[],
   platform: NodeJS.Platform,
 ): NodeJS.ProcessEnv {
   const pathKey = platform === "win32"
@@ -53,8 +57,9 @@ function withAgentBinDirectory(
   const pathDelimiter = platform === "win32" ? ";" : ":";
   const currentPath = environment[pathKey] ?? "";
   const pathEntries = currentPath.split(pathDelimiter).filter(Boolean);
-  if (!pathEntries.includes(agentBinDir)) {
-    environment[pathKey] = [agentBinDir, currentPath].filter(Boolean).join(pathDelimiter);
+  const additions = binDirectories.filter((directory) => !pathEntries.includes(directory));
+  if (additions.length) {
+    environment[pathKey] = [...additions, currentPath].filter(Boolean).join(pathDelimiter);
   }
   return environment;
 }
@@ -64,6 +69,7 @@ export function createProjectCommandBashOperations(
 ): BashOperations {
   const {
     agentBinDir = join(getAgentDir(), "bin"),
+    runtimeBinDirs = [],
     baseEnvironment = process.env,
     localOperations = createLocalBashOperations({ shellPath: options.shellPath }),
     platform = process.platform,
@@ -71,9 +77,9 @@ export function createProjectCommandBashOperations(
 
   return {
     exec(command, cwd, executionOptions) {
-      const environment = withAgentBinDirectory(
+      const environment = withBinDirectories(
         sanitizeProjectCommandEnvironment(executionOptions.env ?? baseEnvironment, platform),
-        agentBinDir,
+        [agentBinDir, ...runtimeBinDirs],
         platform,
       );
       return localOperations.exec(command, cwd, {
@@ -84,9 +90,36 @@ export function createProjectCommandBashOperations(
   };
 }
 
+/** PowerShell receives the identical command-local environment as Bash. The
+ * private runtime bin path is supplied only to the spawned command, never by
+ * mutating the web host's process environment. */
+export function createProjectCommandPowerShellOperations(
+  options: ProjectCommandBashOperationsOptions = {},
+): BashOperations {
+  const {
+    agentBinDir = join(getAgentDir(), "bin"),
+    runtimeBinDirs = [],
+    baseEnvironment = process.env,
+    localOperations = createLocalPowerShellOperations(),
+    platform = process.platform,
+  } = options;
+
+  return {
+    exec(command, cwd, executionOptions) {
+      const environment = withBinDirectories(
+        sanitizeProjectCommandEnvironment(executionOptions.env ?? baseEnvironment, platform),
+        [agentBinDir, ...runtimeBinDirs],
+        platform,
+      );
+      return localOperations.exec(command, cwd, { ...executionOptions, env: environment });
+    },
+  };
+}
+
 export function createProjectCommandBashExtension(options: {
   cwd: string;
   settings: ProjectShellSettings;
+  runtimeBinDirs?: string[];
 }): InlineExtension {
   return {
     name: HOST_EXTENSION_NAME,
@@ -100,6 +133,7 @@ export function createProjectCommandBashExtension(options: {
             commandPrefix: options.settings.getShellCommandPrefix(),
             operations: createProjectCommandBashOperations({
               shellPath: options.settings.getShellPath(),
+              runtimeBinDirs: options.runtimeBinDirs,
             }),
           });
           return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
@@ -107,6 +141,48 @@ export function createProjectCommandBashExtension(options: {
       });
     },
   };
+}
+
+/** Register PowerShell only when a selected portable runtime contributes a
+ * private executable directory. General and education sessions retain their
+ * native shell selection unchanged. It is deliberately separate from Bash:
+ * a user Bash override must not discard this unrelated private CLI bridge. */
+export function createProjectCommandPowerShellExtension(options: {
+  cwd: string;
+  runtimeBinDirs: string[];
+}): InlineExtension | null {
+  if (options.runtimeBinDirs.length === 0) return null;
+  return {
+    name: HOST_POWERSHELL_EXTENSION_NAME,
+    hidden: true,
+    factory: (pi) => {
+      const powerShellDefinition = createPowerShellToolDefinition(options.cwd);
+      pi.registerTool({
+        ...powerShellDefinition,
+        execute(toolCallId, params, signal, onUpdate, context) {
+          const executionDefinition = createPowerShellToolDefinition(options.cwd, {
+            operations: createProjectCommandPowerShellOperations({
+              runtimeBinDirs: options.runtimeBinDirs,
+            }),
+          });
+          return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
+        },
+      });
+    },
+  };
+}
+
+export function createProjectCommandExtensions(options: {
+  cwd: string;
+  settings: ProjectShellSettings;
+  runtimeBinDirs?: string[];
+}): InlineExtension[] {
+  const runtimeBinDirs = options.runtimeBinDirs ?? [];
+  const powershell = createProjectCommandPowerShellExtension({ cwd: options.cwd, runtimeBinDirs });
+  return [
+    createProjectCommandBashExtension({ ...options, runtimeBinDirs }),
+    ...(powershell ? [powershell] : []),
+  ];
 }
 
 export function preferUserBashExtension(base: LoadExtensionsResult): LoadExtensionsResult {

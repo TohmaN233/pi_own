@@ -9,8 +9,10 @@ import { contentHash } from "../../../packages/harness-core/src/index.ts";
 import { startStudyReading, studyReadingState } from "./study-reading-service";
 import { searchExternalStudyReferences } from "./study-external-references";
 import { readStudyResultField } from "./study-result-reading";
+import { registerStudyWorkflowExtension } from "./study-workflow-extension";
 
 export default function studyResearchExtension(pi: ExtensionAPI) {
+  registerStudyWorkflowExtension(pi);
   pi.registerTool({
     name: "study_paper",
     label: "论文学习",

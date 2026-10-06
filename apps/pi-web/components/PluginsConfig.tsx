@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
-import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import { notifySessionConfiguration } from "@/lib/session-configuration-events";
+import type { HostPluginInfo, ModePluginInfo, PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
   getLastSettingsSelection,
@@ -46,6 +47,18 @@ function normalizePluginSourceInput(value: string): string {
 
 function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
   return `${pkg.scope}\0${pkg.source}`;
+}
+
+function modePluginKey(plugin: ModePluginInfo): string {
+  return `mode\0${plugin.modePackId}\0${plugin.id}`;
+}
+
+function modePluginLabel(plugin: ModePluginInfo): string {
+  return plugin.id.startsWith("code.extension.") ? plugin.id.slice("code.extension.".length) : plugin.id;
+}
+
+function hostPluginKey(plugin: HostPluginInfo): string {
+  return `host\0${plugin.id}`;
 }
 
 function resourceSummary(pkg: PluginPackageInfo, t: ReturnType<typeof useI18n>["t"]): string {
@@ -498,7 +511,7 @@ function PackageDetail({
             onClick={() => onAction("remove", pkg)}
             disabled={busy || reloadBusy}
           >
-             {busyKey === `remove:${key}` ? t("i18n.removing") : t("i18n.remove")}
+             {busyKey === `remove:${key}` ? t("i18n.removing") : "删除文件"}
           </ConfigButton>
           <ConfigSwitch
             checked={enabled}
@@ -563,6 +576,56 @@ function PackageDetail({
   );
 }
 
+function ModePluginDetail({ plugin, sessionId, busy, onDelete }: { plugin: ModePluginInfo; sessionId: string | null; busy: boolean; onDelete: () => void }) {
+  const { t } = useI18n();
+  return (
+    <ConfigDetailStack>
+      <ConfigDetailHeader className="is-top-aligned">
+        <ConfigDetailHeaderInfo>
+          <ConfigDetailTitle>{modePluginLabel(plugin)}</ConfigDetailTitle>
+        </ConfigDetailHeaderInfo>
+      </ConfigDetailHeader>
+      <div style={{ display: "grid", gridTemplateColumns: "110px minmax(0, 1fr)", gap: "9px 14px", fontSize: 12 }}>
+        <span style={{ color: "var(--text-dim)" }}>{t("i18n.mode")}</span><span>{plugin.modeTitle}</span>
+        <span style={{ color: "var(--text-dim)" }}>{t("i18n.packageSelection")}</span>
+        <span style={{ color: plugin.enabled ? "var(--accent)" : "var(--text-dim)" }}>
+          {plugin.enabled ? t("i18n.selectedAutoInstall") : t("i18n.notEnabled")}
+        </span>
+        <span style={{ color: "var(--text-dim)" }}>{t("i18n.dependency")}</span><span>{plugin.required ? t("i18n.required") : t("i18n.optional")}</span>
+        <span style={{ color: "var(--text-dim)" }}>{t("i18n.pluginSource")}</span>
+        <span style={{ fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>{plugin.source}</span>
+        {plugin.version && <><span style={{ color: "var(--text-dim)" }}>{t("i18n.version")}</span><span>{plugin.version}</span></>}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+        {t("i18n.modePluginHelp")}
+      </div>
+      <a href={`/mode-packs?${sessionId ? `sessionId=${encodeURIComponent(sessionId)}&` : ""}editModePackId=${encodeURIComponent(plugin.modePackId)}`}
+        style={{ color: "var(--accent)", fontSize: 12 }}>{t("i18n.editModePack")}</a>
+      <ConfigButton disabled={busy} onClick={onDelete} style={{ color: "#f87171" }}>删除插件文件及模式引用</ConfigButton>
+    </ConfigDetailStack>
+  );
+}
+
+function HostPluginDetail({ plugin, busy, onAction }: { plugin: HostPluginInfo; busy: boolean; onAction: (action: "install" | "remove" | "enable" | "disable") => void }) {
+  const { t } = useI18n();
+  return <ConfigDetailStack>
+    <ConfigDetailTitle>{plugin.id}</ConfigDetailTitle>
+    <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+      <div>{t("i18n.hostPluginScope", { source: plugin.source })}</div>
+      <div>{t("i18n.status")}：{plugin.installed ? t("i18n.hostPluginInstalled", { version: plugin.version ?? "" }) : t("i18n.hostPluginMissing")}</div>
+      <div style={{ color: "var(--text-dim)", overflowWrap: "anywhere" }}>{plugin.installedPath}</div>
+      <div>默认基底插件；关闭保留文件，删除会卸载实际安装。</div>
+      {plugin.id === "pi-caw" && <div>备课模式默认开启。对话中输入 /caw 打开 Workflow 工作台；Main 使用当前对话，子节点的模型与思考等级在工作台配置。</div>}
+    </div>
+    <ConfigDetailActions>
+      {plugin.installed ? <>
+        <ConfigButton disabled={busy} onClick={() => onAction(plugin.enabled ? "disable" : "enable")}>{plugin.enabled ? "关闭" : "开启"}</ConfigButton>
+        <ConfigButton disabled={busy} onClick={() => onAction("remove")} style={{ color: "#f87171" }}>删除文件</ConfigButton>
+      </> : <ConfigButton disabled={busy} onClick={() => onAction("install")}>重新安装</ConfigButton>}
+    </ConfigDetailActions>
+  </ConfigDetailStack>;
+}
+
 export function PluginsConfig({
   cwd,
   sessionId,
@@ -589,7 +652,11 @@ export function PluginsConfig({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
+  const modePlugins = useMemo(() => data?.modePlugins ?? [], [data?.modePlugins]);
+  const hostPlugins = useMemo(() => data?.hostPlugins ?? [], [data?.hostPlugins]);
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
+  const selectedModePlugin = modePlugins.find((plugin) => modePluginKey(plugin) === selected) ?? null;
+  const selectedHostPlugin = hostPlugins.find((plugin) => hostPluginKey(plugin) === selected) ?? null;
   const projectResourcesLoaded = data?.projectResourcesLoaded ?? true;
 
   const groupedPackages = useMemo(() => {
@@ -606,10 +673,14 @@ export function PluginsConfig({
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
-      setAddMode((current) => next.packages.length === 0 || current);
+      setAddMode((current) => (next.packages.length === 0 && next.modePlugins.length === 0 && next.hostPlugins.length === 0) || current);
       setSelected((current) => {
-        if (current && next.packages.some((pkg) => packageKey(pkg) === current)) return current;
-        return next.packages[0] ? packageKey(next.packages[0]) : null;
+        if (current && (next.packages.some((pkg) => packageKey(pkg) === current)
+          || next.modePlugins.some((plugin) => modePluginKey(plugin) === current)
+          || next.hostPlugins.some((plugin) => hostPluginKey(plugin) === current))) return current;
+        return next.hostPlugins[0] ? hostPluginKey(next.hostPlugins[0])
+          : next.modePlugins[0] ? modePluginKey(next.modePlugins[0])
+          : next.packages[0] ? packageKey(next.packages[0]) : null;
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -627,6 +698,7 @@ export function PluginsConfig({
   }, [cwd, selected]);
 
   const runAction = useCallback(async (action: PluginAction, pkg: PluginPackageInfo) => {
+    if (action === "remove" && !window.confirm(`删除插件安装目录及其模式引用？\n${pkg.installedPath ?? pkg.source}\n文件会从磁盘删除。`)) return;
     const key = packageKey(pkg);
     setBusyKey(`${action}:${key}`);
     setActionError(null);
@@ -643,7 +715,7 @@ export function PluginsConfig({
       if (action === "remove") {
         setSelected(next.packages[0] ? packageKey(next.packages[0]) : null);
         if (next.packages.length === 0) setAddMode(true);
-        setActionMessage("Package removed.");
+        setActionMessage("插件安装文件已删除。");
       } else {
         const messages: Record<Exclude<PluginAction, "remove">, string> = {
           install: "Package installed.",
@@ -653,12 +725,29 @@ export function PluginsConfig({
         };
         setActionMessage(messages[action]);
       }
+      if (sessionId) { notifySessionConfiguration(sessionId); await sendAgentCommand(sessionId, { type: "reload" }); onReloaded?.(); }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusyKey(null);
     }
-  }, [cwd]);
+  }, [cwd, sessionId, onReloaded]);
+
+  const runOwnedAction = useCallback(async (action: string, id: string, modePackId?: string, installedPath?: string) => {
+    if ((action === "host-remove" || action === "mode-delete") && !window.confirm(`删除 ${id} 的安装文件及模式引用？${installedPath ? `\n${installedPath}` : ""}\n文件会从磁盘删除。`)) return;
+    setBusyKey(`${action}:${id}`);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const res = await fetch("/api/plugins", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, id, modePackId, cwd }) });
+      const result = await res.json() as PluginsResponse & { error?: string };
+      if (!res.ok || result.error) throw new Error(result.error ?? `HTTP ${res.status}`);
+      setData(result);
+      setActionMessage(action === "host-remove" || action === "mode-delete" ? "插件安装文件已删除。" : "插件设置已更新。");
+      if (sessionId) { notifySessionConfiguration(sessionId); await sendAgentCommand(sessionId, { type: "reload" }); onReloaded?.(); }
+    } catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
+    finally { setBusyKey(null); }
+  }, [cwd, sessionId, onReloaded]);
 
   const installPlugin = useCallback(async () => {
     const source = normalizePluginSourceInput(installSource).trim();
@@ -728,12 +817,33 @@ export function PluginsConfig({
                 <div className="config-sidebar-message is-error">
                   {error}
                 </div>
-              ) : packages.length === 0 ? (
+              ) : packages.length === 0 && modePlugins.length === 0 && hostPlugins.length === 0 ? (
                 <div className="config-sidebar-message is-empty">
                   No plugins configured
                 </div>
               ) : (
-                groupedPackages.map((group) => (
+                <>
+                {hostPlugins.length > 0 && <div className="config-sidebar-group">
+                  <ConfigSidebarGroupLabel>{t("i18n.hostExtensions")}</ConfigSidebarGroupLabel>
+                  {hostPlugins.map((plugin) => <ConfigSidebarItem key={hostPluginKey(plugin)}
+                    active={!addMode && selected === hostPluginKey(plugin)}
+                    onClick={() => { setSelected(hostPluginKey(plugin)); setAddMode(false); setActionError(null); setActionMessage(null); }}>
+                    <ConfigStatusDot active={plugin.installed} color={plugin.installed ? "var(--accent)" : "#ef4444"} />
+                    <ConfigSidebarText className="is-grow">{plugin.id}</ConfigSidebarText>
+                  </ConfigSidebarItem>)}
+                </div>}
+                {modePlugins.length > 0 && <div className="config-sidebar-group">
+                  <ConfigSidebarGroupLabel>{t("i18n.modeExtensions")}</ConfigSidebarGroupLabel>
+                  {modePlugins.map((plugin) => <ConfigSidebarItem key={modePluginKey(plugin)}
+                    active={!addMode && selected === modePluginKey(plugin)}
+                    onClick={() => { setSelected(modePluginKey(plugin)); setAddMode(false); setActionError(null); setActionMessage(null); }}>
+                    <ConfigStatusDot active={plugin.enabled} color={plugin.enabled ? "var(--accent)" : "var(--text-dim)"} />
+                    <ConfigSidebarText className={`is-grow${plugin.enabled ? "" : " is-muted"}`}>
+                      {modePluginLabel(plugin)} <span style={{ color: "var(--text-dim)", fontSize: 10 }}>· {plugin.modeTitle}</span>
+                    </ConfigSidebarText>
+                  </ConfigSidebarItem>)}
+                </div>}
+                {groupedPackages.map((group) => (
                   <div key={group.scope} className="config-sidebar-group">
                     <ConfigSidebarGroupLabel>
                       {group.scope}
@@ -760,7 +870,8 @@ export function PluginsConfig({
                       );
                     })}
                   </div>
-                ))
+                ))}
+                </>
               )}
             </ConfigSidebarList>
             <ConfigListAction
@@ -789,7 +900,11 @@ export function PluginsConfig({
                 onScopeChange={setInstallScope}
                 onInstall={installPlugin}
               />
-            ) : loading ? null : selectedPackage ? (
+            ) : loading ? null : selectedHostPlugin ? (
+              <HostPluginDetail plugin={selectedHostPlugin} busy={busyKey !== null} onAction={action => void runOwnedAction(`host-${action}`, selectedHostPlugin.id, undefined, selectedHostPlugin.installedPath)} />
+            ) : selectedModePlugin ? (
+              <ModePluginDetail plugin={selectedModePlugin} sessionId={sessionId} busy={busyKey !== null} onDelete={() => void runOwnedAction("mode-delete", selectedModePlugin.id, selectedModePlugin.modePackId)} />
+            ) : selectedPackage ? (
               <PackageDetail
                 key={packageKey(selectedPackage)}
                 pkg={selectedPackage}
@@ -818,7 +933,7 @@ export function PluginsConfig({
               </span>
             ) : (
               <span>
-                {data ? `${data.totals.extensions} ext · ${data.totals.skills} skills · ${data.totals.prompts} prompts · ${data.totals.themes} themes` : ""}
+                {data ? `Pi: ${data.totals.extensions} ext · ${data.totals.skills} skills · ${data.modePlugins.filter((plugin) => plugin.enabled).length} ${t("i18n.modeExtensions")} · ${data.hostPlugins.filter((plugin) => plugin.installed).length} ${t("i18n.hostExtensions")}` : ""}
               </span>
             )}
         >

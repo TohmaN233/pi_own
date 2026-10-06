@@ -59,6 +59,7 @@ jobs:
         if: ${{ !cancelled() && steps.web_install.outcome == 'success' }}
         run: |
           cd apps/pi-web
+          npm run prepare:runtime
           node --test \
             lib/mode-pack-inventory.test.mjs \
             lib/mode-pack-store.test.mjs \

@@ -5,12 +5,12 @@ import { describe, expect, it } from "vitest";
 import type { Api, Context, Model, Tool, ToolResultMessage } from "../src/compat.ts";
 import { complete, getModel } from "../src/compat.ts";
 import type { StreamOptions } from "../src/types.ts";
-import { getTogetherTestModel } from "./together-test-model.ts";
 
 type StreamOptionsWithExtras = StreamOptions & Record<string, unknown>;
 
 import { hasAzureOpenAICredentials, resolveAzureDeploymentName } from "./azure-utils.ts";
 import { hasBedrockCredentials } from "./bedrock-utils.ts";
+import { findCurrentOpenAICompletionsModel, requireCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Resolve OAuth tokens at module level (async, runs before tests)
@@ -299,18 +299,25 @@ describe("Tool Results with Images", () => {
 		});
 	});
 
-	describe.skipIf(!process.env.TOGETHER_API_KEY)("Together AI Provider (current reasoning/vision model)", () => {
-		const llm = getTogetherTestModel();
-		const options = { reasoningEffort: "high" } satisfies StreamOptionsWithExtras;
-
-		it("should handle tool result with only image", { retry: 3, timeout: 30000 }, async () => {
-			await handleToolWithImageResult(llm, options);
-		});
-
-		it("should handle tool result with text and image", { retry: 3, timeout: 30000 }, async () => {
-			await handleToolWithTextAndImageResult(llm, options);
-		});
+	const togetherImageModel = findCurrentOpenAICompletionsModel("together", {
+		inputs: ["image"],
+		reasoningLevel: "high",
 	});
+	describe.skipIf(!process.env.TOGETHER_API_KEY || !togetherImageModel)(
+		"Together AI Provider Image Tool Results",
+		() => {
+			const llm = () => requireCurrentOpenAICompletionsModel(togetherImageModel, "together");
+			const options = { reasoningEffort: "high" } satisfies StreamOptionsWithExtras;
+
+			it("should handle tool result with only image", { retry: 3, timeout: 30000 }, async () => {
+				await handleToolWithImageResult(llm(), options);
+			});
+
+			it("should handle tool result with text and image", { retry: 3, timeout: 30000 }, async () => {
+				await handleToolWithTextAndImageResult(llm(), options);
+			});
+		},
+	);
 
 	describe.skipIf(!process.env.BASETEN_API_KEY)("Baseten Provider (Kimi-K2.6)", () => {
 		const llm = getModel("baseten", "moonshotai/Kimi-K2.6");

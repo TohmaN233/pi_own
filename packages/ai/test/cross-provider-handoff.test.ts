@@ -29,6 +29,7 @@ import { completeSimple, getEnvApiKey, getModel } from "../src/compat.ts";
 import type { Api, AssistantMessage, Message, Model, Tool, ToolResultMessage } from "../src/types.ts";
 import { hasAzureOpenAICredentials } from "./azure-utils.ts";
 import { hasCloudflareAiGatewayCredentials, hasCloudflareWorkersAICredentials } from "./cloudflare-utils.ts";
+import { findCurrentOpenAICompletionsModel } from "./live-model-selection.ts";
 import { resolveApiKey } from "./oauth.ts";
 
 // Simple tool for testing
@@ -45,12 +46,13 @@ const testTool: Tool<typeof testToolSchema> = {
 // Provider/model pairs to test
 interface ProviderModelPair {
 	provider: string;
-	model: string;
+	model: string | undefined;
 	label: string;
 	apiOverride?: Api;
 	upstreamApiKeyEnv?: string;
 }
 
+const currentTogetherModel = findCurrentOpenAICompletionsModel("together", { reasoningLevel: "high" });
 const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 	// Anthropic
 	{ provider: "anthropic", model: "claude-sonnet-4-5", label: "anthropic-claude-sonnet-4-5" },
@@ -107,7 +109,7 @@ const PROVIDER_MODEL_PAIRS: ProviderModelPair[] = [
 	// Hugging Face
 	{ provider: "huggingface", model: "moonshotai/Kimi-K2.5", label: "huggingface-kimi-k2.5" },
 	// Together AI
-	{ provider: "together", model: "moonshotai/Kimi-K2.6", label: "together-kimi-k2.6" },
+	{ provider: "together", model: currentTogetherModel?.id, label: "together-current-completions" },
 	// Baseten
 	{ provider: "baseten", model: "zai-org/GLM-5.2", label: "baseten-glm-5.2" },
 	// Kimi For Coding
@@ -198,7 +200,7 @@ function getHeaders(pair: ProviderModelPair): Record<string, string> | undefined
  * Check if any provider has API keys available (for skipIf at describe level)
  */
 function hasAnyApiKey(): boolean {
-	return PROVIDER_MODEL_PAIRS.some((pair) => hasApiKey(pair));
+	return PROVIDER_MODEL_PAIRS.some((pair) => pair.model !== undefined && hasApiKey(pair));
 }
 
 function dumpFailurePayload(params: { label: string; error: string; payload?: unknown; messages: Message[] }): void {
@@ -220,7 +222,8 @@ function dumpFailurePayload(params: { label: string; error: string; payload?: un
 async function generateContext(
 	pair: ProviderModelPair,
 	apiKey: string,
-): Promise<{ messages: Message[]; api: Api } | null> {
+): Promise<{ messages: Message[]; api: Api; model: string } | null> {
+	if (!pair.model) return null;
 	const baseModel = (getModel as (p: string, m: string) => Model<Api> | undefined)(pair.provider, pair.model);
 	if (!baseModel) {
 		console.log(`  Model not found: ${pair.provider}/${pair.model}`);
@@ -285,6 +288,7 @@ async function generateContext(
 		return {
 			messages: [userMessage, assistantResponse],
 			api: model.api,
+			model: model.id,
 		};
 	}
 
@@ -344,6 +348,7 @@ async function generateContext(
 	return {
 		messages: [userMessage, assistantResponse, toolResult, finalResponse],
 		api: model.api,
+		model: model.id,
 	};
 }
 
@@ -363,6 +368,10 @@ describe.skipIf(!hasAnyApiKey())("Cross-Provider Handoff", () => {
 				console.log(`[${pair.label}] Skipping - no auth for ${pair.provider}`);
 				continue;
 			}
+			if (!pair.model) {
+				console.log(`[${pair.label}] Skipping - no suitable current catalog model for ${pair.provider}`);
+				continue;
+			}
 
 			console.log(`[${pair.label}] Generating fixture...`);
 			const result = await generateContext(pair, apiKey);
@@ -375,7 +384,7 @@ describe.skipIf(!hasAnyApiKey())("Cross-Provider Handoff", () => {
 			contexts[pair.label] = {
 				label: pair.label,
 				provider: pair.provider,
-				model: pair.model,
+				model: result.model,
 				api: result.api,
 				messages: result.messages,
 				generatedAt: new Date().toISOString(),
@@ -433,6 +442,10 @@ describe.skipIf(!hasAnyApiKey())("Cross-Provider Handoff", () => {
 						timestamp: Date.now(),
 					},
 				];
+				if (!targetPair.model) {
+					console.log(`[Target: ${targetPair.label}] Skipping - no suitable current catalog model`);
+					continue;
+				}
 
 				const baseModel = (getModel as (p: string, m: string) => Model<Api> | undefined)(
 					targetPair.provider,

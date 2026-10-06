@@ -1,0 +1,11 @@
+{
+  "package": "pi-caw",
+  "version": "0.2.31",
+  "source": "pi-caw-0.2.30 plus installed Host result-staging, Run-directory repairs and same-process Workflow writer serialization; source included in installationArchive",
+  "installationArchive": "apps/pi-web/host-plugins/pi-caw-0.2.31.tgz",
+  "archiveSha256": "6234e098fa96c334d335d0a884df4631d66eea0fc77569784f211ed920e80397",
+  "integrity": "sha512-EuIr1KHNudGSPaW9R4Zt7t22pQJO3y+8OVsAv/jafap6wHXS1y1BV9iVVkR3W3nhTXQ7W0fCorJ5oPp46fj9zg==",
+  "skill": "skills/pi-caw/SKILL.md",
+  "skillSha256": "992a1e8d3a248d7b3fa7e6a94cfa3d9d470842f526b229ca17d479668ce7a8e2",
+  "defaultMode": "course-builder"
+}

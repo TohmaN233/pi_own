@@ -4,8 +4,10 @@ import { HARNESS_CONTRACT_VERSION, type AnswerClaim, type AnswerDraft, type Grou
 import type { ExtensionAPI, InlineExtension } from "@earendil-works/pi-coding-agent";
 import { deterministicId } from "../../../packages/harness-core/src/index.ts";
 import { getLearningHarness } from "./harness-server";
+import { SUBAGENT_CONTROL_TOOL_NAMES } from "./subagents";
 
 const CANONICAL_MARKER = "<!-- learning-harness:published ";
+const COURSE_DELEGATION_TOOLS = new Set<string>(SUBAGENT_CONTROL_TOOL_NAMES);
 
 type GroundedRun = {
   runId: string;
@@ -241,13 +243,13 @@ export function createLearningHarnessExtension(
       });
 
       pi.on("tool_call", (event) => {
-        if (!gate.isActive() || event.toolName === "submit_grounded_answer") return;
+        if (!gate.isActive() || event.toolName === "submit_grounded_answer" || COURSE_DELEGATION_TOOLS.has(event.toolName)) return;
         console.error("[learning-harness] blocked non-publication tool during grounded run", {
           sessionId: resolveSessionId(),
           runId: gate.current()?.runId,
           toolName: event.toolName,
         });
-        return { block: true, reason: "Only submit_grounded_answer may run during a course-grounded answer." };
+        return { block: true, reason: "Only course publication and subagent protocol tools may run during a course-grounded answer." };
       });
 
       pi.registerTool({
@@ -284,14 +286,15 @@ export function createLearningHarnessExtension(
 
       pi.on("message_end", (event) => {
         const run = gate.current();
-        if (!run || !isRecord(event.message) || event.message.role !== "assistant") return;
-        if (hasSubmitToolCall(event.message)) {
-          return { message: gate.enforceFinalMessage(event.message) as typeof event.message };
+        const message: unknown = event.message;
+        if (!run || !isRecord(message) || message.role !== "assistant") return;
+        if (hasSubmitToolCall(message)) {
+          return { message: gate.enforceFinalMessage(message) as typeof event.message };
         }
-        if (!run.staged) return { message: gate.enforceFinalMessage(event.message) as typeof event.message };
+        if (!run.staged) return { message: gate.enforceFinalMessage(message) as typeof event.message };
         try {
           run.published = dependencies.publishCurrentGroundedAnswer(run.sessionId, run.staged);
-          return { message: replaceContentInPlace(event.message, canonicalMarkdown(run.published, run.sessionId)) as typeof event.message };
+          return { message: replaceContentInPlace(message, canonicalMarkdown(run.published, run.sessionId)) as typeof event.message };
         } catch (error) {
           run.failure = formatIssues(error);
           console.error("[learning-harness] grounded publication failed", {

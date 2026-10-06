@@ -608,6 +608,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const selectedThinkingLevel = thinkingLevelOverrideRef.current;
       if (selectedModel) setPendingModel(selectedModel);
       const toolNames = getToolNamesForPreset(toolPreset);
+      if (toolNames.length > 0) toolNames.push("codemode");
       const res = await fetch("/api/agent/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1768,7 +1769,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [isNew]);
 
   const handleToolPresetChange = useCallback(async (preset: ToolPreset) => {
-    const toolNames = getToolNamesForPreset(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) {
       setPreferredToolPreset(preset);
@@ -1776,6 +1776,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       return;
     }
     try {
+      const currentTools = await sendAgentCommand<ToolEntry[]>(sid, { type: "get_tools" });
+      const toolNames = getToolNamesForPreset(preset);
+      if (toolNames.length > 0) toolNames.push(...currentTools.filter((tool) => tool.active && (tool.name === "codemode" || tool.name === "tool_search")).map((tool) => tool.name));
       const result = await sendAgentCommand<{ sessionId?: string; recreated?: boolean }>(sid, { type: "set_tools", toolNames });
       const activeSessionId = result?.sessionId ?? sid;
       if (activeSessionId !== sid) {

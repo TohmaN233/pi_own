@@ -41,7 +41,7 @@ const BUILTIN_SKILL_FOLDERS: Readonly<Record<string, string>> = Object.freeze({
 	"education.learn-by-doing": "learn-by-doing",
 	"shared.personal-skill-builder": "personal-skill-builder",
 	"education.visual-explanation": "visual-explanation",
-	"teacher.course-planning-beamer": "course-planning-beamer",
+	"pi-caw": "pi-caw",
 });
 
 export function localModeSkillsDirectory(): string {
@@ -55,7 +55,12 @@ export function localModeSkillsDirectory(): string {
 		resolve(moduleDirectory, "../../../skills"),
 		resolve(process.cwd(), "skills"),
 		resolve(process.cwd(), "../../skills"),
-	].find((candidate) => existsSync(resolve(candidate, "course-planning-beamer/SKILL.md")));
+	].find(
+		(candidate) =>
+			existsSync(resolve(candidate, ".skills-lock.json")) ||
+			existsSync(resolve(candidate, "lesson-blueprint/SKILL.md")) ||
+			existsSync(resolve(candidate, ".deleted-skills.json")),
+	);
 	if (!directory) throw new Error("Pi local Skills directory could not be located");
 	return directory;
 }
@@ -73,6 +78,19 @@ function skillResource(id: string): BuiltinModeResource {
 	const text = readFileSync(path, "utf8");
 	if (!text.trim()) throw new Error(`Required built-in Mode Pack Skill is empty: ${path}`);
 	return resource("skill", id, [text]);
+}
+
+/** User uninstall is an explicit catalog change; accidental missing files still fail. */
+export function isBuiltinModeSkillDeleted(id: string): boolean {
+	const folder = BUILTIN_SKILL_FOLDERS[id];
+	if (!folder) return false;
+	const directory = localModeSkillsDirectory();
+	const registry = resolve(directory, ".deleted-skills.json");
+	if (!existsSync(registry)) return false;
+	const deleted: unknown = JSON.parse(readFileSync(registry, "utf8"));
+	if (!Array.isArray(deleted) || deleted.some((item) => typeof item !== "string"))
+		throw new Error("Invalid deleted Skills registry");
+	return deleted.includes(folder) && !existsSync(resolve(directory, folder, "SKILL.md"));
 }
 
 const TUTOR_PROMPT = [
@@ -140,16 +158,9 @@ export function createBuiltinModeResources(): readonly BuiltinModeResource[] {
 		resource("prompt", "creative.core", CREATIVE_PROMPT),
 		resource("prompt", "general.core", GENERAL_PROMPT),
 		resource("prompt", "teacher.prep", TEACHER_PROMPT),
-		skillResource("education.lesson-blueprint"),
-		skillResource("education.learning-to-learn"),
-		skillResource("education.feynman-teach-back"),
-		skillResource("education.evidence-ledger"),
-		skillResource("education.curriculum-continuity"),
-		skillResource("shared.revision-discipline"),
-		skillResource("education.learn-by-doing"),
-		skillResource("shared.personal-skill-builder"),
-		skillResource("education.visual-explanation"),
-		skillResource("teacher.course-planning-beamer"),
+		...Object.keys(BUILTIN_SKILL_FOLDERS)
+			.filter((id) => !isBuiltinModeSkillDeleted(id))
+			.map(skillResource),
 		resource("prompt", "workflow:tutor", TUTOR_WORKFLOW),
 		resource("prompt", "workflow:practice", PRACTICE_WORKFLOW),
 		resource("prompt", "workflow:teach-back", TEACH_BACK_WORKFLOW),
@@ -158,8 +169,6 @@ export function createBuiltinModeResources(): readonly BuiltinModeResource[] {
 		resource("prompt", "workflow:creative", CREATIVE_WORKFLOW),
 	]);
 }
-
-export const BUILTIN_MODE_RESOURCES: readonly BuiltinModeResource[] = createBuiltinModeResources();
 
 export const MODE_PACK_COMPONENT_OPTIONS: readonly ModePackComponentOption[] = deepFreeze([
 	{

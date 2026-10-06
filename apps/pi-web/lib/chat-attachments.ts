@@ -32,7 +32,8 @@ export async function saveChatAttachment(cwd: string, file: File, scope: ChatAtt
   return { ...metadata, path, textPath: extractionError ? null : textPath };
 }
 
-export async function readChatAttachment(cwd: string, id: string, scope: ChatAttachmentScope): Promise<string> {
+export interface ChatAttachmentSource { id: string; name: string; sourceHash: string; text: string; }
+export async function readChatAttachmentSource(cwd: string, id: string, scope: ChatAttachmentScope): Promise<ChatAttachmentSource> {
   if (!/^[0-9a-f-]{36}$/u.test(id)) throw new Error("Invalid attachment ID");
   const root = await realpath(cwd), directory = await realpath(join(root, ".pi", "chat-attachments", id));
   const rel = relative(root, directory);
@@ -46,5 +47,10 @@ export async function readChatAttachment(cwd: string, id: string, scope: ChatAtt
   if (createHash("sha256").update(bytes).digest("hex") !== metadata.sourceHash) throw new Error("Attachment content changed");
   if (metadata.extractionError) throw new Error(`附件解析失败：${metadata.extractionError}`);
   // Extract from verified original bytes, not a mutable sidecar.
-  return metadata.name.toLowerCase().endsWith(".docx") ? (await mammoth.extractRawText({ buffer: bytes })).value : (await extractCourseBuilderMaterial(bytes, metadata.name)).extractedText;
+  const text = metadata.name.toLowerCase().endsWith(".docx") ? (await mammoth.extractRawText({ buffer: bytes })).value : (await extractCourseBuilderMaterial(bytes, metadata.name)).extractedText;
+  return {id, name:metadata.name, sourceHash:metadata.sourceHash, text};
+}
+
+export async function readChatAttachment(cwd: string, id: string, scope: ChatAttachmentScope): Promise<string> {
+  return (await readChatAttachmentSource(cwd,id,scope)).text;
 }

@@ -6,6 +6,7 @@ import {
 	type ProfilePatch,
 	parseProfileDefinition,
 	parseResourceSnapshot,
+	type ResourceDelivery,
 	type ResourceDescriptor,
 	type ResourceKind,
 	type ResourceSnapshot,
@@ -34,6 +35,8 @@ export interface ResourceCatalogEntry {
 	version: string;
 	contentHash: string;
 	instructions?: string[];
+	delivery?: ResourceDelivery;
+	available?: boolean;
 }
 
 export class ResourceCatalog {
@@ -50,6 +53,8 @@ export class ResourceCatalog {
 				version: entry.version,
 				contentHash: entry.contentHash,
 				...(entry.instructions ? { instructions: [...entry.instructions] } : {}),
+				...(entry.delivery ? { delivery: entry.delivery } : {}),
+				...(entry.available === false ? { available: false } : {}),
 			});
 		}
 	}
@@ -61,7 +66,7 @@ export class ResourceCatalog {
 	assertAvailable(resource: ResourceDescriptor): void {
 		if (!resource.enabled) return;
 		const installed = this.get(resource.kind, resource.id);
-		if (!installed) {
+		if (!installed || installed.available === false) {
 			if (resource.required)
 				throw new ProfileResolutionError(
 					"MISSING_RESOURCE",
@@ -104,6 +109,7 @@ function mergeProfilePatch(current: ProfileDefinition, patch: ProfilePatch): Pro
 		instructions: patch.instructions
 			? [...new Set([...current.instructions, ...patch.instructions])]
 			: [...current.instructions],
+		packageContentHash: patch.packageContentHash ?? current.packageContentHash,
 	};
 }
 
@@ -136,10 +142,12 @@ function validateCatalog(profile: ProfileDefinition, catalog: ResourceCatalog): 
 	for (const resource of profile.resources) {
 		catalog.assertAvailable(resource);
 		if (!resource.enabled) continue;
-		if (catalog.get(resource.kind, resource.id)) effective.push({ ...resource });
+		const installed = catalog.get(resource.kind, resource.id);
+		if (installed && installed.available !== false) effective.push({ ...resource });
 	}
 	for (const tool of profile.tools) {
-		if (!catalog.get("tool", tool)) throw new ProfileResolutionError("UNKNOWN_TOOL", `Unknown tool ${tool}`);
+		if (!catalog.get("tool", tool) || catalog.get("tool", tool)?.available === false)
+			throw new ProfileResolutionError("UNKNOWN_TOOL", `Unknown tool ${tool}`);
 	}
 	return effective;
 }
@@ -150,6 +158,8 @@ export interface ResolveProfileOptions {
 	courseVersionId: string | null;
 	catalog: ResourceCatalog;
 	createdAt?: string;
+	modePackSystemPromptDefaultHash?: string;
+	modePackSystemPromptMode?: ResourceSnapshot["modePackSystemPromptMode"];
 }
 
 export function resolveProfileSnapshot(options: ResolveProfileOptions): ResourceSnapshot {
@@ -185,6 +195,11 @@ export function resolveProfileSnapshot(options: ResolveProfileOptions): Resource
 			...profile.instructions,
 			...resources.flatMap((resource) => options.catalog.get(resource.kind, resource.id)?.instructions ?? []),
 		].filter((instruction, index, all) => all.indexOf(instruction) === index),
+		...(profile.packageContentHash ? { packageContentHash: profile.packageContentHash } : {}),
+		...(options.modePackSystemPromptDefaultHash
+			? { modePackSystemPromptDefaultHash: options.modePackSystemPromptDefaultHash }
+			: {}),
+		...(options.modePackSystemPromptMode ? { modePackSystemPromptMode: options.modePackSystemPromptMode } : {}),
 	};
 	const hash = contentHash(payload);
 	const snapshot = parseResourceSnapshot({
@@ -214,6 +229,10 @@ function comparable(snapshot: ResourceSnapshot): Record<string, unknown> {
 		tools: snapshot.tools,
 		resources: snapshot.resources,
 		instructions: snapshot.instructions,
+		...(snapshot.modePackSystemPromptDefaultHash
+			? { modePackSystemPromptDefaultHash: snapshot.modePackSystemPromptDefaultHash }
+			: {}),
+		...(snapshot.modePackSystemPromptMode ? { modePackSystemPromptMode: snapshot.modePackSystemPromptMode } : {}),
 	};
 }
 
@@ -283,9 +302,24 @@ export async function applySnapshotAtomically<TCheckpoint>(
 
 const TOOL_HASH = "sha256:built-in-tool";
 
+/** Mode-selectable core tools, including tools provided by Pi's explicit
+ * built-in extension factories. Ordinary Pi tool presets remain separate. */
+export const MODE_PACK_TOOL_NAMES = [
+	"bash",
+	"codemode",
+	"edit",
+	"find",
+	"grep",
+	"ls",
+	"powershell",
+	"read",
+	"tool_search",
+	"write",
+] as const;
+
 export function createDefaultResourceCatalog(): ResourceCatalog {
 	return new ResourceCatalog([
-		...["read", "grep", "find", "ls", "bash", "powershell", "write", "edit"].map((id) => ({
+		...MODE_PACK_TOOL_NAMES.map((id) => ({
 			kind: "tool" as const,
 			id,
 			version: "1",

@@ -1,4 +1,5 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { piRuntimeIdentity } from "./pi-runtime-version";
 import { contentHash } from "../../../packages/harness-core/src/index.ts";
 import type { StudyAgentReportTarget } from "../../../packages/study-research-host/src/types.ts";
 import { getLearningHarness } from "./harness-server";
@@ -85,7 +86,7 @@ export async function startStudyIndependentReview(input: StartStudyReviewInput, 
     context: { sessionFile: allocation.sessionFile, agentSessionId: allocation.sessionId },
     manifest: { codeHash: contentHash(instruction), parameterHash: contentHash({ provider, modelId, thinkingLevel: snapshot.thinkingLevel, target: input.target }),
       inputHashes: { artifact: contentHash(artifactText), ...(input.target.targetKind === "visualization" ? { visualEvidence: contentHash({ programmaticChecks: checks, browserChecks }) } : {}), ...Object.fromEntries(evidence.map((item) => [item.id, contentHash(item.text)])) },
-      environmentHash: contentHash({ runtime: "pi-sdk-0.85.1", protocol: "study-independent-review-v1" }) },
+      environmentHash: contentHash({ runtime: piRuntimeIdentity(), protocol: "study-independent-review-v1" }) },
     admission: { purpose: "指定论文成果的独立审查", language: "none", maxWallSeconds: 3600, maxMemoryMiB: 1024 } }, (taskId) => {
       const packet: StudyAgentPacket = { ...fixed, taskId };
       return { packetHash: bindStudyAgentContext(packet, allocation).packetHash };

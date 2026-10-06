@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "products": [
+    {
+      "id": "course-production",
+      "name": "备课生产",
+      "kind": "master",
+      "sourceHash": "f42ab31ce7715b45a0486f46ba194022294124dc2c38c81737b8baf012c4d7df",
+      "branches": [
+        "analysis:new",
+        "analysis:revise",
+        "semester:new",
+        "semester:revise",
+        "lesson:new",
+        "lesson:revise",
+        "deck:new",
+        "deck:revise",
+        "teacher-notes:new",
+        "teacher-notes:revise",
+        "assignment-plan:new",
+        "assignment-plan:revise",
+        "assignment-artifacts:new",
+        "assignment-artifacts:revise",
+        "rmd:new",
+        "rmd:revise",
+        "html:new",
+        "html:revise",
+        "checkpoint:new",
+        "checkpoint:revise",
+        "bundle:new",
+        "bundle:revise"
+      ]
+    }
+  ],
+  "methodSources": [
+    {
+      "id": "course-lesson-artifacts",
+      "sourceHash": "425a9bd9f5ab5dc2b19427e747ee2e82ab1dce1476bf830f9cdcfaa526f51f3b"
+    },
+    {
+      "id": "course-slide-revision",
+      "sourceHash": "b72540673c16920aebc1e450a2a71b6ae0094687678641efa1674de03882ab39"
+    },
+    {
+      "id": "course-material-analysis",
+      "sourceHash": "0fd6f3a093f70237359f70f054aaf838cc7de2225a821f26a31335a2bec6163b"
+    },
+    {
+      "id": "course-semester-plan",
+      "sourceHash": "04d8c735edf39b5e65ae28a34d4028e4c9a7c7ae784ce3b0747531681f605693"
+    },
+    {
+      "id": "course-lesson-plan",
+      "sourceHash": "a380357be1b0c0d62f4fb7928d6839c7065137731181b8429949920df5ebfdbb"
+    },
+    {
+      "id": "course-beamer-deck",
+      "sourceHash": "19c648207a96f44204939a62a44c107b586a46961399b3f280df9dbd5bf98af4"
+    },
+    {
+      "id": "course-teacher-notes",
+      "sourceHash": "8ffb13464b0c9b1c46b90d8ef43da2f2dec3e16fdd7383db1b74a94613250399"
+    },
+    {
+      "id": "course-assignment-plan",
+      "sourceHash": "afef8c96ad5f391df4e78e22380567e08b13c39a402811e1045f42db0df28288"
+    },
+    {
+      "id": "course-assignment-artifacts",
+      "sourceHash": "347e2491b7e758e04f3256e2da72af3d14531f47221664eed1c21535bc4bf577"
+    },
+    {
+      "id": "course-rmd-lab",
+      "sourceHash": "67615d51dadc13f1ce46994dccb82ab4c9a3145973a3fc766937885bafdd1827"
+    },
+    {
+      "id": "course-interactive-html",
+      "sourceHash": "ea146eadd9d724956eab1026040dfb5ffc589521a39a02e03d330cfd0a092b62"
+    },
+    {
+      "id": "course-coverage-checkpoint",
+      "sourceHash": "28f95bfc97fc59066f322c027e284560e53e5a5bcb188d1d27399a718812b6a4"
+    }
+  ]
+}

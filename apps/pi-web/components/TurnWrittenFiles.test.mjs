@@ -17,12 +17,13 @@ function render(props) {
   );
 }
 
-test("renders a button per file showing the basename and full path", () => {
+test("renders an accessible preview link per file with its context menu and full path", () => {
   const html = render({
     files: [{ filePath: "/abs/out/report.html" }, { filePath: "/abs/out/data.json" }],
     onOpenFile() {},
   });
-  assert.match(html, /<button/);
+  assert.equal((html.match(/aria-haspopup="menu"/g) ?? []).length, 2);
+  assert.match(html, /href="\/__pi_file__\/%2Fabs%2Fout%2Freport\.html"/);
   assert.match(html, /report\.html/);
   assert.match(html, /data\.json/);
   assert.match(html, /title="\/abs\/out\/report\.html"/);
