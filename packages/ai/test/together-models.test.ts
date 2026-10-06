@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { getModel, getModels } from "../src/compat.ts";
+import { getTogetherCompat, getTogetherThinkingLevelMap } from "../scripts/together-reasoning-options.ts";
+import { getModels } from "../src/compat.ts";
 import { findEnvKeys, getEnvApiKey } from "../src/env-api-keys.ts";
 
 const originalTogetherApiKey = process.env.TOGETHER_API_KEY;
@@ -31,22 +32,24 @@ describe("Together models", () => {
 	});
 
 	it("models Together reasoning controls from the Together API surface", () => {
-		const gptOss = getModel("together", "openai/gpt-oss-120b");
+		// Exercise generator policy even if a model disappears from the live catalog.
+		const gptOss = {
+			thinkingLevelMap: getTogetherThinkingLevelMap("openai/gpt-oss-120b", true),
+			compat: getTogetherCompat("openai/gpt-oss-120b", true),
+		};
 		expect(gptOss.thinkingLevelMap).toEqual({
 			off: null,
 			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			max: null,
-			xhigh: null,
 		});
 		expect(gptOss.compat).toMatchObject({
 			supportsReasoningEffort: true,
 			thinkingFormat: "openai",
 		});
 
-		const deepSeekV4 = getModel("together", "deepseek-ai/DeepSeek-V4-Pro");
+		const deepSeekV4 = {
+			thinkingLevelMap: getTogetherThinkingLevelMap("deepseek-ai/DeepSeek-V4-Pro", true),
+			compat: getTogetherCompat("deepseek-ai/DeepSeek-V4-Pro", true),
+		};
 		expect(deepSeekV4.thinkingLevelMap).toEqual({
 			minimal: null,
 			low: null,
@@ -59,10 +62,27 @@ describe("Together models", () => {
 			thinkingFormat: "together",
 		});
 
-		const minimax = getModel("together", "MiniMaxAI/MiniMax-M2.7");
+		const minimax = {
+			thinkingLevelMap: getTogetherThinkingLevelMap("MiniMaxAI/MiniMax-M2.7", true),
+			compat: getTogetherCompat("MiniMaxAI/MiniMax-M2.7", true),
+		};
 		expect(minimax.thinkingLevelMap).toEqual({ off: null, minimal: null, low: null, medium: null });
 		expect(minimax.compat?.thinkingFormat).toBeUndefined();
 		expect(minimax.compat?.supportsReasoningEffort).toBe(false);
+	});
+
+	it("handles ordinary reasoning toggles and non-reasoning models independently of catalog membership", () => {
+		expect(getTogetherCompat("fixture/reasoning", true)).toMatchObject({
+			thinkingFormat: "together",
+			supportsReasoningEffort: false,
+		});
+		expect(getTogetherThinkingLevelMap("fixture/reasoning", true)).toEqual({
+			minimal: null,
+			low: null,
+			medium: null,
+		});
+		expect(getTogetherCompat("fixture/plain", false).thinkingFormat).toBeUndefined();
+		expect(getTogetherThinkingLevelMap("fixture/plain", false)).toBeUndefined();
 	});
 
 	it("resolves TOGETHER_API_KEY from the environment", () => {
