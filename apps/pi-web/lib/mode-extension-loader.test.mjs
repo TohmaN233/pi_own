@@ -160,7 +160,7 @@ test("Host subagent ceiling uses the current public API and disposes per session
   assert.equal(api.resolveSubagentCapabilityCeiling("ceiling-test"), undefined);
 });
 
-test("Windows detached runner bootstrap reaches the spawned Jiti process and drains after a successful exit", async (t) => {
+for (const platform of ["win32", "linux"]) test(`${platform} detached runner bootstrap preserves its platform-specific successful exit`, async (t) => {
   const root = join(tmpdir(), `pi-own-detached-runner-bootstrap-${Date.now()}`);
   const runner = join(root, "subagent-runner.ts");
   const config = join(root, "runner-config.json");
@@ -179,14 +179,15 @@ function startConfiguredSubagent() {
 void startConfiguredSubagent();
 `);
   const jitiCjs = join(import.meta.dirname, "..", "node_modules", "jiti", "lib", "jiti.cjs");
-  const result = await waitForProcess(spawn(process.execPath, ["--import", windowsDetachedRunnerBootstrap(jitiCjs), "-e", "", runner, config], {
+  const result = await waitForProcess(spawn(process.execPath, ["--import", windowsDetachedRunnerBootstrap(jitiCjs, false, platform), "-e", "", runner, config], {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, PI_WEB_MODE_RUNNER_DIAGNOSTICS: "1" },
   }), 10_000);
   assert.equal(result.code, 0, `runner must report a normal terminal exit; stderr=${result.stderr}`);
   assert.equal(result.signal, null);
   assert.doesNotMatch(result.stderr, /still alive after success/u);
-  assert.equal(readFileSync(config, "utf8"), "drained\n", "the runner must drain its pending cleanup; an upstream forced exit would leave the original config bytes");
+  assert.equal(readFileSync(config, "utf8"), platform === "win32" ? "drained\n" : "{}\n",
+    "Windows must drain pending cleanup; other platforms must preserve the upstream forced exit");
 });
 
 const upstreamModules = process.env.PI_MODE_EXTENSION_UPSTREAM_NODE_MODULES;

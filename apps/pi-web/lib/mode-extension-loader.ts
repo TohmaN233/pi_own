@@ -415,7 +415,7 @@ function isPinnedSubagentAdapterModule(filename: string | undefined): "index" | 
  * cannot reach it. This preload starts a private uncached Jiti instance and
  * changes only the known pinned runner's successful forced exit on Windows.
  * Failure exits remain upstream-owned and non-zero. */
-export function windowsDetachedRunnerBootstrap(jitiCjsPath: string, scopedCodemode = false): string {
+export function windowsDetachedRunnerBootstrap(jitiCjsPath: string, scopedCodemode = false, platform: NodeJS.Platform = process.platform): string {
   const jitiUrl = pathToFileURL(jitiCjsPath).href;
   const script = `
 import { createRequire } from "node:module";
@@ -440,7 +440,7 @@ const loader = createJiti(runner, {
       return { code: compiler.transform({ ...options, source: options.source.replace(expected, "factory: createCodemodeExtension({ models: false })") }) };
     }
     if (normalize(options.filename) !== runnerIdentity) return { code: compiler.transform(options) };
-    if (${JSON.stringify(process.platform !== "win32")}) return { code: compiler.transform(options) };
+    if (${JSON.stringify(platform !== "win32")}) return { code: compiler.transform(options) };
     const expected = "() => process.exit(0)";
     const occurrences = options.source.split(expected).length - 1;
     if (occurrences !== 1) throw new Error("Unsupported pi-subagents Windows runner exit source shape");
